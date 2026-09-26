@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault
+    app.kubernetes.io/instance: vault
+    app.kubernetes.io/updated: "20260225"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      app.kubernetes.io/instance: vault
+      component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault
+        app.kubernetes.io/instance: vault
+        component: server
+    spec:
+      serviceAccountName: vault
+      securityContext:
+        runAsNonRoot: true
+        runAsGroup: 1000
+        runAsUser: 100
+        fsGroup: 1000
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.15.2
+          imagePullPolicy: IfNotPresent
+          command:
+            - "/bin/sh"
+            - "-ec"
+          args:
+            - |
+              vault server -config=/vault/config/extraconfig-from-values.hcl
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          env:
+            - name: VAULT_ADDR
+              value: "http://127.0.0.1:8200"
+            - name: VAULT_API_ADDR
+              value: "http://$(POD_IP):8200"
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VAULT_CLUSTER_ADDR
+              value: "https://$(POD_IP):8201"
+          ports:
+            - containerPort: 8200
+              name: http
+            - containerPort: 8201
+              name: https-internal
+            - containerPort: 8202
+              name: http-rep
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "vault status -tls-skip-verify || [ $? -eq 2 ]"]
+            failureThreshold: 2
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "vault status -tls-skip-verify || [ $? -eq 2 ]"]
+            failureThreshold: 2
+            initialDelaySeconds: 60
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: config
+              mountPath: /vault/config
+            - name: data
+              mountPath: /vault/data
+            - name: home
+              mountPath: /home/vault
+      volumes:
+        - name: config
+          configMap:
+            name: vault-config
+        - name: home
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: vault-data

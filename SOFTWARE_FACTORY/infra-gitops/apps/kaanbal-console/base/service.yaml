@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaanbal-console
+  labels:
+    app: kaanbal-console
+    kaanbal-engine.io/exposure: ${KAANBAL_CONSOLE_EXPOSURE}
+# @kaanbal:if CONSOLE_TAILNET
+  annotations:
+    # El operador de Tailscale publica el Service en la tailnet como
+    # kaanbal-console.<tailnet>. Sin Ingress la consola no sale a internet.
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "kaanbal-console"
+# @kaanbal:endif
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: kaanbal-console

@@ -1,0 +1,124 @@
+# ==============================================================================
+# BITBUCKET PIPELINES - Kaanbal API
+# ==============================================================================
+
+image: python:3.11-slim
+
+definitions:
+  services:
+    docker:
+      memory: 2048
+
+pipelines:
+  branches:
+    develop:
+      - step:
+          name: "🐳 Build & Push Docker (DEV)"
+          image: atlassian/default-image:4
+          services: [docker]
+          script:
+            - export COLON=":"
+            - export APP_NAME="kaanbal-api"
+            - export FULL_IMAGE="$DOCKERHUB_USERNAME/$APP_NAME"
+            - export IMAGE_TAG="dev-${BITBUCKET_COMMIT:0:7}"
+            
+            - echo "🏗️ Building Kaanbal API (DEV - Tag$COLON $IMAGE_TAG)"
+            
+            - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            - docker build -t $FULL_IMAGE:$IMAGE_TAG .
+            - docker push $FULL_IMAGE:$IMAGE_TAG
+            
+            - echo $IMAGE_TAG > image_tag.txt
+          artifacts:
+            - image_tag.txt
+
+      - step:
+          name: "🚀 Update Infra (DEV)"
+          image: alpine/git
+          deployment: test
+          script:
+            - export COLON=":"
+            - export APP_NAME="kaanbal-api"
+            - export FULL_IMAGE="$DOCKERHUB_USERNAME/$APP_NAME"
+            - export IMAGE_TAG=$(cat image_tag.txt)
+            - apk add --no-cache sed
+            
+            - printf "machine bitbucket.org\nlogin ${INFRA_GIT_USER}\npassword ${INFRA_GIT_TOKEN}\n" > ~/.netrc
+            - chmod 600 ~/.netrc
+            - git clone --depth 1 https://bitbucket.org/$BITBUCKET_WORKSPACE/infra-gitops.git
+            - cd infra-gitops
+            - git config user.email "pipeline@${DOMAIN:-kaanbal.local}"
+            - git config user.name "Bitbucket Pipeline"
+            
+            - cd apps/$APP_NAME/overlays/dev
+            - sed -i "s|newName.*|newName$COLON $FULL_IMAGE|g" kustomization.yaml
+            - sed -i "s/newTag.*/newTag$COLON $IMAGE_TAG/g" kustomization.yaml
+
+            # Validate kustomize build before push so a broken YAML never reaches Argo
+            - apk add --no-cache curl tar
+            - curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin kustomize
+            - chmod +x /usr/local/bin/kustomize
+            - kustomize build . > /dev/null
+
+            - git add kustomization.yaml
+            - git commit -m "deploy(dev)$COLON $APP_NAME to $IMAGE_TAG [skip ci]"
+            - cd ../../../../
+            - git pull --rebase origin main
+            - git push origin main
+
+    main:
+      - step:
+          name: "🐳 Build & Push Docker (PROD)"
+          image: atlassian/default-image:4
+          services: [docker]
+          script:
+            - export COLON=":"
+            - export APP_NAME="kaanbal-api"
+            - export FULL_IMAGE="$DOCKERHUB_USERNAME/$APP_NAME"
+            - export IMAGE_TAG="prod-${BITBUCKET_COMMIT:0:7}"
+            
+            - echo "🏗️ Building Kaanbal API (Tag$COLON $IMAGE_TAG)"
+            # Docker CLI is already included in atlassian/default-image:4
+            
+            - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            - docker build -t $FULL_IMAGE:$IMAGE_TAG .
+            - docker push $FULL_IMAGE:$IMAGE_TAG
+            
+            - echo $IMAGE_TAG > image_tag.txt
+          artifacts:
+            - image_tag.txt
+
+      - step:
+          name: "🚀 Update Infra (PROD)"
+          image: alpine/git
+          deployment: production
+          script:
+            - export COLON=":"
+            - export APP_NAME="kaanbal-api"
+            - export FULL_IMAGE="$DOCKERHUB_USERNAME/$APP_NAME"
+            - export IMAGE_TAG=$(cat image_tag.txt)
+            - apk add --no-cache sed
+            
+            - printf "machine bitbucket.org\nlogin ${INFRA_GIT_USER}\npassword ${INFRA_GIT_TOKEN}\n" > ~/.netrc
+            - chmod 600 ~/.netrc
+            - git clone --depth 1 https://bitbucket.org/$BITBUCKET_WORKSPACE/infra-gitops.git
+            - cd infra-gitops
+            - git config user.email "pipeline@${DOMAIN:-kaanbal.local}"
+            - git config user.name "Bitbucket Pipeline"
+            
+            # Update overlay for prod environment
+            - cd apps/$APP_NAME/overlays/prod
+            - sed -i "s|newName.*|newName$COLON $FULL_IMAGE|g" kustomization.yaml
+            - sed -i "s/newTag.*/newTag$COLON $IMAGE_TAG/g" kustomization.yaml
+
+            # Validate kustomize build before push so a broken YAML never reaches Argo
+            - apk add --no-cache curl tar
+            - curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" | tar -xz -C /usr/local/bin kustomize
+            - chmod +x /usr/local/bin/kustomize
+            - kustomize build . > /dev/null
+
+            - git add kustomization.yaml
+            - git commit -m "deploy(prod)$COLON $APP_NAME to $IMAGE_TAG [skip ci]"
+            - cd ../../../../
+            - git pull --rebase origin main
+            - git push origin main

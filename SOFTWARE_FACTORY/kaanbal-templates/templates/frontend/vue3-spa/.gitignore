@@ -1,0 +1,8 @@
+# Overrides locales: nunca se suben (.env.development y .env.production sí).
+.env.local
+.env.*.local
+
+node_modules/
+dist/
+.DS_Store
+*.log

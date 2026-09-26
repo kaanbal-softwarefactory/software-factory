@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# datastore-credentials NO se versiona: lo crea el instalador con kubectl y
+# ArgoCD lo respeta porque no forma parte del desired state.
+resources:
+  - deployment.yaml
+  - service.yaml
+  - pvc.yaml

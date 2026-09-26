@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Acuaponsito</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<div class="panel">
+
+  <!-- header: el bot vive aquí, estado sincronizado por WebSocket -->
+  <header class="p-head">
+    <div class="p-stage" id="stage">
+      <video class="pv" id="pv1" muted playsinline></video>
+      <video class="pv" id="pv2" muted playsinline></video>
+      <div id="bot-svg" class="p-svg hidden">🌱</div>
+    </div>
+    <div class="p-id">
+      <b id="agent-name">Acuaponsito</b>
+      <span class="p-state"><span class="dot" id="state-dot"></span><span id="state-name">dormido</span></span>
+      <span class="sys-pill" id="sys-pill"></span>
+      <div class="presence" id="presence" title="en línea"></div>
+    </div>
+    <div class="p-bubble hidden" id="bubble"><span id="bubble-text"></span></div>
+    <div class="p-winbtns">
+      <button id="btn-rest" title="modo descanso">🌙</button>
+      <button id="btn-size" title="expandir">⛶</button>
+      <button id="btn-close" title="cerrar">✕</button>
+    </div>
+  </header>
+
+  <!-- capa de arranque: crear admin / login / despertar -->
+  <section class="gate" id="gate">
+    <div class="gate-card" id="gate-admin" style="display:none">
+      <h3>Crea al guardián 🛡️</h3>
+      <p>Primera vez: define el administrador de este agente. Vive aquí, en tu máquina.</p>
+      <input id="ga-user" placeholder="usuario"><input id="ga-email" type="email" placeholder="correo (para recuperar acceso)">
+      <input id="ga-pass" type="password" placeholder="contraseña">
+      <button class="btn" id="ga-go">Crear y entrar</button><span class="gmsg" id="ga-msg"></span>
+    </div>
+    <div class="gate-card" id="gate-login" style="display:none">
+      <h3>Identifícate 👤</h3>
+      <p>El agente maneja identidades: cada quien su chat, sus permisos.</p>
+      <input id="gl-user" placeholder="usuario o correo"><input id="gl-pass" type="password" placeholder="contraseña">
+      <button class="btn" id="gl-go">Entrar</button><span class="gmsg" id="gl-msg"></span>
+      <a class="gate-link" id="gl-forgot-link">¿Olvidaste tu contraseña?</a>
+    </div>
+    <div class="gate-card" id="gate-forgot" style="display:none">
+      <h3>Recuperar acceso ✉️</h3>
+      <p>Te mandamos un enlace de un solo uso a tu correo (válido 30 min).</p>
+      <input id="gf-identifier" placeholder="usuario o correo">
+      <button class="btn" id="gf-go">Enviar enlace</button><span class="gmsg" id="gf-msg"></span>
+      <a class="gate-link" id="gf-back-link">← Volver a entrar</a>
+    </div>
+    <div class="gate-card" id="gate-reset" style="display:none">
+      <h3>Nueva contraseña 🔑</h3>
+      <p>Elige una contraseña nueva para tu cuenta.</p>
+      <input id="gr-pass" type="password" placeholder="nueva contraseña (mín. 6)">
+      <button class="btn" id="gr-go">Guardar y entrar</button><span class="gmsg" id="gr-msg"></span>
+    </div>
+    <div class="gate-card" id="gate-wake" style="display:none">
+      <h3>Despiértame ⚡</h3>
+      <p>Conecta mi proveedor de IA y cobro vida. La clave se queda en esta máquina.</p>
+      <select id="gw-provider"><option value="deepseek">DeepSeek</option>
+        <option value="anthropic">Anthropic · Claude</option><option value="openai">OpenAI</option></select>
+      <input id="gw-key" type="password" placeholder="API key">
+      <button class="btn" id="gw-go">Conectar y despertar</button><span class="gmsg" id="gw-msg"></span>
+    </div>
+  </section>
+
+  <!-- app principal -->
+  <section class="main hidden" id="main">
+    <nav class="tabs">
+      <button class="tb active" data-t="chat">💬 Chat</button>
+      <button class="tb" data-t="acts">✅ Acciones <span class="badge hidden" id="acts-badge">0</span></button>
+      <button class="tb" data-t="auto">⏱️ Auto</button>
+      <button class="tb" data-t="cfg">⚙️ Ajustes</button>
+    </nav>
+
+    <div class="tab-body active" id="t-chat">
+      <div class="ch-row">
+        <button class="ch active" data-ch="dm">🔒 Privado</button>
+        <button class="ch" data-ch="team">👥 Equipo</button>
+        <span class="ch-hint" id="ch-hint">solo tú y el agente</span>
+      </div>
+      <div class="msgs" id="msgs"></div>
+      <form class="input-row" id="chat-form">
+        <input id="chat-text" placeholder="Escríbeme… (en Equipo, mencióname con @nombre)" autocomplete="off">
+        <button class="btn" type="submit">➤</button>
+      </form>
+    </div>
+
+    <div class="tab-body" id="t-acts">
+      <p class="hint">El agente propone comandos; <b>nada se ejecuta sin aprobación humana</b> (a menos que actives auto-aprobar).</p>
+      <div id="acts-list" class="acts"></div>
+    </div>
+
+    <div class="tab-body" id="t-auto">
+      <div class="sec"><b>⏱️ Tareas programadas</b>
+        <div id="sch-list" class="mini-list"></div>
+        <div class="mini-form"><input id="sch-name" placeholder="nombre"><input id="sch-min" type="number" placeholder="cada (min)" min="1" style="width:90px">
+          <input id="sch-prompt" placeholder="prompt para el agente"><button class="btn sm" id="sch-add">＋</button></div>
+      </div>
+      <div class="sec"><b>🪝 Webhooks</b>
+        <div id="wh-list" class="mini-list"></div>
+        <div class="mini-form"><input id="wh-name" placeholder="nombre"><input id="wh-prompt" placeholder="prompt al recibir"><button class="btn sm" id="wh-add">＋</button></div>
+        <p class="hint" id="wh-hint"></p>
+      </div>
+      <div class="sec"><b>🔌 Plugins / MCP</b>
+        <p class="hint">Próxima fase: herramientas estándar MCP conectables — el esquema de acciones ya está listo para recibirlas.</p>
+      </div>
+    </div>
+
+    <div class="tab-body" id="t-cfg">
+      <div class="sec"><b>🎭 Identidad</b>
+        <div class="mini-form col"><label>Nombre <input id="cf-name"></label>
+          <label>Personalidad <input id="cf-pers"></label>
+          <label>Meta <input id="cf-goal"></label></div>
+      </div>
+      <div class="sec"><b>🤖 Comportamiento</b>
+        <div class="mini-form col">
+          <label>Responde en Equipo <select id="cf-team"><option value="mention">solo al mencionarlo</option><option value="always">siempre</option></select></label>
+          <label>Descanso tras <input id="cf-idle" type="number" min="1" style="width:70px"> min sin actividad</label>
+          <label class="row"><input type="checkbox" id="cf-rest"> Modo descanso (no propone, solo responde)</label>
+          <label class="row admin-only"><input type="checkbox" id="cf-auto"> ⚠️ Auto-aprobar acciones (confianza total)</label>
+        </div>
+      </div>
+      <div class="sec"><b>🧠 Proveedor IA</b><div id="cf-provs" class="mini-list"></div>
+        <div class="mini-form"><select id="cf-prov"><option value="deepseek">DeepSeek</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option></select>
+          <input id="cf-key" type="password" placeholder="API key"><button class="btn sm" id="cf-prov-add">conectar</button></div>
+      </div>
+      <div class="sec admin-only"><b>👥 Personas</b>
+        <div id="us-list" class="mini-list"></div>
+        <div class="mini-form"><input id="us-name" placeholder="usuario"><input id="us-email" type="email" placeholder="correo">
+          <input id="us-pass" type="password" placeholder="contraseña">
+          <select id="us-role"><option value="member">member</option><option value="observer">observer</option><option value="admin">admin</option></select>
+          <button class="btn sm" id="us-add">＋</button></div>
+        <p class="hint" id="us-msg"></p>
+      </div>
+      <div class="actions"><button class="btn" id="cf-save">Guardar ajustes</button><span class="gmsg" id="cf-msg"></span></div>
+    </div>
+  </section>
+</div>
+<script src="acuabot.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaanbal · Instalador</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='24' font-size='24'>🌱</text></svg>">
+</head>
+<body>
+<!-- fondo: aurora + estrellas -->
+<div class="cosmos">
+  <div class="aurora aurora-a"></div>
+  <div class="aurora aurora-b"></div>
+  <div class="aurora aurora-c"></div>
+  <div class="stars stars-1"></div>
+  <div class="stars stars-2"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="brand-logo" viewBox="0 0 48 48" fill="none">
+      <path d="M24 4 L41 13 V31 L24 44 L7 31 V13 Z" stroke="url(#gl)" stroke-width="2.5" fill="rgba(34,211,238,.06)"/>
+      <path d="M24 30c0-7 3-11 9-13-1 7-3.5 11-9 13Z" fill="#4ade80"/>
+      <path d="M24 30c0-5-2-8-6.5-9.5C18.5 25.5 20 28.5 24 30Z" fill="#22d3ee"/>
+      <circle cx="24" cy="33.5" r="2" fill="#a5f3fc"/>
+      <defs><linearGradient id="gl" x1="0" y1="0" x2="48" y2="48">
+        <stop stop-color="#22d3ee"/><stop offset="1" stop-color="#4ade80"/>
+      </linearGradient></defs>
+    </svg>
+    <div>
+      <div class="brand-name">KAANBAL</div>
+      <div class="brand-sub">instalador · célula de plataforma</div>
+    </div>
+  </div>
+  <div class="top-chips">
+    <span class="chip chip-ghost" id="chip-host">—</span>
+    <span class="chip chip-live" id="chip-phase">esperando</span>
+  </div>
+</header>
+
+<main class="shell">
+  <section class="stage">
+
+    <!-- 1 · BIENVENIDA -->
+    <div class="screen active" id="screen-welcome">
+      <p class="eyebrow">plataforma open source · devops + mlops + iot</p>
+      <h1>Tu fábrica de software<br><span class="grad">crece desde aquí</span></h1>
+      <p class="lede">Esta máquina se convertirá en una <b>célula Kaanbal</b>: Kubernetes, GitOps, agentes de IA
+        y salida segura a internet — el mismo motor en una laptop, un VPS o el borde.</p>
+      <div class="syscheck glass-soft" id="syscheck">
+        <div class="syscheck-title">Chequeo del sistema <span class="spinner" id="sys-spin"></span></div>
+        <div class="check-grid" id="check-grid"></div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" id="btn-start" disabled>Comenzar <span class="arrow">→</span></button>
+      </div>
+    </div>
+
+    <!-- 2 · AGENTE (Acuaponsito Runtime, servicio propio en :4600) -->
+    <div class="screen" id="screen-ia">
+      <p class="eyebrow">paso 1 de 4 · tu agente de plataforma</p>
+      <h2>Despierta a tu <span class="grad">agente</span></h2>
+      <p class="lede">Tu agente ya está corriendo como <b>servicio propio</b> junto al instalador —
+        el mismo que después vivirá dentro de Kaanbal y de tus apps. Míralo flotando abajo a la
+        derecha 👇 Configúralo ahora: crea al guardián, conecta su proveedor de IA y despiértalo.</p>
+      <div class="ai-grid">
+        <div class="ai-card glass-soft">
+          <div class="fields">
+            <div class="check" id="rt-status"><span class="info">⏳</span><span>Buscando al agente…</span></div>
+            <div class="check" id="rt-guardian"><span class="info">—</span><span>Guardián (admin): pendiente</span></div>
+            <div class="check" id="rt-provider"><span class="info">—</span><span>Proveedor IA: dormido 💤</span></div>
+            <div class="validate-row" style="margin-top:8px">
+              <button class="btn btn-primary btn-sm" id="btn-ia-open">Abrir a mi agente 🌱</button>
+              <span class="val-msg" id="msg-ai"></span>
+            </div>
+          </div>
+        </div>
+        <div class="ai-side glass-soft">
+          <b>Un servicio, no un plugin</b>
+          <p class="ai-note" style="margin-top:9px">El agente (Acuaponsito Runtime, puerto <span class="mono">4600</span>)
+            es independiente del instalador: login propio, memoria propia, WebSocket en tiempo real.
+            Sus claves viven en <span class="mono">~/.acuaponsito/</span> y al desplegar la célula
+            también se integran al cluster como Secret <span class="mono">kaanbal-ai-providers</span>.</p>
+          <p class="ai-note">Al terminar aquí, el flotante te acompaña en toda la plataforma —
+            y en cualquier app tuya con una línea de código.</p>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" id="btn-back-welcome">← Atrás</button>
+        <button class="btn btn-primary" id="btn-ia-next" disabled>Continuar <span class="arrow">→</span></button>
+        <a class="skip-link" id="btn-ia-skip">omitir por ahora</a>
+      </div>
+    </div>
+
+    <!-- 3 · CONECTIVIDAD -->
+    <div class="screen" id="screen-mode">
+      <p class="eyebrow">paso 2 de 4 · conectividad</p>
+      <h2>¿Cómo vivirá tu célula?</h2>
+      <div class="mode-cards">
+        <div class="mode-card glass-soft selected" id="card-cloud" data-mode="cloud">
+          <div class="mode-head"><span class="mode-ico">🌐</span>
+            <div><b>Dominio propio + Cloudflare</b><span class="tag tag-rec">Recomendado</span></div>
+          </div>
+          <p>Tu plataforma nace lista para el mundo: dominio real con TLS, <b>sin abrir puertos, sin IP pública
+             y sin tocar el router</b>. Mientras tu equipo esté encendido, Cloudflare enruta tu dominio hacia él.</p>
+          <div class="fields" id="cloud-fields">
+            <label>Dominio <input type="text" id="f-domain" placeholder="ej. example.com" autocomplete="off"></label>
+
+            <details class="guide">
+              <summary>📘 Guía · apuntar tu dominio a Cloudflare (una sola vez)</summary>
+              <ol>
+                <li>Entra a <a href="https://dash.cloudflare.com" target="_blank" rel="noopener">dash.cloudflare.com</a> → <b>Add a site</b> y escribe tu dominio.</li>
+                <li>Cloudflare te dará <b>2 nameservers</b> (ej. <span class="mono">xxx.ns.cloudflare.com</span>). Cópialos.</li>
+                <li>Ve a donde compraste el dominio (GoDaddy, Namecheap, etc.) → <b>Nameservers / DNS</b> → reemplaza los actuales por los de Cloudflare.</li>
+                <li>Espera a que Cloudflare marque el dominio como <b>Active</b> (minutos u horas).</li>
+              </ol>
+              <p class="guide-note">No necesitas crear registros A ni el wildcard a mano: <b>el instalador crea el túnel
+                y los DNS por ti</b> (<span class="mono">*.tudominio</span> y <span class="mono">tudominio</span> como CNAME al túnel).
+                Así cada app que lances obtiene su subdominio automáticamente.</p>
+            </details>
+
+            <label>Cloudflare API Token <input type="password" id="f-cf-token" placeholder="token con permisos Tunnel + DNS"></label>
+            <details class="guide">
+              <summary>📘 Guía · crear el API Token con los scopes correctos</summary>
+              <ol>
+                <li>Ve a <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">dash.cloudflare.com/profile/api-tokens</a> → <b>Create Token</b> → <b>Create Custom Token</b>.</li>
+                <li>Agrega estos permisos exactos:
+                  <ul>
+                    <li><span class="mono">Account · Cloudflare Tunnel · Edit</span></li>
+                    <li><span class="mono">Zone · DNS · Edit</span></li>
+                    <li><span class="mono">Account · Account Settings · Read</span></li>
+                  </ul>
+                </li>
+                <li>En <b>Account Resources</b> incluye tu cuenta; en <b>Zone Resources</b>, tu dominio.</li>
+                <li><b>Continue → Create Token</b> y cópialo (solo se muestra una vez).</li>
+              </ol>
+            </details>
+
+            <label>Cloudflare Account ID <input type="text" id="f-cf-account" placeholder="de la URL del dashboard"></label>
+            <details class="guide">
+              <summary>📘 Guía · dónde está tu Account ID</summary>
+              <ol>
+                <li>En <a href="https://dash.cloudflare.com" target="_blank" rel="noopener">dash.cloudflare.com</a>, entra a tu dominio.</li>
+                <li>En la barra lateral derecha (o en la URL <span class="mono">dash.cloudflare.com/&lt;ACCOUNT_ID&gt;/...</span>) copia el <b>Account ID</b>.</li>
+              </ol>
+            </details>
+
+            <div class="validate-row">
+              <button class="btn btn-ghost btn-sm" id="btn-val-cf">Validar credenciales</button>
+              <span class="val-msg" id="msg-cf"></span>
+            </div>
+            <p class="guide-note">💡 ¿Dudas con algún paso? <b>Pregúntale a tu agente</b> (el flotante 🌱): tiene la API
+              conectada y te guía en dónde hacer clic exactamente.</p>
+            <label>Tunnel Token <span class="opt">(opcional — el instalador lo genera solo)</span>
+              <input type="password" id="f-tunnel" placeholder="déjalo vacío para crear el túnel automáticamente"></label>
+          </div>
+        </div>
+        <div class="mode-card glass-soft" id="card-local" data-mode="local">
+          <div class="mode-head"><span class="mode-ico">🏠</span><div><b>Solo local / VPN</b></div></div>
+          <p>La célula opera en tu red y por Tailscale. Ideal para explorar; puedes activar el
+             tier público cuando quieras sin reinstalar.</p>
+        </div>
+      </div>
+      <div class="creds-title">
+        <b>Credenciales de la plataforma</b>
+        <span class="opt">conecta lo que necesites — cada validación deja lista una capa de la célula base</span>
+      </div>
+      <div class="env-import glass-soft">
+        <div>
+          <b>Restaurar configuración</b>
+          <p>Carga un <span class="mono">.env</span> local. Se guarda protegido por permisos del sistema
+            (<span class="mono">root:root 600</span>) y los secretos no vuelven a mostrarse.</p>
+        </div>
+        <label class="btn btn-ghost btn-sm" for="f-env-file">Cargar .env</label>
+        <input class="hidden" type="file" id="f-env-file" accept=".env,text/plain">
+        <span class="val-msg" id="msg-env"></span>
+      </div>
+
+      <details class="gitops-box glass-soft cred-card" open>
+        <summary>🔑 Administrador Kaanbal <span class="cred-role">reemplaza al token temporal al finalizar</span>
+          <span class="cred-state" id="st-admin"></span></summary>
+        <div class="fields">
+          <label>Usuario <input type="text" id="f-admin-user" value="admin" autocomplete="username"></label>
+          <label>Contraseña
+            <input type="password" id="f-admin-pass" placeholder="mínimo 12 caracteres" autocomplete="new-password">
+          </label>
+          <p class="guide-note">Se crea como Secret de bootstrap para la API. Al terminar deberás escribirla
+            otra vez para revocar el token del instalador.</p>
+        </div>
+      </details>
+
+      <!-- GITHUB / GITOPS -->
+      <details class="gitops-box glass-soft cred-card">
+        <summary>🐙 GitHub <span class="cred-role">GitOps · el repo que ArgoCD reconcilia</span>
+          <span class="cred-state" id="st-gh"></span></summary>
+        <div class="fields">
+          <label>Personal Access Token
+            <input type="password" id="f-git-token" placeholder="ghp_... (classic) o github_pat_... (fine-grained)" autocomplete="off">
+          </label>
+          <div id="gh-org-row" class="hidden">
+            <label>Instalar en
+              <select id="f-git-org">
+                <option value="">— elige org o cuenta personal —</option>
+              </select>
+            </label>
+          </div>
+          <div id="gh-url-row" class="hidden gh-url-row">
+            <span class="gh-url-label">Repo GitOps (fuente de verdad)</span>
+            <code class="mono gh-url-preview" id="gh-url-preview"></code>
+            <input type="hidden" id="f-git-url">
+          </div>
+          <ul id="gh-repos-list" class="gh-repos-list hidden"></ul>
+          <details class="guide">
+            <summary>📘 Guía · crear el PAT</summary>
+            <ol>
+              <li><b>Classic (recomendado para bootstrap)</b>: <a href="https://github.com/settings/tokens" target="_blank" rel="noopener">github.com/settings/tokens</a> → scopes <span class="mono">repo</span>, <span class="mono">workflow</span>, <span class="mono">read:org</span>, <span class="mono">user:email</span>.</li>
+              <li>Debes ser <b>admin</b> de la org para que el instalador cree los repos core.</li>
+              <li>Pega el token → <b>Validar</b> → elige la org. Si faltan repos, se crean al desplegar.</li>
+            </ol>
+            <p class="guide-note"><b>Repos core:</b> <span class="mono">infra-gitops</span> (manifiestos/ramas), <span class="mono">kaanbal-api</span>, <span class="mono">kaanbal-console</span>. Ahí vive el GitFlow de ambientes.</p>
+          </details>
+          <div class="validate-row">
+            <button class="btn btn-ghost btn-sm" id="btn-val-gh">Validar GitHub</button>
+            <span class="val-msg" id="msg-gh"></span>
+          </div>
+        </div>
+      </details>
+
+      <!-- DOCKER HUB -->
+      <details class="gitops-box glass-soft cred-card">
+        <summary>🐳 Docker Hub <span class="cred-role">registro de imágenes de tus apps</span>
+          <span class="cred-state" id="st-dk"></span></summary>
+        <div class="fields">
+          <label>Usuario <input type="text" id="f-dk-user" placeholder="tu usuario de Docker Hub"></label>
+          <label>Access Token <input type="password" id="f-dk-token" placeholder="dckr_pat_..."></label>
+          <details class="guide">
+            <summary>📘 Guía · crear el Access Token</summary>
+            <ol>
+              <li>Ve a <a href="https://app.docker.com/settings/personal-access-tokens" target="_blank" rel="noopener">app.docker.com/settings/personal-access-tokens</a> → <b>Generate new token</b>.</li>
+              <li>Permisos <b>Read &amp; Write</b> (para publicar imágenes de tus apps).</li>
+              <li>Copia el token (<span class="mono">dckr_pat_...</span>) — solo se muestra una vez.</li>
+            </ol>
+            <p class="guide-note">Se guarda como secret <span class="mono">regcred</span> en el cluster para que tus apps hagan pull/push.</p>
+          </details>
+          <div class="validate-row">
+            <button class="btn btn-ghost btn-sm" id="btn-val-dk">Validar Docker</button>
+            <span class="val-msg" id="msg-dk"></span>
+          </div>
+        </div>
+      </details>
+
+      <!-- TAILSCALE VPN -->
+      <details class="gitops-box glass-soft cred-card">
+        <summary>🔐 Tailscale <span class="cred-role">VPN privada · acceso seguro sin exponer</span>
+          <span class="cred-state" id="st-ts"></span></summary>
+        <div class="fields">
+          <label>OAuth Client ID <input type="text" id="f-ts-id" placeholder="k123..."></label>
+          <label>OAuth Client Secret <input type="password" id="f-ts-secret" placeholder="tskey-client-..."></label>
+          <label>DNS suffix (tailnet) <input type="text" id="f-ts-dns" placeholder="tailXXXX.ts.net"></label>
+          <details class="guide">
+            <summary>📘 Guía · crear el OAuth client</summary>
+            <ol>
+              <li>Ve a <a href="https://login.tailscale.com/admin/settings/oauth" target="_blank" rel="noopener">login.tailscale.com/admin/settings/oauth</a> → <b>Generate OAuth client</b>.</li>
+              <li>Scopes: <span class="mono">Devices · Write</span> y <span class="mono">DNS · Read</span> (para el operator).</li>
+              <li>Tu <b>DNS suffix</b> está en <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">admin/dns</a> (algo como <span class="mono">tailXXXX.ts.net</span>).</li>
+            </ol>
+            <p class="guide-note">Habilita el <b>tier privado</b>: servicios internos (Vault, BD) accesibles solo por tu tailnet, sin salir a internet.</p>
+          </details>
+          <div class="validate-row">
+            <button class="btn btn-ghost btn-sm" id="btn-val-ts">Validar Tailscale</button>
+            <span class="val-msg" id="msg-ts"></span>
+          </div>
+        </div>
+      </details>
+
+      <!-- EXPOSICIÓN DE LA CONSOLA -->
+      <details class="gitops-box glass-soft cred-card">
+        <summary>🛡️ Exposición de Kaanbal Console <span class="cred-role">quién puede llegar al panel</span>
+          <span class="cred-state" id="st-exposure"></span></summary>
+        <div class="fields">
+          <label class="radio-row">
+            <input type="radio" name="console-exposure" value="public" id="f-exp-public" checked>
+            <span><b>Pública en tu dominio</b> — <span class="mono">kaanbal.tudominio</span> por HTTPS de
+              Cloudflare. Entras desde cualquier lugar con usuario y contraseña.</span>
+          </label>
+          <label class="radio-row">
+            <input type="radio" name="console-exposure" value="tailnet" id="f-exp-tailnet">
+            <span><b>Solo por VPN Tailscale</b> — el panel no sale a internet; únicamente responde a
+              dispositivos de tu tailnet. Requiere Tailscale configurado arriba.</span>
+          </label>
+          <p class="guide-note">Esto solo decide cómo se publica <b>el panel</b>. La exposición de cada app
+            que despliegues (pública, VPN o solo interna) se elige después, app por app, dentro de la
+            consola.</p>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button class="btn btn-ghost" id="btn-back-ia">← Atrás</button>
+        <p id="install-validation-error" class="val-msg bad" role="alert"></p>
+          <button class="btn btn-primary" id="btn-deploy">Desplegar célula <span class="arrow">⚡</span></button>
+      </div>
+    </div>
+
+    <!-- 4 · DESPLIEGUE -->
+    <div class="screen" id="screen-deploy">
+      <p class="eyebrow">paso 3 de 4 · despliegue en vivo</p>
+      <h2 id="deploy-title">Cultivando tu célula…</h2>
+      <div class="deploy-grid">
+        <ol class="steps" id="steps">
+          <li data-step="sistema"><span class="s-ico">🧬</span><div><b>Sistema</b><small>recursos y systemd</small></div><span class="s-state"></span></li>
+          <li data-step="k3s"><span class="s-ico">☸️</span><div><b>Kubernetes</b><small>k3s — el mismo motor del VPS</small></div><span class="s-state"></span></li>
+          <li data-step="nodo"><span class="s-ico">🌱</span><div><b>Nodo</b><small>esperando Ready</small></div><span class="s-state"></span></li>
+          <li data-step="argocd"><span class="s-ico">🔄</span><div><b>ArgoCD</b><small>GitOps controller</small></div><span class="s-state"></span></li>
+          <li data-step="ia"><span class="s-ico">🤖</span><div><b>Agente IA</b><small>proveedores al cluster</small></div><span class="s-state"></span></li>
+          <li data-step="cloudflared"><span class="s-ico">🌐</span><div><b>Túnel público</b><small>Cloudflare, sin puertos</small></div><span class="s-state"></span></li>
+          <li data-step="repos"><span class="s-ico">🗂️</span><div><b>Repos</b><small>GitHub + baseline con tu dominio</small></div><span class="s-state"></span></li>
+          <li data-step="imagenes"><span class="s-ico">🏗️</span><div><b>Imágenes</b><small>construyendo el engine</small></div><span class="s-state"></span></li>
+          <li data-step="gitops"><span class="s-ico">📦</span><div><b>GitOps</b><small>ArgoCD despliega el engine</small></div><span class="s-state"></span></li>
+          <li data-step="plataforma"><span class="s-ico">⚙️</span><div><b>Plataforma</b><small>config y pipelines</small></div><span class="s-state"></span></li>
+          <li data-step="acceso"><span class="s-ico">🔑</span><div><b>Acceso</b><small>verificando tus URLs</small></div><span class="s-state"></span></li>
+        </ol>
+        <div class="terminal glass-soft">
+          <div class="term-head">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="term-title">bitácora de la célula</span>
+          </div>
+          <div class="term-body" id="term"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 · OPERATIVO -->
+    <div class="screen" id="screen-done">
+      <p class="eyebrow">paso 4 de 4 · modo operativo</p>
+      <h2>🎉 Tu célula <span class="grad" id="done-node">kaanbal</span> está viva</h2>
+      <p class="lede">Kubernetes reconciliando, GitOps activo, agente IA integrado. Desde aquí todo se opera por Git y la consola.</p>
+      <div class="handoff glass-soft">
+        <div class="h-row" id="h-domain-row" style="display:none"><span class="h-k">kaanbal-console</span>
+          <span class="h-v"><a id="h-console" href="#" target="_blank" rel="noopener"></a>
+            <span class="tag tag-rec" id="h-console-tag" style="margin-left:8px">UI · APPS</span></span></div>
+        <div class="h-row" id="h-api-row" style="display:none"><span class="h-k">kaanbal-api</span>
+          <span class="h-v"><a id="h-api" href="#" target="_blank" rel="noopener"></a></span></div>
+        <div class="h-row" id="h-agent-row" style="display:none"><span class="h-k">kaanbal-agent</span>
+          <span class="h-v"><a id="h-agent" href="#" target="_blank" rel="noopener"></a>
+            <span class="tag" style="margin-left:8px">ACUAPONSITO</span></span></div>
+        <div class="h-row"><span class="h-k">kaanbal-argo</span>
+          <span class="h-v"><a id="h-url" href="#" target="_blank" rel="noopener">https://localhost:8080</a></span></div>
+        <div class="h-row"><span class="h-k">Usuario</span><span class="h-v mono">admin</span></div>
+        <div class="h-row"><span class="h-k">Contraseña</span>
+          <span class="h-v mono" id="h-pass">···</span>
+          <button class="btn btn-ghost btn-xs" id="btn-copy-pass">copiar</button></div>
+        <div class="h-row" id="h-dns-row" style="display:none"><span class="h-k">DNS creados</span>
+          <span class="h-v mono" id="h-dns"></span></div>
+        <div class="h-row"><span class="h-k">Kubeconfig</span><span class="h-v mono" id="h-kube">/etc/rancher/k3s/k3s.yaml</span></div>
+      </div>
+      <div class="next glass-soft">
+        <b>Siguientes pasos</b>
+        <ul>
+          <li>🚀 Entra a la consola y lanza tu primera app desde una plantilla (Vue 3, FastAPI, MongoDB, n8n).
+            Kaanbal le crea su repo, su pipeline y su subdominio <span class="mono">app.tudominio</span>.</li>
+          <li>🛡️ Al crear cada app eliges su exposición: pública, solo por VPN Tailscale, o solo interna.</li>
+          <li>🔄 Los repos del engine ya tienen sus secrets de GitHub Actions: un push a
+            <span class="mono">main</span> reconstruye la imagen y ArgoCD la despliega solo.</li>
+        </ul>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" id="btn-open-argo" href="https://localhost:8080" target="_blank" rel="noopener">Abrir panel ⚡</a>
+      </div>
+      <div class="finalize glass-soft">
+        <b>Cerrar instalación privilegiada</b>
+        <p>Confirma el acceso administrativo. Después, el token de esta URL se revoca y el servicio
+          instalador se apaga; Kaanbal continuará funcionando normalmente.</p>
+        <div class="fields final-fields">
+          <label>Usuario <input type="text" id="f-final-user" autocomplete="username"></label>
+          <label>Contraseña <input type="password" id="f-final-pass" autocomplete="current-password"></label>
+        </div>
+        <div class="validate-row">
+          <label><input type="checkbox" id="f-access-confirmed"> Abrí la consola y comprobé el acceso desde mi PC (obligatorio para VPN).</label>
+          <button class="btn btn-primary" id="btn-finalize">Confirmar y cerrar instalador</button>
+          <span class="val-msg" id="msg-finalize"></span>
+        </div>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- El flotante ahora ES el Acuaponsito Runtime (:4600) — embed inyectado por app.js -->
+<footer class="foot">Kaanbal Engine · proyecto open source · hecho con 💚 para científicos y makers</footer>
+<script src="app.js"></script>
+</body>
+</html>

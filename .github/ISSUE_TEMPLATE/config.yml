@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/kaanbal-softwarefactory/software-factory/security/advisories/new
+    about: Report vulnerabilities privately. Never open a public issue for a security problem.
+  - name: Read the docs first
+    url: https://github.com/kaanbal-softwarefactory/software-factory#documentation
+    about: The install guide and architecture notes answer most setup questions.

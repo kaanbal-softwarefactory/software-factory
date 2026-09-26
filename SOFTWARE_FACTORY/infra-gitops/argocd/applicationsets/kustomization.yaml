@@ -1,0 +1,9 @@
+# ==============================================================================
+# Kustomization para ApplicationSets
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  # Apps internas del cluster AWS (dev/prod)
+  - apps-generator.yaml

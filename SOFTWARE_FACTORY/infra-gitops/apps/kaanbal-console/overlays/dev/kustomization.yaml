@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+  - nginx-config-dev.yaml
+
+namespace: dev
+nameSuffix: -dev
+
+patchesStrategicMerge:
+  - patch-deployment-labels.yaml
+  - patch-ingress-delete.yaml
+  - patch-nginx-configmap.yaml
+
+images:
+  - name: kaanbal-console-image
+    newName: DOCKERHUB_USER/kaanbal-console
+    newTag: latest

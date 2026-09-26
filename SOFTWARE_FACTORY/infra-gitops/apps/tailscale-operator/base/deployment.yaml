@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operator
+  namespace: tailscale
+  labels:
+    app.kubernetes.io/name: tailscale-operator
+    app.kubernetes.io/component: operator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tailscale-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tailscale-operator
+    spec:
+      serviceAccountName: operator
+      containers:
+      - name: operator
+        image: tailscale/k8s-operator:v1.102.3
+        imagePullPolicy: Always
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        env:
+        - name: OPERATOR_HOSTNAME
+          value: "tailscale-operator"
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: OPERATOR_SECRET
+          value: "operator"
+        - name: OPERATOR_LOGGING
+          value: "info"
+        - name: OPERATOR_INITIAL_TAGS
+          value: "tag:k8s-operator"
+        - name: CLIENT_ID_FILE
+          value: /oauth/client_id
+        - name: CLIENT_SECRET_FILE
+          value: /oauth/client_secret
+        - name: PROXY_IMAGE
+          value: "tailscale/tailscale:v1.102.3"
+        - name: PROXY_TAGS
+          value: "tag:k8s"
+        - name: APISERVER_PROXY
+          value: "false"
+        - name: PROXY_FIREWALL_MODE
+          value: "auto"
+        volumeMounts:
+        - name: oauth
+          mountPath: /oauth
+          readOnly: true
+      volumes:
+      - name: oauth
+        secret:
+          secretName: operator-oauth

@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaanbal-agent
+  labels:
+    app: kaanbal-agent
+    kaanbal-engine.io/exposure: ${KAANBAL_AGENT_EXPOSURE}
+# @kaanbal:if AGENT_TAILNET
+  annotations:
+    # Acuaponsito ve toda la plataforma, así que en modo privado se publica
+    # únicamente dentro de la tailnet, sin Ingress hacia internet.
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: "kaanbal-agent"
+# @kaanbal:endif
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: kaanbal-agent

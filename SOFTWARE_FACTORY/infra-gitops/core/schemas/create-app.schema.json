@@ -1,0 +1,181 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/create-app.json",
+  "title": "Create Application Request",
+  "description": "Schema for creating a new application in Kaanbal Engine",
+  "type": "object",
+  "required": ["app", "project"],
+  "properties": {
+    "app": {
+      "type": "object",
+      "description": "Application configuration",
+      "required": ["name", "template"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{2,30}$",
+          "description": "App name (lowercase, alphanumeric, hyphens). Becomes subdomain.",
+          "examples": ["acuaponia-dashboard", "sensor-api", "client-portal"]
+        },
+        "template": {
+          "type": "string",
+          "enum": ["tpl-vue3-spa-standard", "tpl-fastapi-standard", "tpl-n8n-service-standard", "tpl-mongodb-standard"],
+          "description": "Template to scaffold from"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Short description for the app"
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "description": "Project/Client grouping (maps to Jira/Bitbucket project)",
+      "required": ["key", "name"],
+      "properties": {
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Z]{2,10}$",
+          "description": "Project key (uppercase, 2-10 chars). Used in Jira/Bitbucket.",
+          "examples": ["ACUA", "IOT", "PORTAL"]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Human-readable project name",
+          "examples": ["Acuaponia IoT", "Client Portal"]
+        },
+        "client": {
+          "type": "string",
+          "description": "Client identifier (optional)",
+          "examples": ["my-company", "client-abc"]
+        }
+      }
+    },
+    "exposure": {
+      "type": "object",
+      "description": "Network exposure configuration",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["public", "tailscale", "both", "lan", "internal", "off"],
+          "default": "internal",
+          "description": "public=HTTPS+subdomain, tailscale=MagicDNS, lan=NodePort LAN, internal=cluster-only, off=stopped, both=mixed paths"
+        },
+        "per_env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["public", "tailscale", "both", "lan", "internal", "off"]
+          },
+          "description": "Per-environment exposure override (dev/staging/prod)"
+        },
+        "subdomain": {
+          "type": "string",
+          "description": "Override subdomain (default: app.name)"
+        },
+        "paths": {
+          "type": "object",
+          "description": "Fine-grained path exposure (for mixed access)",
+          "properties": {
+            "public": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Paths exposed to internet",
+              "examples": [["/webhook", "/api/public", "/health"]]
+            },
+            "private": {
+              "type": "array", 
+              "items": { "type": "string" },
+              "description": "Paths exposed via Tailscale only",
+              "examples": [["/admin", "/dashboard"]]
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "description": "Kubernetes resource configuration",
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 1
+        },
+        "cpu": {
+          "type": "string",
+          "default": "100m",
+          "examples": ["100m", "500m", "1"]
+        },
+        "memory": {
+          "type": "string", 
+          "default": "128Mi",
+          "examples": ["128Mi", "256Mi", "512Mi", "1Gi"]
+        },
+        "storage": {
+          "type": "string",
+          "description": "Persistent volume size (if needed)",
+          "examples": ["1Gi", "5Gi", "10Gi"]
+        }
+      }
+    },
+    "environment": {
+      "type": "string",
+      "enum": ["dev", "prod", "both"],
+      "default": "dev",
+      "description": "Target environment(s)"
+    },
+    "integrations": {
+      "type": "object",
+      "description": "Integrations with core services",
+      "properties": {
+        "mongodb": {
+          "type": "boolean",
+          "default": false,
+          "description": "Create database in shared MongoDB (datastore)"
+        },
+        "mqtt": {
+          "type": "object",
+          "description": "MQTT broker integration",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "topics": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Topics this app can publish/subscribe"
+            }
+          }
+        },
+        "vault": {
+          "type": "boolean", 
+          "default": false,
+          "description": "Enable Vault secrets injection"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional metadata",
+      "properties": {
+        "jira": {
+          "type": "object",
+          "properties": {
+            "projectKey": { "type": "string" },
+            "issueKey": { "type": "string", "description": "Triggering issue" }
+          }
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "annotations": {
+          "type": "object", 
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

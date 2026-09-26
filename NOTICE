@@ -1,0 +1,12 @@
+Kaanbal
+Copyright 2026 The Kaanbal Authors
+
+This product includes software developed by the Kaanbal contributors
+(https://github.com/kaanbal-softwarefactory/software-factory).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+Kaanbal installs and orchestrates third-party software, such as K3s, Argo CD,
+Vault, Tailscale, Cloudflare's tunnel client and the databases and services in
+its template catalog. That software is not part of this repository and is
+distributed under its own licenses.

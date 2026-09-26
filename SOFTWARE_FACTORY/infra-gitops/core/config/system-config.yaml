@@ -1,0 +1,109 @@
+# ==============================================================================
+# Kaanbal Engine - System Configuration
+# ==============================================================================
+# This ConfigMap contains system-wide configuration.
+# Can be modified via kaanbal-console UI or kaanbal-api endpoints.
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kaanbal-system-config
+  namespace: prod
+  labels:
+    app.kubernetes.io/name: kaanbal-system-config
+    app.kubernetes.io/part-of: software-factory
+data:
+  # ============================================================================
+  # Domain Configuration
+  # ============================================================================
+  domain: "${KAANBAL_DOMAIN}"
+
+  # ============================================================================
+  # Reserved Hostnames
+  # ============================================================================
+  # Subdominios del engine. Kaanbal Console rechaza crear apps de usuario con
+  # estos nombres para que un "shop" o un "api" nunca tumbe el control plane.
+  reserved.hosts: "kaanbal,kaanbal-console,kaanbal-api,kaanbal-agent,kaanbal-argo,kaanbal-gitops,argocd,vault,datastore,www"
+
+  # ============================================================================
+  # Git Configuration
+  # ============================================================================
+  git.provider: "github"
+  git.workspace: "${KAANBAL_GITHUB_ORG}"
+  git.infra-repo: "${KAANBAL_GITOPS_REPO}"
+  git.default-branch: "main"
+
+  # ============================================================================
+  # Ingress
+  # ============================================================================
+  # Clase real del cluster. AppDeployer la usa al generar los Ingress de las
+  # apps: si no coincide con un controlador instalado, la app se despliega pero
+  # nunca recibe tráfico.
+  ingress.class: "${KAANBAL_INGRESS_CLASS}"
+  # Vacío = TLS lo termina Cloudflare en el edge y cert-manager no interviene.
+  ingress.cluster-issuer: "${KAANBAL_CLUSTER_ISSUER_CONFIG}"
+
+  # ============================================================================
+  # Exposure Defaults
+  # ============================================================================
+  # internal = solo dentro del cluster. Coincide con el default de AppDeployer;
+  # la consola sube una app a "tailscale" (VPN) o "public" cuando el usuario lo
+  # pide explícitamente.
+  exposure.default: "internal"
+  exposure.tailscale-domain: "${KAANBAL_TAILNET}"
+  
+  # ============================================================================
+  # Templates Available
+  # ============================================================================
+  templates: |
+    [
+      {
+        "id": "tpl-vue3-spa-standard",
+        "name": "Vue 3 SPA",
+        "description": "Vue 3 + Vite + TypeScript frontend",
+        "type": "frontend",
+        "port": 80
+      },
+      {
+        "id": "tpl-fastapi-standard", 
+        "name": "FastAPI",
+        "description": "Python FastAPI backend",
+        "type": "backend",
+        "port": 8000
+      },
+      {
+        "id": "tpl-n8n-service-standard",
+        "name": "n8n Service",
+        "description": "n8n workflow automation instance",
+        "type": "automation",
+        "port": 5678
+      },
+      {
+        "id": "tpl-mongodb-standard",
+        "name": "MongoDB",
+        "description": "MongoDB database instance",
+        "type": "database",
+        "port": 27017
+      }
+    ]
+  
+  # ============================================================================
+  # Resource Presets
+  # ============================================================================
+  resources.presets: |
+    {
+      "minimal": {"cpu": "50m", "memory": "64Mi", "replicas": 1},
+      "small": {"cpu": "100m", "memory": "128Mi", "replicas": 1},
+      "medium": {"cpu": "250m", "memory": "256Mi", "replicas": 2},
+      "large": {"cpu": "500m", "memory": "512Mi", "replicas": 3}
+    }
+  
+  # ============================================================================
+  # Integration Endpoints (internal)
+  # ============================================================================
+  services.datastore: "mongodb://datastore:27017"
+  services.broker: "mqtt://broker:1883"
+  services.broker-api: "http://broker:18083"
+  services.vault: "http://vault.vault:8200"
+  services.automation: "http://automation:5678"
+  services.argocd: "http://argocd-server.argocd.svc.cluster.local:80"

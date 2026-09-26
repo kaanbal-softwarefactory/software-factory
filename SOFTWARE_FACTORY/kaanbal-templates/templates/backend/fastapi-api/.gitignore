@@ -1,0 +1,9 @@
+# Credenciales locales: nunca se suben (en el clúster las inyecta Kaanbal).
+.env
+.env.local
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/

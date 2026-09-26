@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator
+  namespace: tailscale
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: proxies
+  namespace: tailscale
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tailscale-operator
+rules:
+- apiGroups: [""]
+  resources: ["events", "services", "services/status"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["secrets", "serviceaccounts", "configmaps"]
+  verbs: ["*"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets", "deployments"]
+  verbs: ["*"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "ingresses/status", "ingressclasses"]
+  verbs: ["*"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["*"]
+- apiGroups: ["tailscale.com"]
+  resources: ["*"]
+  verbs: ["*"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tailscale-operator
+subjects:
+- kind: ServiceAccount
+  name: operator
+  namespace: tailscale
+roleRef:
+  kind: ClusterRole
+  name: tailscale-operator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: proxies
+  namespace: tailscale
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: proxies
+  namespace: tailscale
+subjects:
+- kind: ServiceAccount
+  name: proxies
+  namespace: tailscale
+roleRef:
+  kind: Role
+  name: proxies
+  apiGroup: rbac.authorization.k8s.io

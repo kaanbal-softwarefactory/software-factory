@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-console
+spec:
+  template:
+    spec:
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: kaanbal-console-nginx-dev
+      containers:
+        - name: kaanbal-console
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d
+              readOnly: true

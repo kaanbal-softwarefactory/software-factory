@@ -1,0 +1,72 @@
+# kaanbal-console — UI del engine (Apps, Templates, Stacks)
+#
+# Mapa canónico del core (prefijo "kaanbal-" para no chocar con apps de usuario):
+#   kaanbal-console.<dominio>  → esta consola (canónico)
+#   kaanbal.<dominio>          → atajo a la misma consola
+#   kaanbal-api.<dominio>      → API del engine
+#   kaanbal-agent.<dominio>    → Acuaponsito (agente), servicio aparte
+#   kaanbal-argo.<dominio>     → ArgoCD (túnel Cloudflare → argocd-server)
+#
+# TLS: con Cloudflare Tunnel el certificado lo termina el edge; el túnel habla
+# HTTP plano al ingress. El bloque `tls:` solo aparece si NO hay túnel.
+#
+# @kaanbal:if CONSOLE_PUBLIC
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kaanbal-console
+  labels:
+    app: kaanbal-console
+    kaanbal-engine.io/exposure: public
+# @kaanbal:if CLUSTER_TLS
+  annotations:
+    cert-manager.io/cluster-issuer: "${KAANBAL_CLUSTER_ISSUER}"
+# @kaanbal:endif
+spec:
+  ingressClassName: ${KAANBAL_INGRESS_CLASS}
+# @kaanbal:if CLUSTER_TLS
+  tls:
+  - hosts:
+    - kaanbal.${KAANBAL_DOMAIN}
+    - kaanbal-console.${KAANBAL_DOMAIN}
+    secretName: kaanbal-console-tls
+# @kaanbal:endif
+  rules:
+  - host: kaanbal.${KAANBAL_DOMAIN}
+    http:
+      paths:
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-api
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-console
+            port:
+              number: 80
+  - host: kaanbal-console.${KAANBAL_DOMAIN}
+    http:
+      paths:
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-api
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-console
+            port:
+              number: 80
+# @kaanbal:else
+# Consola en modo tailnet: sin Ingress público. El Service se expone por el
+# operador de Tailscale (ver service.yaml) y solo es alcanzable desde la VPN.
+# @kaanbal:endif

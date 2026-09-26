@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+namespace: staging
+
+commonLabels:
+  environment: staging
+
+images:
+  - name: nginx:stable-alpine
+    newName: acme-dockerhub/placeholder-app
+    newTag: pending-initial-build
+
+patches:
+  - target:
+      kind: Ingress
+      name: placeholder-app
+    patch: |-
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging-placeholder-app.example.com
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: staging-placeholder-app.example.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: tls-staging-placeholder-app

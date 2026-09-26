@@ -1,0 +1,6 @@
+{
+  "scaffold": {
+    "template_files": true
+  },
+  "pipeline_strategy": "dynamic"
+}

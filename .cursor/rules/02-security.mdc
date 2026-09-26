@@ -1,0 +1,16 @@
+---
+description: Seguridad — secretos, SSH y datos reales
+alwaysApply: true
+---
+
+# Seguridad
+
+- Nunca commitees `.env`, `*.pem`, `*.key` ni tokens. Marcador para lo que falta: `CHANGE_ME`.
+- No leas archivos `.env` ni `_private/`; solo `.env.example`.
+- Nada de datos reales de clientes, dominios o servidores en código, tests ni docs:
+  `example.com`, `192.168.1.x`, `203.0.113.x`.
+- Sin `root@` ni claves compartidas. Cada persona usa su propia clave SSH.
+- Agentes en la nube: solo código, pull requests y documentación — **sin SSH a servidores**.
+- Los comandos destructivos (`kubectl delete`, `rm -rf`, formateo, `git push --force`) requieren
+  aprobación explícita de la persona. El hook `.cursor/hooks/block-destructive.sh` los bloquea.
+- Si un secreto llegó a un commit, considéralo comprometido: rótalo. Borrarlo del árbol no basta.

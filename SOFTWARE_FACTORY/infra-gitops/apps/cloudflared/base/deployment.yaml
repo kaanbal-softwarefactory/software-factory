@@ -1,0 +1,66 @@
+# Cloudflare Tunnel data plane - Kaanbal Engine
+# Cierra el gap del BLUEPRINT §5: el API crea el túnel (control plane) y guarda
+# el token; este Deployment lo consume y abre la conexión SALIENTE al edge de
+# Cloudflare (QUIC/HTTP2). Sin puertos abiertos, sin router: funciona igual en
+# VPS que en una PC casera detrás de CGNAT.
+#
+# Requiere el Secret `cloudflared-secrets` con la key TUNNEL_TOKEN:
+#   kubectl -n prod create secret generic cloudflared-secrets \
+#     --from-literal=TUNNEL_TOKEN=<token del túnel guardado en system_config>
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: prod
+  labels:
+    app: cloudflared
+    app.kubernetes.io/part-of: software-factory
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      containers:
+        - name: cloudflared
+          # Pin recomendado vía images: en el overlay cuando se valide una versión
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-secrets
+                  key: TUNNEL_TOKEN
+          ports:
+            - containerPort: 2000
+              name: metrics
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 5
+            periodSeconds: 10

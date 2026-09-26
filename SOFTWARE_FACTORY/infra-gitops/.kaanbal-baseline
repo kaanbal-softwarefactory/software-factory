@@ -1,0 +1,52 @@
+# Kaanbal Engine — baseline de instalación
+#
+# El instalador renderiza este repositorio y publica en el infra-gitops del
+# cliente SOLO las rutas listadas aquí. Todo lo demás (apps de demostración,
+# terraform del VPS legacy, manifiestos de Bitbucket) queda en el monorepo como
+# referencia pero nunca se despliega en una célula nueva.
+#
+# Las apps de usuario NO viven aquí: las crea Kaanbal Console vía AppDeployer,
+# que commitea sus overlays a este mismo repositorio después de la instalación.
+#
+# Sintaxis: un patrón glob por línea, relativo a la raíz de infra-gitops.
+# Prefijo "!" para excluir. Se evalúa en orden; gana la última coincidencia.
+
+# --- Documentación del repositorio publicado ---
+ARCHITECTURE.md
+.gitignore
+
+# --- Control plane GitOps ---
+argocd/bootstrap/**
+argocd/applicationsets/**
+
+# --- Configuración de plataforma (ConfigMap, schemas, ejemplos) ---
+core/**
+
+# --- Kaanbal Engine: control plane propiamente dicho ---
+apps/kaanbal-api/**
+apps/kaanbal-console/**
+# Acuaponsito: agente global con visión de toda la plataforma. Vive aparte de la
+# consola porque también se embebe como componente en las apps desplegadas.
+apps/kaanbal-agent/**
+# El engine se instala solo en prod. Un kaanbal-api-dev duplicaría el control
+# plane sin aportar nada; si algún día se quiere, se añade desde la consola.
+!apps/kaanbal-api/overlays/dev/**
+!apps/kaanbal-console/overlays/dev/**
+
+# --- Servicios de soporte del engine ---
+apps/datastore/**
+apps/vault/**
+# Solo si el usuario dio credenciales de Tailscale (ver flag TAILSCALE): sin
+# ellas el operador entra en CrashLoopBackOff y ArgoCD reporta la célula
+# degradada por un componente que nadie pidió.
+?TAILSCALE apps/tailscale-operator/**
+# El OAuth del operador lo crea el instalador con kubectl. Publicar aquí un
+# secret con PLACEHOLDER solo invita a que alguien lo sincronice encima del real.
+!apps/tailscale-operator/base/secret.yaml
+
+# --- Exclusiones explícitas dentro de lo anterior ---
+# El túnel lo gestiona el instalador con el token de Cloudflare; si además
+# viviera en GitOps, ArgoCD y el instalador se pelearían por el Deployment.
+!apps/cloudflared/**
+# Application legacy que apunta a Bitbucket.
+!argocd/applications/**

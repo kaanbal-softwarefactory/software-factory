@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/block-destructive.sh",
+        "matcher": "kubectl delete|git push --force|rm -rf /|mkfs|dd if="
+      }
+    ]
+  }
+}

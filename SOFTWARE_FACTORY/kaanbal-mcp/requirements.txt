@@ -1,0 +1,3 @@
+# SDK 2.x: en 1.x el servidor se llamaba FastMCP y esta API no existe.
+mcp>=2.0,<3
+httpx>=0.27.0

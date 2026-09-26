@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - deployment.yaml
+  - service.yaml
+  - configmap.yaml
+  - pvc.yaml
+  - rbac.yaml
+# @kaanbal:if TAILSCALE
+  - ingress-tailscale.yaml
+# @kaanbal:endif
+  # Local Shamir bootstrap is managed by the installer, not a KMS PostSync job.

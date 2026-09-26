@@ -1,0 +1,68 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. **Do not include secrets, tokens, passwords or private
+        addresses** in this issue. If you think you found a security problem, stop and follow
+        [SECURITY.md](../blob/main/SECURITY.md) instead.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Installer
+        - API
+        - Console
+        - MCP server
+        - Templates
+        - GitOps baseline
+        - Updates
+        - Documentation
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The release, the commit SHA, or what the console shows under Updates.
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to see?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact anything sensitive first.
+      render: shell
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Ubuntu version, install mode (`--lan`, `--tailscale`, `--ssh-tunnel`), single node or not.
+  - type: checkboxes
+    id: no-secrets
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed every secret and private address from this report.
+          required: true

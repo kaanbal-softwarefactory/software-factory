@@ -1,0 +1,20 @@
+# Copy to a protected file outside the checkout; chmod 600. Never commit filled values.
+# Browser installation does not require this file.
+KAANBAL_MODE=cloud
+DOMAIN=lab.example.org
+GITHUB_ORG=
+GITHUB_TOKEN=
+DOCKER_USER=
+DOCKER_TOKEN=
+CF_TOKEN=
+CF_ACCOUNT_ID=
+TAILSCALE_CLIENT_ID=
+TAILSCALE_CLIENT_SECRET=
+TAILSCALE_DNS=
+KAANBAL_ADMIN_USER=admin
+KAANBAL_ADMIN_PASS=
+KAANBAL_CONSOLE_EXPOSURE=public
+KAANBAL_API_EXPOSURE=public
+KAANBAL_AGENT_EXPOSURE=public
+# Optional prepublished core version (must exist for all components).
+KAANBAL_CORE_VERSION=

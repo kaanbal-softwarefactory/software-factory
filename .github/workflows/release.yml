@@ -1,0 +1,35 @@
+name: Release
+
+# Publishing a release is a workflow, not a manual step (see docs/adr/002-actualizacion-del-core.md).
+# Push a tag such as `v1.0.0` and this creates the GitHub Release from CHANGELOG.md.
+# Installations on the `stable` channel read these releases to know an update exists.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Extract the release notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 {found=1; next} found && /^## \[/ {exit} found {print}' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "CHANGELOG.md has no section for $version" >&2
+            exit 1
+          fi
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Kaanbal $GITHUB_REF_NAME" --notes-file /tmp/notes.md --verify-tag $flags

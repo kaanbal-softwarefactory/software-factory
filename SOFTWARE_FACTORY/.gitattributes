@@ -1,0 +1,12 @@
+# Force LF line endings for all shell scripts (prevents CRLF issues on Windows/WSL2)
+*.sh text eol=lf
+*.bash text eol=lf
+
+# Keep YAML/JSON consistent too
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+# Markdown and docs can use native endings
+*.md text
+*.txt text

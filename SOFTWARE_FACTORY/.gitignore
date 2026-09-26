@@ -1,0 +1,57 @@
+# Credentials & secrets
+_private/
+env/
+*_SECRETS/
+credenciales.txt
+*.pem
+*.key
+audit-*.txt
+myconfig.env
+.env
+.env.*
+
+# Archives
+_old/
+.old_agents/
+
+# Agent runtime artifacts
+.agent/teams/runs/
+
+# Temporary files
+tmpclaude-*
+.deploy-tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Node.js
+node_modules/
+dist/
+build/
+.vite/
+.cache/
+
+# Vaultwarden (local tool)
+vw-data/
+vw-backups/
+
+# Chat replays
+*.chatreplay.json
+
+# Local/editor state
+.claude/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Excepción a `.env.*`: los de kaanbal-templates son plantillas, no secretos.
+# Sin esto, el repositorio que Kaanbal genera sale sin el contrato de variables
+# (VITE_API_URL, MONGO_URI...) y quien lo clona no sabe cómo correrlo en local.
+!kaanbal-templates/templates/**/.env.example
+!kaanbal-templates/templates/**/.env.development
+!kaanbal-templates/templates/**/.env.production

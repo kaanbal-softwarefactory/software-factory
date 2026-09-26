@@ -1,0 +1,78 @@
+# Grafo de contexto de Kaanbal — el agente lee esto para decidir qué cargar.
+# Actualízalo cuando se agreguen documentos, reglas o skills. Todas las rutas deben existir:
+# un test del repositorio lo comprueba.
+
+version: 1
+updated: 2026-09-26
+
+always_read:
+  - path: AGENTS.md
+    reason: contrato y reglas que no se negocian
+  - path: docs/CONTEXT_MAP.yaml
+    reason: router de contexto
+
+on_task_start:
+  - path: AGENTS/STATE.md
+    reason: qué está en curso y qué se sabe roto
+  - issue: descripción y criterios de aceptación del issue
+
+by_area:
+  installer:
+    globs: ["SOFTWARE_FACTORY/installer/**", "install.sh", "SOFTWARE_FACTORY/install.sh"]
+    read:
+      - docs/guides/INSTALL_UBUNTU.md
+      - docs/architecture/KAANBAL_LOCAL_V0.md
+      - SOFTWARE_FACTORY/installer/README.md
+    rules: [".cursor/rules/12-installer.mdc"]
+
+  kaanbal_api:
+    globs: ["SOFTWARE_FACTORY/kaanbal-api/**"]
+    read:
+      - SOFTWARE_FACTORY/BLUEPRINT.md
+      - CONTRIBUTING.md
+
+  access_control:
+    trigger: "permisos, roles, ACL, tokens personales, endpoint nuevo"
+    globs: ["SOFTWARE_FACTORY/kaanbal-api/app/services/permissions.py", "SOFTWARE_FACTORY/kaanbal-api/app/middleware/**"]
+    read:
+      - CONTRIBUTING.md
+      - SECURITY.md
+
+  core_updates:
+    trigger: "actualizar el core, upgrade, procedencia, upstream, migración"
+    globs: ["SOFTWARE_FACTORY/kaanbal-api/app/services/core_*.py", "SOFTWARE_FACTORY/tools/core-upgrade.sh"]
+    read:
+      - docs/adr/002-actualizacion-del-core.md
+      - docs/guides/MIGRATION.md
+
+  kaanbal_console:
+    globs: ["SOFTWARE_FACTORY/kaanbal-console/**"]
+    read:
+      - SOFTWARE_FACTORY/kaanbal-console/README.md
+
+  gitops:
+    globs: ["SOFTWARE_FACTORY/infra-gitops/**"]
+    read:
+      - SOFTWARE_FACTORY/infra-gitops/ARCHITECTURE.md
+    rules: [".cursor/rules/13-gitops.mdc"]
+
+  templates:
+    globs: ["SOFTWARE_FACTORY/kaanbal-templates/**"]
+    read:
+      - SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md
+
+  mcp:
+    globs: ["SOFTWARE_FACTORY/kaanbal-mcp/**"]
+    read:
+      - SOFTWARE_FACTORY/kaanbal-mcp/README.md
+
+  agent_runtime:
+    globs: ["SOFTWARE_FACTORY/acuaponsito/**", "SOFTWARE_FACTORY/kaanbal-agent/**"]
+    read:
+      - SOFTWARE_FACTORY/acuaponsito/README.md
+      - docs/acuaponsito/FRAMEWORK.md
+
+decisions:
+  - id: ADR-002
+    topic: actualización del core de Kaanbal
+    file: docs/adr/002-actualizacion-del-core.md

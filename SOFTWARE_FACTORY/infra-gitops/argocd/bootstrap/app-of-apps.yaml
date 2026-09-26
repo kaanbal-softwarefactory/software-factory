@@ -1,0 +1,159 @@
+# ==============================================================================
+# ArgoCD Application of Applications (App of Apps Pattern)
+# ==============================================================================
+# Este archivo configura ArgoCD para:
+# 1. Proyecto principal (software-factory)
+# 2. ApplicationSets que auto-descubren apps en la carpeta apps/
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: software-factory
+  namespace: argocd
+spec:
+  description: Kaanbal Engine Applications
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: '*'
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+# ==============================================================================
+# Application que gestiona los ApplicationSets
+# ==============================================================================
+# Este Application sincroniza los ApplicationSets que auto-descubren apps
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: applicationsets
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: software-factory
+  source:
+    repoURL: ${KAANBAL_GITOPS_REPO_URL}
+    targetRevision: HEAD
+    path: argocd/applicationsets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+# ==============================================================================
+# Core Configuration (ConfigMaps, Schemas, etc.)
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: core-config
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: software-factory
+  source:
+    repoURL: ${KAANBAL_GITOPS_REPO_URL}
+    targetRevision: HEAD
+    path: core
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+---
+# ==============================================================================
+# Vault (Secret Management)
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: software-factory
+  source:
+    repoURL: ${KAANBAL_GITOPS_REPO_URL}
+    targetRevision: HEAD
+    path: apps/vault/base
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+# @kaanbal:if TAILSCALE
+---
+# ==============================================================================
+# Tailscale Operator (dedicated Application — prune:false)
+# ==============================================================================
+# FIX RC-1: Must NOT prune operator-created StatefulSets/Secrets.
+#
+# Solo se declara cuando el instalador confirmó que el tailnet concede
+# tag:k8s-operator. Declararla sin eso deja una Application apuntando a una
+# ruta que no se publicó, y ArgoCD la reporta en error para siempre.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: software-factory
+  source:
+    repoURL: ${KAANBAL_GITOPS_REPO_URL}
+    targetRevision: HEAD
+    path: apps/tailscale-operator/overlays/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      managedFieldsManagers:
+        - tailscale-operator
+    - group: ""
+      kind: Secret
+      managedFieldsManagers:
+        - tailscale-operator
+    - group: ""
+      kind: ServiceAccount
+      jsonPointers:
+        - /secrets
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+# @kaanbal:endif

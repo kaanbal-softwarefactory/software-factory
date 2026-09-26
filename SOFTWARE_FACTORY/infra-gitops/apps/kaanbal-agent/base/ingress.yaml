@@ -1,0 +1,49 @@
+# kaanbal-agent — Acuaponsito, el agente global del engine
+#
+# Servicio independiente de la consola: ve toda la plataforma (Kaanbal, apps y
+# datos) y se puede embeber como componente en las aplicaciones desplegadas.
+# Por eso vive en su propio subdominio y no colgando de la consola.
+#
+#   kaanbal-agent.<dominio>  → esta interfaz
+#
+# @kaanbal:if AGENT_PUBLIC
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kaanbal-agent
+  labels:
+    app: kaanbal-agent
+    kaanbal-engine.io/exposure: public
+# @kaanbal:if CLUSTER_TLS
+  annotations:
+    cert-manager.io/cluster-issuer: "${KAANBAL_CLUSTER_ISSUER}"
+# @kaanbal:endif
+spec:
+  ingressClassName: ${KAANBAL_INGRESS_CLASS}
+# @kaanbal:if CLUSTER_TLS
+  tls:
+  - hosts:
+    - kaanbal-agent.${KAANBAL_DOMAIN}
+    secretName: kaanbal-agent-tls
+# @kaanbal:endif
+  rules:
+  - host: kaanbal-agent.${KAANBAL_DOMAIN}
+    http:
+      paths:
+      - path: /api/
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-api
+            port:
+              number: 8000
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-agent
+            port:
+              number: 80
+# @kaanbal:else
+# Agente en modo tailnet: solo alcanzable desde la VPN (ver service.yaml).
+# @kaanbal:endif

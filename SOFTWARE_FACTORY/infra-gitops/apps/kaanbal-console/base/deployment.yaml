@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-console
+  labels:
+    app: kaanbal-console
+    kaanbal-engine.io/core: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kaanbal-console
+  template:
+    metadata:
+      labels:
+        app: kaanbal-console
+    spec:
+      containers:
+      - name: kaanbal-console
+        image: kaanbal-console-image
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 10

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaanbal-api
+  labels:
+    app: kaanbal-api
+spec:
+  ports:
+  - port: 80
+    name: http
+    targetPort: 8000
+    protocol: TCP
+  - port: 8000
+    name: api
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    app: kaanbal-api

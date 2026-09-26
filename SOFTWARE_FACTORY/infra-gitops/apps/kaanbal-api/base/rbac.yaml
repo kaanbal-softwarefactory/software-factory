@@ -1,0 +1,108 @@
+# ServiceAccount with cluster-wide permissions for kaanbal-api
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaanbal-api
+  labels:
+    app: kaanbal-api
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kaanbal-api-role
+rules:
+# Read access to most resources + patch for services (Tailscale tag management)
+- apiGroups: [""]
+  resources: ["pods", "configmaps", "secrets", "namespaces", "persistentvolumeclaims", "events", "nodes"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+# ArgoCD resources
+- apiGroups: ["argoproj.io"]
+  resources: ["applications", "applicationsets", "appprojects"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Pod logs
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+# Upgrade del core desde la consola (ADR-002): la API solo lanza el Job y lee su
+# estado. Quien ejecuta el upgrade es el Job, con su propia ServiceAccount.
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create"]
+---
+# El upgrade corre como Job y no dentro de la API: cuando kaanbal-api recibe su
+# imagen nueva, el proceso que conduce el upgrade no puede ser el que muere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaanbal-upgrader
+  labels:
+    app: kaanbal-api
+    kaanbal-engine.io/component: upgrader
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kaanbal-upgrader-role
+rules:
+# Credenciales de build ya creadas por el instalador: solo esas dos, por nombre.
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["kaanbal-build-git", "regcred"]
+  verbs: ["get", "patch"]
+# Jobs de Kaniko que construyen las imágenes.
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["get", "list", "watch", "create", "delete"]
+- apiGroups: [""]
+  resources: ["pods", "pods/log"]
+  verbs: ["get", "list", "watch"]
+# Preflight de imports y registro de procedencia dentro del pod de la API.
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+# Verificación del rollout.
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+# Forzar la reconciliación de ArgoCD tras promover.
+- apiGroups: ["argoproj.io"]
+  resources: ["applications"]
+  verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kaanbal-upgrader-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kaanbal-upgrader-role
+subjects:
+- kind: ServiceAccount
+  name: kaanbal-upgrader
+  namespace: prod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kaanbal-api-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kaanbal-api-role
+subjects:
+- kind: ServiceAccount
+  name: kaanbal-api
+  namespace: prod

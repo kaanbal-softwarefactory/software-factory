@@ -1,0 +1,30 @@
+name: Installer checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test installer without real credentials
+        env:
+          KAANBAL_INSTALLER_STATE_DIR: /tmp/kaanbal-ci-state
+          KAANBAL_CREDENTIALS_FILE: /tmp/kaanbal-ci-state/synthetic-credentials
+        run: |
+          python -m pip install PyYAML==6.0.2
+          python -m unittest discover -s SOFTWARE_FACTORY/installer -p 'test_*.py'
+          bash -n install.sh
+          bash -n SOFTWARE_FACTORY/install.sh
+          node --check SOFTWARE_FACTORY/installer/static/app.js

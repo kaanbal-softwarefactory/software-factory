@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-agent
+  labels:
+    app: kaanbal-agent
+    kaanbal-engine.io/core: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kaanbal-agent
+  template:
+    metadata:
+      labels:
+        app: kaanbal-agent
+    spec:
+      containers:
+      - name: kaanbal-agent
+        image: kaanbal-agent-image
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 3
+          periodSeconds: 10

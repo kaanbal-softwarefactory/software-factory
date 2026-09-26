@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: placeholder-app
+  labels:
+    app: placeholder-app
+spec:
+  selector:
+    app: placeholder-app
+  ports:
+  - port: 80
+    targetPort: 80

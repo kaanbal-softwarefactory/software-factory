@@ -1,0 +1,28 @@
+# Base de datos para desarrollo local. En el clúster no se usa: allí la base es
+# una app de Kaanbal y sus credenciales llegan por variables de entorno.
+#
+#   docker compose up -d        levanta la base
+#   docker compose down -v      la borra con sus datos
+services:
+{% if DB_ENGINE == 'postgres' %}
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+{% else %}
+  db:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - dbdata:/data/db
+{% endif %}
+
+volumes:
+  dbdata:

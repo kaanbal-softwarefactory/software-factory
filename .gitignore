@@ -1,0 +1,66 @@
+# ── Secretos y entornos: nunca se suben ─────────────────────────────────────
+.env
+.env.*
+*.env
+*.local
+*.secret
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.pub
+credentials.json
+auth.json
+token*
+*.token
+vault-keys*
+*recovery*.json
+SOFTWARE_FACTORY_SECRETS/
+
+# Configuración por servidor (IPs, usuarios, notas de operación): es de cada persona.
+env/
+_private/
+
+# ── Bases de datos, respaldos y archivos de transferencia ───────────────────
+*.sqlite
+*.sqlite3
+*.db
+*.bson
+*.bson.gz
+*.tar
+*.tar.gz
+*.zip
+
+# ── Datos locales del runtime del agente ────────────────────────────────────
+.acuaponsito/
+
+# ── Sandbox de agentes: solo se versiona su README ──────────────────────────
+AGENTS/labs/*
+!AGENTS/labs/README.md
+
+# ── Logs y temporales ───────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
+
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+
+# ── Node / frontend ─────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+build/
+dist/
+coverage/
+
+# ── Editor y sistema ────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

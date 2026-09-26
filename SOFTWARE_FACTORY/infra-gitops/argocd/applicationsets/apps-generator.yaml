@@ -1,0 +1,198 @@
+# ==============================================================================
+# ApplicationSet - Auto-Discovery de Apps
+# ==============================================================================
+# Este ApplicationSet detecta automaticamente todas las apps en la carpeta apps/
+# y crea Applications para cada ambiente (dev/staging/prod)
+# NOTE: tailscale-operator is excluded from this set and managed by its own
+#       dedicated Application (argocd/applications/tailscale-operator.yaml)
+#       to ensure prune:false so the operator's proxy StatefulSets/Secrets
+#       are never deleted by ArgoCD.
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kaanbal-engine-apps
+  namespace: argocd
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - git:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        revision: HEAD
+        directories:
+          - path: apps/*/overlays/prod
+          # Exclude tailscale-operator -- managed by dedicated Application with prune:false
+          - path: apps/tailscale-operator/overlays/prod
+            exclude: true
+  template:
+    metadata:
+      name: '{{path[1]}}-prod'
+      namespace: argocd
+      labels:
+        app: '{{path[1]}}'
+        env: prod
+        managed-by: applicationset
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: software-factory
+      source:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: prod
+      # FIX RC-2: Use managedFieldsManagers to cover ALL fields managed by the
+      # Tailscale operator -- not just tags and finalizers.
+      ignoreDifferences:
+        - group: ""
+          kind: Service
+          managedFieldsManagers:
+            - tailscale-operator
+        - group: ""
+          kind: Service
+          jsonPointers:
+            - /metadata/finalizers
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+---
+# ==============================================================================
+# ApplicationSet para DEVELOPMENT
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kaanbal-engine-apps-dev
+  namespace: argocd
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - git:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        revision: HEAD
+        directories:
+          - path: apps/*/overlays/dev
+          # Exclude tailscale-operator -- managed by dedicated Application with prune:false
+          - path: apps/tailscale-operator/overlays/dev
+            exclude: true
+  template:
+    metadata:
+      name: '{{path[1]}}-dev'
+      namespace: argocd
+      labels:
+        app: '{{path[1]}}'
+        env: dev
+        managed-by: applicationset
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: software-factory
+      source:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: dev
+      # FIX RC-2: Use managedFieldsManagers to cover ALL fields managed by the
+      # Tailscale operator -- not just tags and finalizers.
+      ignoreDifferences:
+        - group: ""
+          kind: Service
+          managedFieldsManagers:
+            - tailscale-operator
+        - group: ""
+          kind: Service
+          jsonPointers:
+            - /metadata/finalizers
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m
+---
+# ==============================================================================
+# ApplicationSet para STAGING
+# ==============================================================================
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: kaanbal-engine-apps-staging
+  namespace: argocd
+spec:
+  syncPolicy:
+    preserveResourcesOnDeletion: false
+  generators:
+    - git:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        revision: HEAD
+        directories:
+          - path: apps/*/overlays/staging
+          # Exclude tailscale-operator -- managed by dedicated Application with prune:false
+          - path: apps/tailscale-operator/overlays/staging
+            exclude: true
+  template:
+    metadata:
+      name: '{{path[1]}}-staging'
+      namespace: argocd
+      labels:
+        app: '{{path[1]}}'
+        env: staging
+        managed-by: applicationset
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: software-factory
+      source:
+        repoURL: ${KAANBAL_GITOPS_REPO_URL}
+        targetRevision: HEAD
+        path: '{{path}}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: staging
+      # FIX RC-2: Use managedFieldsManagers to cover ALL fields managed by the
+      # Tailscale operator -- not just tags and finalizers.
+      ignoreDifferences:
+        - group: ""
+          kind: Service
+          managedFieldsManagers:
+            - tailscale-operator
+        - group: ""
+          kind: Service
+          jsonPointers:
+            - /metadata/finalizers
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ApplyOutOfSyncOnly=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 5s
+            factor: 2
+            maxDuration: 3m

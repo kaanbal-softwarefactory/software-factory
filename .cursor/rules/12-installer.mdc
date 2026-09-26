@@ -1,0 +1,14 @@
+---
+description: Instalador web de Kaanbal
+globs: SOFTWARE_FACTORY/installer/**
+alwaysApply: false
+---
+
+# Instalador
+
+- Entrada: `python3 installer/server.py` → puerto 3000, protegido por un token de sesión.
+- Solo la biblioteca estándar de Python: no hay `pip` en la máquina destino.
+- Pasos idempotentes: detecta lo ya instalado y no lo repitas.
+- Las credenciales llegan del asistente o de un archivo `.env` — nunca escritas en el repositorio.
+- Fallos de configuración, CI o acceso no se anuncian como instalación completa.
+- Cualquier cambio necesita su prueba en `SOFTWARE_FACTORY/installer/test_*.py`.

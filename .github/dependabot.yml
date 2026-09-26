@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    directory: /SOFTWARE_FACTORY/kaanbal-console
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: pip
+    directory: /SOFTWARE_FACTORY/kaanbal-api
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: pip
+    directory: /SOFTWARE_FACTORY/kaanbal-mcp
+    schedule:
+      interval: monthly

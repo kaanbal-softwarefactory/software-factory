@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaanbal · Consola del Agente</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="console.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='24' font-size='24'>🤖</text></svg>">
+</head>
+<body class="console-body">
+<div class="cosmos">
+  <div class="aurora aurora-a"></div><div class="aurora aurora-b"></div><div class="aurora aurora-c"></div>
+  <div class="stars stars-1"></div><div class="stars stars-2"></div>
+</div>
+
+<header class="topbar">
+  <div class="brand">
+    <a class="btn btn-ghost btn-sm" id="btn-back">← Instalador</a>
+    <div style="margin-left:14px">
+      <div class="brand-name">CONSOLA DEL AGENTE</div>
+      <div class="brand-sub">acuaponsito · inteligencia operativa de tu plataforma</div>
+    </div>
+  </div>
+  <div class="top-chips">
+    <span class="chip chip-ghost" id="chip-ctx">contexto: instalador</span>
+    <span class="chip chip-ghost" id="chip-cell">célula: —</span>
+    <span class="chip chip-live" id="chip-provider">sin proveedor</span>
+  </div>
+</header>
+
+<main class="console-shell">
+  <!-- rail de secciones -->
+  <nav class="rail glass">
+    <button class="rail-btn active" data-tab="chat"><span>💬</span>Agente</button>
+    <button class="rail-btn" data-tab="sistema"><span>🗺️</span>Sistema</button>
+    <button class="rail-btn" data-tab="memoria"><span>🧠</span>Memoria</button>
+    <button class="rail-btn" data-tab="estudio"><span>🎭</span>Estudio</button>
+    <button class="rail-btn" data-tab="clips"><span>🎬</span>Clips</button>
+    <button class="rail-btn" data-tab="accesos"><span>🛡️</span>Accesos</button>
+  </nav>
+
+  <!-- ════ AGENTE (chat con flujos) ════ -->
+  <section class="tab active" id="tab-chat">
+    <div class="chat-layout">
+      <div class="chat-main glass">
+        <div class="chat-config">
+          <label>Flujo <select id="cfg-workflow"></select></label>
+          <label>Rol <select id="cfg-role"></select></label>
+          <label id="cfg-cons-wrap" class="hidden">Conservadurismo <span id="cons-val">7</span>/10
+            <input type="range" id="cfg-cons" min="1" max="10" value="7"></label>
+          <span class="chip chip-mode" id="chip-mode">modo: asistido</span>
+        </div>
+        <div class="chat-thread" id="thread">
+          <div class="msg agent"><div class="msg-body">Soy tu agente de plataforma 🌱 Tengo contexto de tu
+            infraestructura y memoria de todo lo que pasa. Elige un flujo de trabajo y pregúntame —
+            o ve al <b>Estudio</b> y registra una mejora.</div></div>
+        </div>
+        <form class="chat-input" id="chat-form">
+          <input type="text" id="chat-text" placeholder="Pregunta sobre tu sistema, pide un diagnóstico, registra una idea…" autocomplete="off">
+          <button class="btn btn-primary btn-sm" type="submit">Enviar ⚡</button>
+        </form>
+      </div>
+      <aside class="chat-side">
+        <div class="glass-soft side-card">
+          <b>¿Qué ve el agente ahora?</b>
+          <ul class="see-list" id="see-list">
+            <li>📡 Infraestructura en vivo</li>
+            <li>🧠 Memoria de acciones</li>
+            <li>🎬 Repertorio de clips</li>
+          </ul>
+          <p class="side-note">Configurable en <b>Accesos</b>. Todo puede abrirse — tú decides.</p>
+        </div>
+        <div class="glass-soft side-card">
+          <b>Acciones rápidas</b>
+          <div class="quick"><button class="btn btn-ghost btn-xs" data-q="Dame un diagnóstico del estado actual del cluster">🩺 diagnóstico</button>
+          <button class="btn btn-ghost btn-xs" data-q="¿Qué eventos importantes hay en la memoria reciente?">resumir actividad</button>
+          <button class="btn btn-ghost btn-xs" data-q="¿Qué me recomiendas hacer ahora para avanzar con mi plataforma?">siguiente paso</button></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ════ SISTEMA (mapa real) ════ -->
+  <section class="tab" id="tab-sistema">
+    <div class="cards-row" id="sys-cards"></div>
+    <div class="glass map-wrap">
+      <div class="map-head"><b>Mapa del sistema</b>
+        <span class="opt">célula → namespaces → pods (datos reales de k3s)</span>
+        <button class="btn btn-ghost btn-xs" id="btn-sys-refresh">↻ actualizar</button></div>
+      <svg id="sys-map" viewBox="0 0 900 460"></svg>
+    </div>
+  </section>
+
+  <!-- ════ MEMORIA ════ -->
+  <section class="tab" id="tab-memoria">
+    <div class="cards-row">
+      <div class="glass-soft stat-card"><small>base de conocimiento</small><b id="mem-count">0</b><span>eventos JSONL</span></div>
+      <div class="glass-soft stat-card"><small>archivo (amigable para IA)</small><b class="mono small" id="mem-file">~/.kaanbal/memory.jsonl</b><span>local, tuyo</span></div>
+      <div class="glass-soft stat-card"><small>fuentes activas</small><b id="mem-sources">instalador · consola</b><span>crece contigo</span></div>
+    </div>
+    <div class="glass mem-wrap">
+      <div class="map-head"><b>Todo lo que el agente recuerda</b>
+        <form id="note-form" class="note-form"><input type="text" id="note-text" placeholder="registrar nota clave para el agente…">
+        <button class="btn btn-ghost btn-xs" type="submit">＋ nota</button></form></div>
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </section>
+
+  <!-- ════ ESTUDIO (skills + roles + automejora) ════ -->
+  <section class="tab" id="tab-estudio">
+    <div class="estudio-grid">
+      <div class="glass est-card">
+        <div class="map-head"><b>📋 Registrar mejora</b><span class="opt">skill de automejora: tu idea → ficha de desarrollo</span></div>
+        <textarea id="idea-text" rows="3" placeholder="Describe la mejora que imaginas para la plataforma, el software… o para el propio agente"></textarea>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn btn-primary btn-sm" id="btn-idea">Convertir en ficha ⚡</button>
+          <span class="val-msg" id="msg-idea"></span>
+        </div>
+      </div>
+      <div class="glass est-card">
+        <div class="map-head"><b>🎭 Subagentes por rol</b><span class="opt">el orquestador delega; cada rol con su enfoque</span></div>
+        <div class="roles-grid" id="roles-grid"></div>
+        <div class="modo-row">
+          <label class="switch-row"><input type="checkbox" id="modo-grupo"><span>Modo grupo: los subagentes opinan y el orquestador decide</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="glass board-wrap">
+      <div class="map-head"><b>Tablero de automejora</b><span class="opt">las fichas viven aquí; avanza cada etapa cuando estés listo</span></div>
+      <div class="board" id="board">
+        <div class="board-col" data-col="propuestas"><h4>💡 Propuestas</h4><div class="col-body"></div></div>
+        <div class="board-col" data-col="analisis"><h4>🔍 Análisis</h4><div class="col-body"></div></div>
+        <div class="board-col" data-col="dev"><h4>⚙️ Listo para dev</h4><div class="col-body"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ CLIPS (tabla master) ════ -->
+  <section class="tab" id="tab-clips">
+    <div class="clips-grid">
+      <div class="glass est-card">
+        <div class="map-head"><b>🎬 Tabla master de clips</b><span class="opt">clic en una fila = Acuaponsito lo actúa</span></div>
+        <table class="clip-table" id="clip-table">
+          <thead><tr><th>id</th><th>estado</th><th>energía</th><th>título</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="wishlist" id="wishlist"></div>
+      </div>
+      <div class="glass est-card">
+        <div class="map-head"><b>＋ Registrar clip nuevo</b><span class="opt">cópialo a la carpeta animacion y regístralo aquí</span></div>
+        <div class="fields">
+          <label>Archivo (en carpeta animacion) <input type="text" id="clip-file" placeholder="despertando-observa.mp4"></label>
+          <label>Estado <select id="clip-state"></select></label>
+          <label>ID <input type="text" id="clip-id" placeholder="wake__observa"></label>
+          <label>Título <input type="text" id="clip-title" placeholder="Despierta y te observa"></label>
+          <label>Descripción (cuándo usarlo)
+            <textarea id="clip-desc" rows="3" placeholder="El agente puede proponerla por ti…"></textarea></label>
+          <div class="validate-row">
+            <button class="btn btn-ghost btn-sm" id="btn-clip-ai">✨ Proponer con IA</button>
+            <button class="btn btn-primary btn-sm" id="btn-clip-save">Guardar en tabla master</button>
+          </div>
+          <span class="val-msg" id="msg-clip"></span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ════ ACCESOS ════ -->
+  <section class="tab" id="tab-accesos">
+    <div class="acc-grid">
+      <div class="glass est-card">
+        <div class="map-head"><b>🛡️ Qué puede ver el agente</b><span class="opt">basado en roles y permisos — todo puede abrirse si tú lo decides</span></div>
+        <div id="scopes-list" class="scopes-list"></div>
+      </div>
+      <div class="glass est-card">
+        <div class="map-head"><b>⚙️ Modo de operación</b><span class="opt">gradúa cuánta autonomía tiene</span></div>
+        <div id="modes-list" class="modes-list"></div>
+        <p class="side-note">El modo viaja con cada mensaje al agente: en <b>asistido</b> solo propone;
+          en <b>dev</b> podrá aplicar cambios en ambiente dev (próxima fase); staging y producción
+          siempre exigirán tu aprobación explícita con auditoría.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Acuaponsito flotante (mismo framework) -->
+<div id="acuabot" class="acuabot">
+  <div class="acuabot-bubble hidden" id="acuabot-bubble"><span id="acuabot-text"></span><span class="caret"></span></div>
+  <div class="acuabot-stage" id="acuabot-stage" title="Arrástrame 🌱">
+    <video class="acuabot-v" id="bot-v1" muted playsinline></video>
+    <video class="acuabot-v" id="bot-v2" muted playsinline></video>
+    <div id="bot-svg" class="bot-svg hidden">
+      <svg viewBox="0 0 200 230" class="acuaponsito"><g class="bot-body">
+        <path class="bot-leaf" d="M100 28 C 96 10, 82 4, 68 8 C 76 22, 86 28, 100 28 Z" fill="#4ade80"/>
+        <ellipse cx="100" cy="86" rx="58" ry="54" fill="#f8fafc"/>
+        <ellipse cx="100" cy="88" rx="44" ry="38" fill="#0b1526"/>
+        <g class="bot-eyes"><ellipse class="bot-eye" cx="84" cy="86" rx="9" ry="12" fill="#67e8f9"/>
+        <ellipse class="bot-eye" cx="116" cy="86" rx="9" ry="12" fill="#67e8f9"/></g>
+        <path class="bot-smile" d="M90 106 Q100 114 110 106" stroke="#67e8f9" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <rect x="70" y="138" width="60" height="52" rx="20" fill="#f8fafc"/>
+      </g></svg>
+    </div>
+    <div class="acuabot-ring"></div>
+  </div>
+</div>
+
+<footer class="foot">Kaanbal Agent Console · framework replicable — llévalo a cualquier app con su propio servicio de datos</footer>
+<script src="acuabot.js"></script>
+<script src="console.js"></script>
+</body>
+</html>

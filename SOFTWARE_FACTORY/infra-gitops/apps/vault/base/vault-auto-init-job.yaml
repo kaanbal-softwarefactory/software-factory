@@ -1,0 +1,182 @@
+# ==============================================================================
+# Vault Auto-Init Job
+# ==============================================================================
+# This Job runs ONCE after cluster bootstrap to initialize Vault.
+# It uses AWS KMS auto-unseal, so Vault automatically unseals on restart.
+#
+# The Job:
+#   1. Waits for Vault pod to be ready
+#   2. Initializes Vault (if not already initialized)
+#   3. Stores root token + recovery keys in K8s Secret
+#   4. Enables KV v2 secret engine
+#   5. Creates basic policies
+#
+# For cluster recovery (data persisted on EBS):
+#   - Vault data survives on PVC (EBS volume)
+#   - KMS auto-unseal handles re-unsealing
+#   - This Job detects "already initialized" and exits cleanly
+# ==============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-auto-init
+  namespace: vault
+  labels:
+    app.kubernetes.io/name: vault-auto-init
+    software-factory.io/managed: "true"
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 3600  # Cleanup after 1 hour
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vault-auto-init
+    spec:
+      serviceAccountName: vault-init-sa
+      restartPolicy: OnFailure
+      containers:
+      - name: vault-init
+        image: alpine:3.19
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # Install required tools
+          apk add --no-cache curl jq > /dev/null 2>&1
+          
+          # Download kubectl matching cluster version
+          KUBECTL_VERSION="v1.28.5"
+          curl -sSLo /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+            2>/dev/null && chmod +x /usr/local/bin/kubectl || true
+          
+          VAULT_ADDR="http://vault.vault.svc.cluster.local:8200"
+          SECRET_NAME="vault-init-keys"
+          
+          echo "🔐 Vault Auto-Init Job"
+          echo "  Waiting for Vault..."
+          
+          # Wait for Vault to be reachable (up to 10 min)
+          elapsed=0
+          while [ $elapsed -lt 600 ]; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "$VAULT_ADDR/v1/sys/health" 2>/dev/null || echo "000")
+              if echo "$CODE" | grep -qE "200|429|501|503"; then
+                  echo "  ✅ Vault reachable (HTTP $CODE)"
+                  break
+              fi
+              sleep 10
+              elapsed=$((elapsed + 10))
+          done
+          
+          [ $elapsed -ge 600 ] && echo "❌ Timeout" && exit 1
+          
+          HEALTH=$(curl -s "$VAULT_ADDR/v1/sys/health")
+          INITIALIZED=$(echo "$HEALTH" | jq -r '.initialized')
+          SEALED=$(echo "$HEALTH" | jq -r '.sealed')
+          
+          echo "  Initialized: $INITIALIZED | Sealed: $SEALED"
+          
+          if [ "$INITIALIZED" = "false" ]; then
+              echo "🔑 Initializing Vault..."
+              INIT=$(curl -s -X POST "$VAULT_ADDR/v1/sys/init" \
+                  -H "Content-Type: application/json" \
+                  -d '{"recovery_shares": 5, "recovery_threshold": 3}')
+              
+              TOKEN=$(echo "$INIT" | jq -r '.root_token // empty')
+              KEYS=$(echo "$INIT" | jq -r '.recovery_keys_b64 // [] | join(",")')
+              
+              [ -z "$TOKEN" ] && echo "❌ Init failed: $INIT" && exit 1
+              
+              echo "  ✅ Initialized! Token: ${TOKEN:0:10}..."
+              
+              # Store in K8s Secret via API (no kubectl needed)
+              K8S_API="https://kubernetes.default.svc"
+              SA_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+              TOKEN_B64=$(echo -n "$TOKEN" | base64 | tr -d '\n')
+              KEYS_B64=$(echo -n "$KEYS" | base64 | tr -d '\n')
+              
+              # Try create, then patch if exists
+              SECRET_JSON="{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"metadata\":{\"name\":\"$SECRET_NAME\",\"namespace\":\"vault\"},\"data\":{\"root-token\":\"$TOKEN_B64\",\"recovery-keys\":\"$KEYS_B64\"}}"
+              HTTP_CODE=$(curl -sk -o /dev/null -w "%{http_code}" \
+                -X POST "$K8S_API/api/v1/namespaces/vault/secrets" \
+                -H "Authorization: Bearer $SA_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "$SECRET_JSON")
+              if [ "$HTTP_CODE" = "409" ]; then
+                # Already exists, patch it
+                curl -sk -X PATCH "$K8S_API/api/v1/namespaces/vault/secrets/$SECRET_NAME" \
+                  -H "Authorization: Bearer $SA_TOKEN" \
+                  -H "Content-Type: application/merge-patch+json" \
+                  -d "{\"data\":{\"root-token\":\"$TOKEN_B64\",\"recovery-keys\":\"$KEYS_B64\"}}" > /dev/null
+              fi
+              echo "  💾 Keys stored in secret vault/$SECRET_NAME (HTTP $HTTP_CODE)"
+              
+              # Wait for auto-unseal
+              echo "  ⏳ Waiting for KMS auto-unseal..."
+              for i in $(seq 1 24); do
+                  sleep 5
+                  S=$(curl -s "$VAULT_ADDR/v1/sys/health" | jq -r '.sealed')
+                  [ "$S" = "false" ] && echo "  ✅ Unsealed!" && break
+              done
+              
+              # Enable KV v2
+              if [ "$(curl -s "$VAULT_ADDR/v1/sys/health" | jq -r '.sealed')" = "false" ]; then
+                  curl -s -X POST "$VAULT_ADDR/v1/sys/mounts/secret" \
+                      -H "X-Vault-Token: $TOKEN" \
+                      -H "Content-Type: application/json" \
+                      -d '{"type": "kv", "options": {"version": "2"}}' 2>/dev/null || true
+                  echo "  ✅ KV v2 enabled"
+              fi
+              
+              echo "🎉 Vault init complete!"
+          else
+              echo "✅ Vault already initialized."
+              [ "$SEALED" = "true" ] && echo "⚠️  Sealed - waiting for KMS auto-unseal..." || true
+          fi
+          echo "✅ Done."
+          exit 0
+        env:
+        - name: HOME
+          value: /tmp
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+---
+# ServiceAccount with permissions to create secrets
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-init-sa
+  namespace: vault
+  labels:
+    software-factory.io/managed: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vault-init-role
+  namespace: vault
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vault-init-binding
+  namespace: vault
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vault-init-role
+subjects:
+- kind: ServiceAccount
+  name: vault-init-sa
+  namespace: vault

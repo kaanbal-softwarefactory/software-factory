@@ -1,0 +1,41 @@
+# kaanbal-api — API pública del engine
+#
+# Nombre reservado de plataforma bajo el prefijo "kaanbal" (ver
+# kaanbal-console/base/ingress.yaml). La consola también proxea /api/ por su
+# propio host, así que este ingress es para integraciones externas (n8n, CI,
+# webhooks de Jira) que necesitan una URL estable del backend.
+#
+# @kaanbal:if API_PUBLIC
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kaanbal-api
+  labels:
+    app: kaanbal-api
+    kaanbal-engine.io/exposure: public
+# @kaanbal:if CLUSTER_TLS
+  annotations:
+    cert-manager.io/cluster-issuer: "${KAANBAL_CLUSTER_ISSUER}"
+# @kaanbal:endif
+spec:
+  ingressClassName: ${KAANBAL_INGRESS_CLASS}
+# @kaanbal:if CLUSTER_TLS
+  tls:
+  - hosts:
+    - kaanbal-api.${KAANBAL_DOMAIN}
+    secretName: kaanbal-api-tls
+# @kaanbal:endif
+  rules:
+  - host: kaanbal-api.${KAANBAL_DOMAIN}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: kaanbal-api
+            port:
+              number: 8000
+# @kaanbal:else
+# API en modo tailnet: solo accesible desde el cluster y desde la VPN.
+# @kaanbal:endif

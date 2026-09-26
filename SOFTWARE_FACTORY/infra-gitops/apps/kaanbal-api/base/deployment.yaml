@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-api
+  labels:
+    app: kaanbal-api
+    software-factory.io/core: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kaanbal-api
+  template:
+    metadata:
+      labels:
+        app: kaanbal-api
+    spec:
+      serviceAccountName: kaanbal-api
+      containers:
+      - name: kaanbal-api
+        image: kaanbal-api-image
+        ports:
+        - containerPort: 8000
+        env:
+        # kaanbal-api-runtime lo crea el instalador con kubectl y nunca se
+        # versiona: contiene la contraseña de MongoDB y la firma de los JWT.
+        - name: MONGODB_URI
+          valueFrom:
+            secretKeyRef:
+              name: kaanbal-api-runtime
+              key: mongodb-uri
+        - name: DOMAIN
+          valueFrom:
+            configMapKeyRef:
+              name: kaanbal-system-config
+              key: domain
+        - name: GIT_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: kaanbal-system-config
+              key: git.provider
+        - name: BITBUCKET_WORKSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: kaanbal-system-config
+              key: git.workspace
+        - name: INFRA_REPO
+          valueFrom:
+            configMapKeyRef:
+              name: kaanbal-system-config
+              key: git.infra-repo
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kaanbal-api-runtime
+              key: secret-key
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+      volumes:
+      - name: workspace
+        emptyDir: {}

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-api
+spec:
+  template:
+    metadata:
+      labels:
+        environment: dev
+    spec:
+      containers:
+      - name: kaanbal-api
+        env:
+        - $patch: replace
+        - name: MONGODB_URI
+          value: "mongodb://admin:CHANGEME_DB_PASSWORD@datastore.prod.svc.cluster.local:27017/forge?authSource=admin"
+        - name: DOMAIN
+          value: "example.com"
+        - name: GIT_PROVIDER
+          value: "github"
+        - name: BITBUCKET_WORKSPACE
+          value: "your-org"
+        - name: INFRA_REPO
+          value: "infra-gitops"
+        - name: SECRET_KEY
+          value: "CHANGE_ME"

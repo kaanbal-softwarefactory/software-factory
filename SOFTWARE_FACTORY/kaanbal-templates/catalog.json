@@ -1,0 +1,311 @@
+{
+  "version": "4.1.0",
+  "categories": {
+    "frontend": {
+      "name": "Frontend",
+      "icon": "🎨",
+      "description": "Web applications"
+    },
+    "backend": {
+      "name": "Backend",
+      "icon": "⚙️",
+      "description": "APIs and services"
+    },
+    "database": {
+      "name": "Database",
+      "icon": "💾",
+      "description": "Data storage"
+    },
+    "workflow": {
+      "name": "Workflow",
+      "icon": "🔄",
+      "description": "Automation"
+    },
+    "iot": {
+      "name": "IoT / Messaging",
+      "icon": "📡",
+      "description": "MQTT brokers and device messaging"
+    }
+  },
+  "templates": [
+    {
+      "id": "vue3-spa",
+      "name": "Vue 3 SPA",
+      "description": "Vue 3 + Vite static site served by nginx",
+      "icon": "vue",
+      "color": "#42b883",
+      "category": "frontend",
+      "stack": ["vue3", "vite"],
+      "popular": true,
+      "status": "ready",
+      "port": 80,
+      "service_type": "http",
+      "creation_modes": ["scaffold", "empty", "upload"],
+      "secrets": [
+        {"name": "APP_SECRET", "auto_generate": true, "length": 32}
+      ]
+    },
+    {
+      "id": "react-spa",
+      "name": "React SPA",
+      "description": "React + Vite static site served by nginx",
+      "icon": "react",
+      "color": "#61dafb",
+      "category": "frontend",
+      "stack": ["react", "vite"],
+      "popular": true,
+      "status": "ready",
+      "port": 80,
+      "service_type": "http",
+      "creation_modes": ["scaffold", "empty", "upload"],
+      "secrets": [
+        {"name": "APP_SECRET", "auto_generate": true, "length": 32}
+      ]
+    },
+    {
+      "id": "fastapi-api",
+      "name": "FastAPI",
+      "description": "Python FastAPI service (REST + optional WebSocket)",
+      "icon": "python",
+      "color": "#009688",
+      "category": "backend",
+      "stack": ["python", "fastapi"],
+      "popular": true,
+      "status": "ready",
+      "port": 8000,
+      "service_type": "http",
+      "creation_modes": ["scaffold", "empty", "upload"],
+      "secrets": [
+        {"name": "APP_SECRET", "auto_generate": true, "length": 32}
+      ]
+    },
+    {
+      "id": "mongodb",
+      "name": "MongoDB",
+      "description": "MongoDB document database — secrets in Vault; bind from Wizard",
+      "icon": "mongodb",
+      "color": "#47a248",
+      "category": "database",
+      "stack": ["mongodb"],
+      "popular": true,
+      "status": "ready",
+      "port": 27017,
+      "service_type": "tcp",
+      "needs_repo": false,
+      "creation_modes": ["config-only"],
+      "docker_image": "mongo:7",
+      "tailscale_tags": ["tag:k8s", "tag:database"],
+      "volumes": [
+        {"name": "data", "mount_path": "/data/db", "size": "5Gi"}
+      ],
+      "secrets": [
+        {"name": "MONGO_INITDB_ROOT_USERNAME", "auto_generate": false, "pattern": "{env_prefix}admin"},
+        {"name": "MONGO_INITDB_ROOT_PASSWORD", "auto_generate": true, "length": 24},
+        {"name": "MONGO_INITDB_DATABASE", "auto_generate": false, "pattern": "{app_name_underscore}"}
+      ]
+    },
+    {
+      "id": "postgres",
+      "name": "PostgreSQL",
+      "description": "PostgreSQL database — secrets in Vault; bind from Wizard",
+      "icon": "postgres",
+      "color": "#336791",
+      "category": "database",
+      "stack": ["postgresql"],
+      "popular": true,
+      "status": "ready",
+      "port": 5432,
+      "service_type": "tcp",
+      "needs_repo": false,
+      "creation_modes": ["config-only"],
+      "docker_image": "postgres:16",
+      "tailscale_tags": ["tag:k8s", "tag:database"],
+      "volumes": [
+        {"name": "data", "mount_path": "/var/lib/postgresql/data", "size": "5Gi"}
+      ],
+      "env_vars": [
+        {"name": "PGDATA", "value": "/var/lib/postgresql/data/pgdata"}
+      ],
+      "secrets": [
+        {"name": "POSTGRES_USER", "auto_generate": false, "pattern": "{env_prefix}admin"},
+        {"name": "POSTGRES_PASSWORD", "auto_generate": true, "length": 24},
+        {"name": "POSTGRES_DB", "auto_generate": false, "pattern": "{app_name_underscore}"}
+      ]
+    },
+    {
+      "id": "n8n",
+      "name": "n8n",
+      "description": "Workflow automation — choose Public or VPN per environment (full channel)",
+      "icon": "n8n",
+      "color": "#ff6d5a",
+      "category": "workflow",
+      "stack": ["n8n"],
+      "popular": true,
+      "status": "ready",
+      "port": 5678,
+      "service_type": "http",
+      "needs_repo": false,
+      "creation_modes": ["config-only"],
+      "docker_image": "n8nio/n8n:latest",
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "512Mi"},
+        "limits": {"cpu": "1000m", "memory": "2Gi"}
+      },
+      "env_vars": [
+        {"name": "N8N_LISTEN_ADDRESS", "default": "0.0.0.0"},
+        {"name": "N8N_PORT", "default": "5678"},
+        {"name": "NODE_OPTIONS", "default": "--max-old-space-size=1024"},
+        {"name": "N8N_DIAGNOSTICS_ENABLED", "default": "false"},
+        {"name": "N8N_EDITOR_BASE_URL", "default": "https://{{APP_NAME}}.{{DOMAIN}}"},
+        {"name": "WEBHOOK_URL", "default": "https://{{APP_NAME}}.{{DOMAIN}}/"}
+      ],
+      "volumes": [
+        {"name": "data", "mount_path": "/home/node/.n8n", "size": "2Gi"}
+      ],
+      "exposure": {
+        "mode": "public",
+        "surfaces": {
+          "ui":      { "via": "auto", "path": "/", "label": "n8n UI" },
+          "webhook": { "via": "auto", "path": "/webhook/", "label": "Webhooks" },
+          "mcp":     { "via": "auto", "path": "/mcp/", "label": "MCP server" }
+        }
+      },
+      "secrets": [
+        {"name": "N8N_ENCRYPTION_KEY", "auto_generate": true, "length": 32}
+      ]
+    },
+    {
+      "id": "emqx",
+      "name": "EMQX",
+      "description": "MQTT broker Edge profile — LAN + Tailscale + WSS público (sin MQTT TCP en Internet)",
+      "icon": "emqx",
+      "color": "#5e6ad2",
+      "category": "iot",
+      "stack": ["mqtt", "emqx"],
+      "popular": true,
+      "status": "ready",
+      "port": 18083,
+      "service_type": "http",
+      "needs_repo": false,
+      "creation_modes": ["config-only"],
+      "docker_image": "emqx/emqx:5.8.3",
+      "tailscale_tags": ["tag:k8s", "tag:iot"],
+      "kind": "managed-service",
+      "deployment_driver": "emqx-edge",
+      "profiles": ["edge", "custom"],
+      "default_profile": "edge",
+      "volumes": [
+        {
+          "name": "data",
+          "mount_path": "/opt/emqx/data",
+          "size": "5Gi",
+          "retain_on_delete": true
+        }
+      ],
+      "ports": [
+        {"name": "mqtt", "port": 1883, "protocol": "TCP", "description": "MQTT TCP (ESP32 / n8n / edge)"},
+        {"name": "ws", "port": 8083, "protocol": "TCP", "description": "MQTT over WebSocket"},
+        {"name": "dashboard", "port": 18083, "protocol": "TCP", "description": "EMQX Dashboard (admin)"}
+      ],
+      "tailscale_tcp_ports": ["mqtt", "ws", "dashboard"],
+      "port_defaults": {
+        "mqtt": ["internal", "lan", "tailscale"],
+        "ws": ["internal", "lan", "tailscale", "public"],
+        "dashboard": ["internal", "lan", "tailscale"]
+      },
+      "port_channels_policy": {
+        "mqtt": {"forbid_public": true},
+        "ws": {"allow_public": true, "public_path": "/mqtt", "public_host_prefix": "mqtt"},
+        "dashboard": {"allow_public": false, "warn_public": true}
+      },
+      "config_schema": {
+        "profile": {
+          "type": "string",
+          "enum": ["edge", "custom"],
+          "default": "edge",
+          "label": "Perfil de despliegue"
+        },
+        "topic_prefix": {
+          "type": "string",
+          "default": "acuaponia",
+          "label": "Prefijo de topics MQTT"
+        },
+        "storage_size": {
+          "type": "string",
+          "default": "5Gi",
+          "label": "Tamaño PVC"
+        }
+      },
+      "exposure": {
+        "mode": "tailscale",
+        "surfaces": {
+          "dashboard": { "via": "auto", "path": "/", "label": "Dashboard (L7 HTTP)" },
+          "mqtt":      { "via": "tcp",  "path": "",  "label": "MQTT (L4 :1883)" },
+          "ws":        { "via": "tcp",  "path": "/mqtt", "label": "MQTT over WS / WSS" }
+        }
+      },
+      "secrets": [
+        {"name": "EMQX_DASHBOARD__DEFAULT_USERNAME", "auto_generate": false, "pattern": "admin"},
+        {"name": "EMQX_DASHBOARD__DEFAULT_PASSWORD", "auto_generate": true, "length": 24},
+        {"name": "EMQX_MQTT_DEVICE_USERNAME", "auto_generate": false, "pattern": "device"},
+        {"name": "EMQX_MQTT_DEVICE_PASSWORD", "auto_generate": true, "length": 24},
+        {"name": "EMQX_MQTT_FRONTEND_USERNAME", "auto_generate": false, "pattern": "frontend"},
+        {"name": "EMQX_MQTT_FRONTEND_PASSWORD", "auto_generate": true, "length": 24},
+        {"name": "EMQX_TOPIC_PREFIX", "auto_generate": false, "pattern": "acuaponia"}
+      ],
+      "resources": {
+        "requests": {"cpu": "100m", "memory": "256Mi"},
+        "limits": {"cpu": "500m", "memory": "512Mi"}
+      }
+    }
+  ],
+  "stacks": [
+    {
+      "id": "vue-fastapi-mongo",
+      "name": "Vue + FastAPI + MongoDB",
+      "description": "Sitio Vue 3, API FastAPI vinculada a su Mongo. La API queda publicada y la base solo dentro del clúster.",
+      "icon": "🧩",
+      "color": "#42b883",
+      "popular": true,
+      "components": [
+        {"role": "database", "template": "mongodb", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "fastapi-api", "suffix": "-api", "exposure": "public", "binds": "database"},
+        {"role": "frontend", "template": "vue3-spa", "suffix": "", "exposure": "public", "consumes": "backend", "can_be_homepage": true}
+      ]
+    },
+    {
+      "id": "vue-fastapi-postgres",
+      "name": "Vue + FastAPI + PostgreSQL",
+      "description": "El mismo sitio con PostgreSQL: para datos relacionales, migraciones y reportes.",
+      "icon": "🐘",
+      "color": "#336791",
+      "popular": true,
+      "components": [
+        {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "fastapi-api", "suffix": "-api", "exposure": "public", "binds": "database"},
+        {"role": "frontend", "template": "vue3-spa", "suffix": "", "exposure": "public", "consumes": "backend", "can_be_homepage": true}
+      ]
+    },
+    {
+      "id": "react-fastapi-postgres",
+      "name": "React + FastAPI + PostgreSQL",
+      "description": "Igual que el anterior, con React en el frontend.",
+      "icon": "⚛️",
+      "color": "#61dafb",
+      "popular": false,
+      "components": [
+        {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "fastapi-api", "suffix": "-api", "exposure": "public", "binds": "database"},
+        {"role": "frontend", "template": "react-spa", "suffix": "", "exposure": "public", "consumes": "backend", "can_be_homepage": true}
+      ]
+    }
+  ],
+  "exposure_modes": {
+    "public": {"name": "Public (HTTPS)", "icon": "🌐", "description": "Ingress + Cloudflare subdomain"},
+    "tailscale": {"name": "Private VPN", "icon": "🔒", "description": "Tailscale MagicDNS"},
+    "both": {"name": "Mixed", "icon": "🔀", "description": "Public paths + VPN for the rest (e.g. n8n webhooks)"},
+    "lan": {"name": "LAN", "icon": "📡", "description": "NodePort on cluster LAN IP"},
+    "internal": {"name": "Cluster only", "icon": "🏠", "description": "{app}.{env}.svc.cluster.local"},
+    "off": {"name": "Off", "icon": "⏹", "description": "No exposure, replicas=0"}
+  }
+}

@@ -1,0 +1,6 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaanbal-api
+  labels:
+    kaanbal-engine.io/environment: dev

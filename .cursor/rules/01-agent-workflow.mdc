@@ -1,0 +1,15 @@
+---
+description: Flujo de trabajo del agente y evidencia
+alwaysApply: true
+---
+
+# Flujo de trabajo
+
+1. Lee el issue completo antes de escribir código; si no hay, propón crearlo.
+2. Usa la skill `tarea-iniciar`: rama `feat/<tema>` o `fix/<tema>`, nunca `main`.
+3. Commits en formato Conventional Commits: `tipo(alcance): resumen`.
+4. Al terminar, usa la skill `tarea-cerrar`: pruebas, pull request y comentario con evidencia.
+5. **Pruebas manuales** → regístralas con el bloque PRUEBA (ver `AGENTS.md`).
+6. Una tarea, una rama, un PR.
+
+Subagentes: `explore` para mapear código, un revisor para el PR, un investigador para CI roto.

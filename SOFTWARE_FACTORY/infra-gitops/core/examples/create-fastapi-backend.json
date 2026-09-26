@@ -1,0 +1,33 @@
+{
+  "_comment": "Example: Create a FastAPI backend for sensor data",
+  "app": {
+    "name": "sensor-api",
+    "template": "tpl-fastapi-standard",
+    "description": "REST API for sensor data ingestion and queries"
+  },
+  "project": {
+    "key": "ACUA",
+    "name": "Acuaponia IoT"
+  },
+  "exposure": {
+    "type": "private",
+    "paths": {
+      "public": ["/api/v1/webhook", "/health"],
+      "private": ["/api/v1/admin", "/docs"]
+    }
+  },
+  "resources": {
+    "replicas": 2,
+    "cpu": "200m",
+    "memory": "256Mi"
+  },
+  "environment": "both",
+  "integrations": {
+    "mongodb": true,
+    "mqtt": {
+      "enabled": true,
+      "topics": ["sensors/+/data"]
+    },
+    "vault": true
+  }
+}

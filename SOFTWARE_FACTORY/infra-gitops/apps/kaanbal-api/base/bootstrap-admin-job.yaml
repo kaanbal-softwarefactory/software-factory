@@ -1,0 +1,71 @@
+# Job que crea el usuario admin de Kaanbal en el primer deploy.
+# Corre como ArgoCD PostSync hook - se ejecuta una vez y se elimina solo.
+# Si ya existe un usuario, la API retorna 403 y el Job termina exitosamente.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaanbal-bootstrap-admin
+  namespace: prod
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: bootstrap
+        image: python:3.11-alpine
+        command:
+        - python3
+        - -c
+        - |
+          import os, urllib.request, json, time, sys
+
+          user = os.environ.get("KAANBAL_ADMIN_USER", "admin")
+          pwd  = os.environ.get("KAANBAL_ADMIN_PASS", "")
+          url  = "http://kaanbal-api.prod.svc.cluster.local:8000/api/v1/auth/signup"
+
+          if not pwd:
+              print("ERROR: KAANBAL_ADMIN_PASS is empty, skipping bootstrap")
+              sys.exit(0)
+
+          # Wait for kaanbal-api to be ready (max 5 min)
+          for i in range(30):
+              try:
+                  urllib.request.urlopen("http://kaanbal-api.prod.svc.cluster.local:8000/health", timeout=5)
+                  print("kaanbal-api is ready")
+                  break
+              except Exception as e:
+                  print(f"Waiting for kaanbal-api... ({i+1}/30) {e}")
+                  time.sleep(10)
+
+          data = json.dumps({"username": user, "hashed_password": pwd, "email": ""}).encode()
+          req  = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+          try:
+              resp = urllib.request.urlopen(req)
+              print(f"SUCCESS: Admin user '{user}' created (HTTP {resp.status})")
+          except urllib.error.HTTPError as e:
+              body = e.read().decode()
+              if e.code == 403:
+                  print(f"OK: Users already exist, bootstrap not needed (HTTP 403)")
+              elif e.code == 400:
+                  print(f"OK: User already registered (HTTP 400): {body}")
+              else:
+                  print(f"ERROR: HTTP {e.code}: {body}")
+                  sys.exit(1)
+        env:
+        - name: KAANBAL_ADMIN_USER
+          valueFrom:
+            secretKeyRef:
+              name: kaanbal-bootstrap-creds
+              key: username
+              optional: true
+        - name: KAANBAL_ADMIN_PASS
+          valueFrom:
+            secretKeyRef:
+              name: kaanbal-bootstrap-creds
+              key: password
+              optional: true

@@ -1,0 +1,17 @@
+---
+description: GitOps e infra-gitops — lecciones de kustomize e ingress
+globs: SOFTWARE_FACTORY/infra-gitops/**
+alwaysApply: false
+---
+
+# GitOps
+
+- Fuente de despliegue: `infra-gitops` → Argo CD (ApplicationSets).
+- `infra-gitops/` del monorepo es una **plantilla**: hosts, organización y usuario de Docker Hub
+  viven como `${KAANBAL_*}` y el instalador la renderiza. No escribas valores reales en ella.
+- `.kaanbal-baseline` declara qué rutas se publican en el `infra-gitops` de cada instalación.
+- Overlay `kustomization.yaml`: `resources` con `  - ../../base`.
+- No uses `nginx.ingress.kubernetes.io/configuration-snippet` (lo bloquea la admisión).
+- No fuerces backend GRPC en rutas que no lo son.
+- Valida con `kubectl kustomize` antes de subir.
+- No pongas secretos en un overlay del monorepo: allí solo van marcadores `CHANGE_ME`.

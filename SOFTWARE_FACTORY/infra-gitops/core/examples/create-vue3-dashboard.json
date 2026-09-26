@@ -1,0 +1,40 @@
+{
+  "_comment": "Example: Create a Vue3 dashboard for aquaponics monitoring",
+  "app": {
+    "name": "acuaponia-dashboard",
+    "template": "tpl-vue3-spa-standard",
+    "description": "Real-time monitoring dashboard for aquaponics sensors"
+  },
+  "project": {
+    "key": "ACUA",
+    "name": "Acuaponia IoT",
+    "client": "my-company"
+  },
+  "exposure": {
+    "type": "public",
+    "subdomain": "acuaponia-dashboard"
+  },
+  "resources": {
+    "replicas": 1,
+    "cpu": "100m",
+    "memory": "128Mi"
+  },
+  "environment": "both",
+  "integrations": {
+    "mongodb": true,
+    "mqtt": {
+      "enabled": true,
+      "topics": ["sensors/#", "actuators/#"]
+    }
+  },
+  "metadata": {
+    "jira": {
+      "projectKey": "ACUA",
+      "issueKey": "ACUA-42"
+    },
+    "labels": {
+      "domain": "iot",
+      "tier": "frontend"
+    }
+  }
+}

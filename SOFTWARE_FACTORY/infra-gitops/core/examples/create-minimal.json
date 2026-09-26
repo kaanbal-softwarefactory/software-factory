@@ -1,0 +1,11 @@
+{
+  "_comment": "Minimal example - just name and template",
+  "app": {
+    "name": "my-new-app",
+    "template": "tpl-vue3-spa-standard"
+  },
+  "project": {
+    "key": "TEST",
+    "name": "Test Project"
+  }
+}

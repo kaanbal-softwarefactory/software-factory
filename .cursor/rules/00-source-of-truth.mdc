@@ -1,0 +1,13 @@
+---
+description: Fuente de verdad del proyecto
+alwaysApply: true
+---
+
+# Fuente de verdad
+
+- **Código y contratos técnicos** → Git (este repositorio).
+- **Decisiones de arquitectura** → `docs/adr/`, una por decisión. Se enlazan, no se duplican.
+- **Trabajo pendiente** → los issues del repositorio.
+- **Estado operativo entre sesiones** → `AGENTS/STATE.md`.
+
+Lee `docs/CONTEXT_MAP.yaml` para saber qué documento cargar según el área que vas a tocar.

@@ -1,0 +1,6 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+# Los dos motores que soporta db.py: el que sobre no estorba y evita que
+# cambiar de base obligue a tocar la imagen.
+pymongo==4.10.1
+psycopg[binary]==3.2.3
