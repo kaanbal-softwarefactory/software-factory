@@ -10,7 +10,7 @@ bcrypt==4.0.1
 motor==3.3.2
 pymongo==4.8.0
 python-multipart==0.0.9
-kubernetes==29.0.0
+kubernetes==36.0.3
 gitpython==3.1.41
 pyyaml==6.0.1
 atlassian-python-api==3.41.3
