@@ -54,15 +54,15 @@ def stuck_bundle(lines, env_names=BINDING, databases=()):
         "workload": {"exists": True, "kind": "Deployment", "desired": 1, "ready": 1, "updated": 1,
                      "conditions": [{"type": "Progressing", "status": "False", "reason": "ProgressDeadlineExceeded"}]},
         "revisions": [
-            {"name": "api-old", "revision": 1, "image": "acme/north-star-bay-api:prod-4a5b6c7",
+            {"name": "api-old", "revision": 1, "image": "acme/north-star-bay-api:v1",
              "desired": 1, "ready": 1, "created": "2026-09-22T19:37:00+00:00"},
-            {"name": "api-new", "revision": 2, "image": "acme/north-star-bay-api:prod-9f1c2d3",
+            {"name": "api-new", "revision": 2, "image": "acme/north-star-bay-api:v2",
              "desired": 1, "ready": 0, "created": "2026-09-22T20:10:00+00:00"},
         ],
         "pods": [
-            {"name": "api-old-1", "owner": "api-old", "ready": True, "restarts": 1, "image": "acme/north-star-bay-api:prod-4a5b6c7"},
+            {"name": "api-old-1", "owner": "api-old", "ready": True, "restarts": 1, "image": "acme/north-star-bay-api:v1"},
             {"name": "api-new-1", "owner": "api-new", "ready": False, "restarts": 1152,
-             "image": "acme/north-star-bay-api:prod-9f1c2d3", "waiting_reason": "CrashLoopBackOff",
+             "image": "acme/north-star-bay-api:v2", "waiting_reason": "CrashLoopBackOff",
              "last_reason": "Error", "last_exit_code": 1},
         ],
         "events": [], "logs": {"pod": "api-new-1", "lines": list(lines)},
@@ -89,8 +89,8 @@ class RealIncidentTests(unittest.TestCase):
     def test_the_old_version_still_serving_is_explained(self):
         result = diagnosis.analyze(stuck_bundle(KEYERROR_MONGO))
         stuck = next(f for f in result["findings"] if f["code"] == "stuck_rollout")
-        self.assertEqual(stuck["new_image"], "acme/north-star-bay-api:prod-9f1c2d3")
-        self.assertEqual(stuck["serving_image"], "acme/north-star-bay-api:prod-4a5b6c7")
+        self.assertEqual(stuck["new_image"], "acme/north-star-bay-api:v2")
+        self.assertEqual(stuck["serving_image"], "acme/north-star-bay-api:v1")
         self.assertIn("1152 reinicios", stuck["detail"])
 
     def test_2_the_database_rejects_credentials_on_a_volume_from_a_previous_life(self):
@@ -201,7 +201,7 @@ class StateTests(unittest.TestCase):
         bundle["revisions"][0]["ready"] = 1
         bundle["workload"]["conditions"] = []
         bundle["pods"] = [{"name": "api-new-1", "owner": "api-new", "ready": True, "restarts": 3,
-                           "image": "acme/north-star-bay-api:prod-9f1c2d3"}]
+                           "image": "acme/north-star-bay-api:v2"}]
         result = diagnosis.analyze(bundle)
         self.assertEqual(result["status"], "ok")
         self.assertIn("Todo en orden", result["summary"])

@@ -1,0 +1,6 @@
+# Falsos positivos de la regla generic-api-key en datos de prueba: etiquetas de imagen
+# del tipo "<repo>-api:<etiqueta>", que la regla lee como "api: <clave>". El árbol
+# actual ya no las usa; quedan en un commit publicado de main, que no se reescribe.
+17722afa8bb23a2d36e88d7c3578afdcffe3db01:SOFTWARE_FACTORY/kaanbal-api/tests/test_diagnosis.py:generic-api-key:57
+17722afa8bb23a2d36e88d7c3578afdcffe3db01:SOFTWARE_FACTORY/kaanbal-api/tests/test_diagnosis.py:generic-api-key:63
+17722afa8bb23a2d36e88d7c3578afdcffe3db01:SOFTWARE_FACTORY/kaanbal-api/tests/test_diagnosis.py:generic-api-key:93
