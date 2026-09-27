@@ -5,6 +5,16 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-09-27
+
+### Fixed
+- A core upgrade run from the node could publish files from the previous version.
+  When part of the node's checkout belonged to another user (for example after a
+  `sudo git pull`), git could not rewrite those files and the upgrade went on with the
+  checkout half updated. The script now returns the checkout to its owner before
+  updating it and stops, without deploying, if the checkout does not match the requested
+  revision exactly. Upgrades started from the console were not affected.
+
 ## [1.1.0] - 2026-09-27
 
 ### Added
