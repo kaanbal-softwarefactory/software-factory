@@ -1,3 +1,3 @@
-"""MCP de Kaanbal: la plataforma, vista por un agente, con el token de cada persona."""
+"""MCP de Kaanbal: puente stdio hacia el MCP que sirve la propia plataforma en /mcp."""
 
-__version__ = "0.1.0"
+__version__ = "1.1.0"

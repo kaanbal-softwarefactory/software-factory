@@ -68,6 +68,7 @@ PERMISSIONS: Tuple[PermissionDef, ...] = (
     permission("apps.apps.expose", "Cambiar exposición, dominio, homepage y grupo."),
     permission("apps.apps.diagnose", "Ver logs, pipeline y diagnóstico de una app."),
     permission("apps.maintenance.run", "Limpiezas masivas de secretos y dispositivos huérfanos.", risk=RISK_HIGH),
+    permission("apps.variables.manage", "Agregar o cambiar variables de entorno de una app (sin ver sus valores).", risk=RISK_HIGH),
     # Stacks
     permission("stacks.catalog.view", "Ver el catálogo de stacks."),
     permission("stacks.stacks.launch", "Lanzar un stack completo."),
@@ -130,6 +131,9 @@ _SEG = r"[^/]+"
 _ID = r"[0-9a-fA-F]{24}"
 _V1 = "/api/v1"
 
+# El MCP remoto vive fuera de /api/v1 para que su URL sea corta y estable.
+MCP_PATH = "/mcp"
+
 
 # ── Reglas ACL ───────────────────────────────────────────────────────────
 # Las literales van ANTES que las paramétricas: gana la primera que coincide.
@@ -156,6 +160,8 @@ ACL_RULES: Tuple[AclRule, ...] = (
     # Solo los nombres de las variables, nunca sus valores: por eso alcanza con
     # diagnose y no hace falta system.secrets.view.
     rule("GET", rf"{_V1}/apps/{_SEG}/env-vars", "apps.apps.diagnose"),
+    rule("GET", rf"{_V1}/apps/{_SEG}/diagnosis", "apps.apps.diagnose"),
+    rule("PUT", rf"{_V1}/apps/{_SEG}/variables/{_SEG}", "apps.variables.manage"),
     rule("POST", rf"{_V1}/apps/{_SEG}/bindings/repair", "apps.apps.deploy"),
     rule("GET", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.deploy"),
@@ -283,6 +289,12 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("DELETE", rf"{_V1}/security/tokens/{_SEG}", "security.tokens.self"),
     rule("GET", rf"{_V1}/security/tokens/all", "security.tokens.admin"),
 
+    # MCP remoto: basta con estar autenticado; cada herramienta exige su propio
+    # permiso al pasar por la REST (y el router lo revisa antes, para explicarlo).
+    rule("POST", MCP_PATH, None),
+    rule("GET", MCP_PATH, None),
+    rule("DELETE", MCP_PATH, None),
+
     # Instalación (ver BOOTSTRAP_PATHS: abiertos solo mientras no hay cuentas)
     rule("GET", rf"{_V1}/setup/status", None),
     rule("POST", rf"{_V1}/setup/validate/{_SEG}", "setup.install.run"),
@@ -335,7 +347,7 @@ AGENT_PERMISSIONS = (
 )
 
 OPERATOR_PERMISSIONS = AGENT_PERMISSIONS + (
-    "apps.apps.create", "apps.apps.deploy", "apps.apps.expose",
+    "apps.apps.create", "apps.apps.deploy", "apps.apps.expose", "apps.variables.manage",
     "stacks.stacks.launch", "domains.domains.manage", "clients.clients.manage",
     "templates.custom.manage", "links.links.manage", "system.sync.run",
     "logs.records.export", "admin.settings.view", "security.tokens.self",

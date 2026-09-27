@@ -1,3 +1,3 @@
-from .server import run
+from .bridge import main
 
-run()
+main()

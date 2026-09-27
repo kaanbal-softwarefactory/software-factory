@@ -318,18 +318,25 @@
                   <div v-for="lane in siteLanes(site)" :key="lane.id" class="rounded-lg border border-white/5 bg-white/[0.02] p-3 min-w-0">
                     <p class="text-[10px] font-semibold uppercase tracking-wider mb-2" :class="lane.color">{{ lane.icon }} {{ lane.label }}</p>
                     <div class="space-y-1.5">
-                      <button
-                        v-for="member in lane.apps"
-                        :key="member.id"
-                        @click="viewAppDetails(member)"
-                        class="w-full flex items-center gap-2 text-left text-xs rounded-md px-2 py-1.5 hover:bg-white/5 min-w-0"
-                        :title="member.domain?.public ? getAppUrl(member) : 'Privada · ' + privateLabel(member)"
-                      >
-                        <span :class="['w-2 h-2 rounded-full shrink-0', getEnvDot(member, primaryEnv(member))]"></span>
-                        <span class="font-mono text-slate-200 truncate">{{ appLabel(member) }}</span>
-                        <span v-if="lane.id === 'frontend'" class="ml-auto shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25">raíz</span>
-                        <span v-else-if="!member.domain?.public" class="ml-auto shrink-0 text-[9px] text-slate-500">🔒 {{ privateLabel(member) }}</span>
-                      </button>
+                      <div v-for="member in lane.apps" :key="member.id" class="flex items-center gap-1 min-w-0">
+                        <button
+                          @click="viewAppDetails(member)"
+                          class="flex-1 flex items-center gap-2 text-left text-xs rounded-md px-2 py-1.5 hover:bg-white/5 min-w-0"
+                          :title="member.domain?.public ? getAppUrl(member) : 'Privada · ' + privateLabel(member)"
+                        >
+                          <span :class="['w-2 h-2 rounded-full shrink-0', getEnvDot(member, primaryEnv(member))]"></span>
+                          <span class="font-mono text-slate-200 truncate">{{ appLabel(member) }}</span>
+                          <span v-if="lane.id === 'frontend'" class="ml-auto shrink-0 text-[9px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/25">raíz</span>
+                          <span v-else-if="!member.domain?.public" class="ml-auto shrink-0 text-[9px] text-slate-500">🔒 {{ privateLabel(member) }}</span>
+                        </button>
+                        <button
+                          v-if="needsDiagnosis(member)"
+                          @click="openDiagnosis(member)"
+                          class="shrink-0 text-xs px-1.5 py-1 rounded-md hover:bg-red-500/15"
+                          title="Diagnosticar: por qué no funciona"
+                          aria-label="Diagnosticar"
+                        >🩺</button>
+                      </div>
                       <p v-if="!lane.apps.length" class="text-[11px] text-slate-600 px-2 py-1">Sin {{ lane.addLabel }} todavía.</p>
                     </div>
                     <div v-if="lane.category" class="mt-2 pt-2 border-t border-white/5 flex items-center gap-2 flex-wrap">
@@ -502,6 +509,9 @@
                     >
                       <span>🔌</span> {{ bindingsRepairing === app.name ? 'Publicando…' : 'Reconectar base de datos' }}
                     </button>
+                    <button @click="openDiagnosis(app); app.showMenu = false" class="w-full px-4 py-3 text-left text-sm hover:bg-white/5 flex items-center gap-3 text-cyan-300">
+                      <span>🩺</span> Diagnosticar
+                    </button>
                     <button v-if="app.argocd?.isDegraded" @click="analyzeApp(app); app.showMenu = false" class="w-full px-4 py-3 text-left text-sm hover:bg-white/5 flex items-center gap-3 text-purple-400">
                       <span>🔍</span> AI Analysis
                     </button>
@@ -602,6 +612,17 @@
                 </button>
               </div>
             </div>
+          </div>
+
+          <!-- Algo no está bien: el diagnóstico lo explica en lenguaje simple -->
+          <div v-if="needsDiagnosis(app)" class="mx-6 mb-4">
+            <button
+              @click="openDiagnosis(app)"
+              class="w-full flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm transition-colors"
+              :class="app.argocd?.isDegraded ? 'border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20' : 'border-sky-500/30 bg-sky-500/10 text-sky-200 hover:bg-sky-500/20'"
+            >
+              <span>🩺</span> {{ app.argocd?.isDegraded ? 'Algo falla: ver por qué' : '¿Se queda desplegando? Ver por qué' }}
+            </button>
           </div>
 
           <!-- AI Summary -->
@@ -1331,6 +1352,121 @@
       </Transition>
     </Teleport>
 
+    <!-- Diagnóstico: por qué la app no funciona, en lenguaje simple -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div v-if="modals.diagnosis.show" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" @click="closeDiagnosis"></div>
+          <div class="relative bg-gradient-to-b from-slate-800 to-slate-900 border border-cyan-500/30 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+            <div class="h-1 bg-gradient-to-r from-cyan-500 to-blue-500"></div>
+            <div class="p-6 border-b border-white/5 flex items-center gap-3 flex-wrap">
+              <div class="w-12 h-12 rounded-xl bg-cyan-500/15 flex items-center justify-center text-2xl shrink-0">🩺</div>
+              <div class="min-w-0 flex-1">
+                <h3 class="text-xl font-bold text-white">Diagnóstico</h3>
+                <p class="text-sm text-slate-400 truncate">{{ modals.diagnosis.app?.display_name || modals.diagnosis.app?.name }}</p>
+              </div>
+              <select
+                v-if="(modals.diagnosis.app?.environments || []).length > 1"
+                v-model="modals.diagnosis.env"
+                @change="loadDiagnosis"
+                class="bg-slate-900 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-slate-200"
+              >
+                <option v-for="env in modals.diagnosis.app.environments" :key="env" :value="env">{{ env }}</option>
+              </select>
+              <button
+                @click="loadDiagnosis"
+                :disabled="modals.diagnosis.loading"
+                class="px-3 py-1.5 text-xs rounded-lg border border-white/10 text-slate-300 hover:bg-white/5 disabled:opacity-50"
+              >Volver a revisar</button>
+              <button @click="closeDiagnosis" class="p-2 hover:bg-white/10 rounded-lg" aria-label="Cerrar">
+                <span class="text-xl text-slate-400">×</span>
+              </button>
+            </div>
+
+            <div class="p-6 overflow-y-auto space-y-4">
+              <div v-if="modals.diagnosis.revealed" class="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <p class="text-sm text-amber-200 font-medium">{{ modals.diagnosis.revealed.variable }} generada</p>
+                <p class="text-xs text-amber-200/70 mt-1">Cópiala ahora: no se vuelve a mostrar. La app se reinicia sola con la variable nueva.</p>
+                <div class="mt-2 flex gap-2">
+                  <code class="flex-1 bg-black/40 rounded-lg px-3 py-2 text-sm text-white break-all">{{ modals.diagnosis.revealed.value }}</code>
+                  <button @click="copySecret(modals.diagnosis.revealed.value)" class="px-3 py-2 rounded-lg border border-white/10 text-slate-200 text-sm hover:bg-white/5">Copiar</button>
+                </div>
+              </div>
+
+              <div v-if="modals.diagnosis.loading && !modals.diagnosis.data" class="text-center py-12">
+                <div class="inline-block animate-spin text-3xl mb-3">⚙️</div>
+                <p class="text-slate-400">Revisando pods, eventos y logs…</p>
+              </div>
+
+              <div v-else-if="modals.diagnosis.error" class="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+                {{ modals.diagnosis.error }}
+              </div>
+
+              <template v-else-if="modals.diagnosis.data">
+                <div v-if="modals.diagnosis.data.status === 'ok'" class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-emerald-200">
+                  ✅ {{ modals.diagnosis.data.summary }}
+                </div>
+
+                <div
+                  v-for="(finding, index) in modals.diagnosis.data.findings"
+                  :key="finding.code + index"
+                  class="rounded-xl border p-4 space-y-3"
+                  :class="diagnosisCardStyle(finding.severity)"
+                >
+                  <div class="flex items-start gap-3">
+                    <span class="text-lg leading-none mt-0.5">{{ finding.severity === 'info' ? 'ℹ️' : '⚠️' }}</span>
+                    <div class="min-w-0">
+                      <p class="font-semibold text-white">{{ finding.title }}</p>
+                      <p class="text-sm text-slate-300 mt-1 leading-relaxed">{{ finding.detail }}</p>
+                    </div>
+                  </div>
+                  <details v-if="finding.evidence?.length" class="text-xs">
+                    <summary class="cursor-pointer text-slate-400 hover:text-slate-200">Ver evidencia</summary>
+                    <pre class="mt-2 bg-black/40 rounded-lg p-3 text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">{{ finding.evidence.join('\n') }}</pre>
+                  </details>
+                  <div v-if="finding.actions?.length" class="flex flex-wrap gap-2">
+                    <template v-for="action in finding.actions" :key="diagnosisActionKey(action)">
+                      <div v-if="action.id === 'set_app_variable' && !action.generate" class="flex gap-2 w-full">
+                        <input
+                          v-model="modals.diagnosis.values[action.variable]"
+                          :placeholder="`Valor de ${action.variable}`"
+                          class="flex-1 min-w-0 bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white"
+                        />
+                        <button
+                          @click="runDiagnosisAction(action)"
+                          :disabled="!modals.diagnosis.values[action.variable] || !!modals.diagnosis.busy"
+                          class="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm disabled:opacity-50"
+                        >{{ modals.diagnosis.busy === diagnosisActionKey(action) ? 'Guardando…' : 'Guardar' }}</button>
+                      </div>
+                      <button
+                        v-else
+                        @click="runDiagnosisAction(action)"
+                        :disabled="!!modals.diagnosis.busy"
+                        class="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm disabled:opacity-50"
+                      >{{ modals.diagnosis.busy === diagnosisActionKey(action) ? 'Aplicando…' : action.label }}</button>
+                    </template>
+                  </div>
+                </div>
+
+                <details v-if="modals.diagnosis.data.pods?.length" class="text-xs text-slate-400">
+                  <summary class="cursor-pointer hover:text-slate-200">Pods ({{ modals.diagnosis.data.pods.length }})</summary>
+                  <div class="mt-2 space-y-1">
+                    <div v-for="pod in modals.diagnosis.data.pods" :key="pod.name" class="flex flex-wrap gap-x-3 border-t border-white/5 pt-1">
+                      <span class="font-mono text-slate-300">{{ pod.name }}</span>
+                      <span>{{ pod.ready ? 'listo' : (pod.waiting_reason || 'no listo') }}</span>
+                      <span>{{ pod.restarts }} reinicios</span>
+                      <span class="font-mono truncate">{{ pod.image }}</span>
+                    </div>
+                  </div>
+                </details>
+                <p class="text-[11px] text-slate-500">Revisado: {{ formatDate(modals.diagnosis.data.checked_at) }}</p>
+              </template>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- AI Analysis Modal -->
     <Teleport to="body">
       <Transition name="modal">
@@ -1574,6 +1710,7 @@ const modals = reactive({
   environments: { show: false, app: null },
   exposureManager: { show: false, app: null },
   analysis: { show: false, app: null, data: null, loading: false },
+  diagnosis: { show: false, app: null, env: 'prod', loading: false, data: null, error: '', busy: '', values: {}, revealed: null },
   tagsEditor: { show: false, app: null, tags: [], newTag: '', saving: false }
 })
 
@@ -2807,6 +2944,99 @@ const repairBindings = async (app) => {
   } finally {
     bindingsRepairing.value = ''
   }
+}
+
+// Diagnóstico: el API dice qué falla y propone acciones de una lista segura.
+const DIAGNOSIS_RECHECK_MS = 8000
+
+const needsDiagnosis = (app) => {
+  const envArgo = app.argocd_per_env?.[primaryEnv(app)]
+  const state = envArgo?.exists ? envArgo : app.argocd
+  return Boolean(state) && !state.isHealthy
+}
+
+const openDiagnosis = (app) => {
+  const envs = app.environments || []
+  modals.diagnosis.app = app
+  modals.diagnosis.env = envs.includes('prod') ? 'prod' : (envs[0] || 'prod')
+  modals.diagnosis.data = null
+  modals.diagnosis.values = {}
+  modals.diagnosis.revealed = null
+  modals.diagnosis.show = true
+  loadDiagnosis()
+}
+
+const closeDiagnosis = () => {
+  modals.diagnosis.show = false
+  modals.diagnosis.revealed = null
+  modals.diagnosis.values = {}
+}
+
+const loadDiagnosis = async () => {
+  const app = modals.diagnosis.app
+  if (!app) return
+  modals.diagnosis.loading = true
+  modals.diagnosis.error = ''
+  try {
+    const { data } = await axios.get(`/api/v1/apps/${app.name}/diagnosis`, { params: { env: modals.diagnosis.env } })
+    modals.diagnosis.data = data
+  } catch (e) {
+    modals.diagnosis.data = null
+    modals.diagnosis.error = e.response?.data?.detail || 'No se pudo diagnosticar la app.'
+  } finally {
+    modals.diagnosis.loading = false
+  }
+}
+
+const diagnosisActionKey = (action) => `${action.id}:${action.variable || ''}`
+
+const runDiagnosisAction = async (action) => {
+  const app = modals.diagnosis.app
+  if (!app) return
+  modals.diagnosis.busy = diagnosisActionKey(action)
+  try {
+    if (action.id === 'repair_db_bindings') {
+      const { data } = await axios.post(`/api/v1/apps/${app.name}/bindings/repair`)
+      showToast(data.added ? 'success' : 'info', 'Conexión a la base', data.message)
+    } else if (action.id === 'sync_app') {
+      await syncApp(app)
+    } else if (action.id === 'set_app_variable') {
+      const body = action.generate
+        ? { generate: true, reveal: true }
+        : { value: modals.diagnosis.values[action.variable] }
+      body.environments = [modals.diagnosis.env]
+      const { data } = await axios.put(`/api/v1/apps/${app.name}/variables/${action.variable}`, body)
+      if (data.value) modals.diagnosis.revealed = { variable: action.variable, value: data.value }
+      modals.diagnosis.values[action.variable] = ''
+      showToast('success', action.variable, data.message)
+    }
+    setTimeout(() => { if (modals.diagnosis.show) loadDiagnosis() }, DIAGNOSIS_RECHECK_MS)
+  } catch (e) {
+    showToast('error', 'No se pudo aplicar', e.response?.data?.detail || e.message)
+  } finally {
+    modals.diagnosis.busy = ''
+  }
+}
+
+// Como copyToClipboard, pero sin mostrar el valor en el aviso.
+const copySecret = async (text) => {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch (e) {
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    document.body.appendChild(textarea)
+    textarea.select()
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+  }
+  showToast('success', 'Copiado', 'El valor quedó en el portapapeles.')
+}
+
+const diagnosisCardStyle = (severity) => {
+  if (severity === 'alta') return 'border-red-500/30 bg-red-500/5'
+  if (severity === 'media') return 'border-amber-500/30 bg-amber-500/5'
+  return 'border-sky-500/30 bg-sky-500/5'
 }
 
 const promptSetGroup = async (app) => {

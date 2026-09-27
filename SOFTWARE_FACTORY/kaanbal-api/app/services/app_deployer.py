@@ -3540,6 +3540,50 @@ secretGenerator:
 
         return report
 
+    async def set_app_variable(self, app_name: str, variable: str, value: str, environments: list, *, overwrite: bool = False) -> dict:
+        """Agregar (o, con overwrite, cambiar) una variable en los overlays de una app.
+
+        Mismo camino que los vínculos de base: el secretGenerator del overlay en
+        infra-gitops. ArgoCD aplica el cambio y la app se reinicia con la variable.
+        Si un ambiente rechaza el cambio, no se publica ninguno.
+        """
+        from app.services import app_variables
+
+        await self._load_credentials()
+        infra_path = os.path.join(self.workspace, "infra-gitops")
+        if os.path.exists(infra_path):
+            shutil.rmtree(infra_path)
+        subprocess.run(
+            ["git", "clone", self.provider.get_auth_clone_url("infra-gitops"), infra_path],
+            check=True, capture_output=True,
+        )
+
+        report: dict = {"app": app_name, "variable": variable, "environments": {}, "committed": False}
+        try:
+            planned = {}
+            for env in environments:
+                literals = self._read_overlay_literals(infra_path, app_name, env)
+                if literals is None:
+                    report["environments"][env] = "sin_overlay"
+                    continue
+                state, new_literals = app_variables.plan(literals, variable, value, overwrite=overwrite)
+                report["environments"][env] = state
+                if state != app_variables.UNCHANGED:
+                    planned[env] = new_literals
+
+            for env, new_literals in planned.items():
+                self._patch_overlay_secrets(infra_path, app_name, env, {env: new_literals})
+            if planned:
+                await self._push_infra(
+                    infra_path, app_name, list(planned),
+                    message=f"feat({app_name}): variable {variable} en {', '.join(planned)}",
+                )
+                report["committed"] = True
+        finally:
+            shutil.rmtree(infra_path, ignore_errors=True)
+
+        return report
+
     def _create_basic_overlay(self, overlay_path: str, app_name: str, env: str, app_data: AppCreate = None, workload_kind: str = "Deployment"):
         """Crear un overlay básico si no existe en el template"""
         # Determinar prefijo de subdominio

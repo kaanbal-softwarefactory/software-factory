@@ -79,8 +79,8 @@ async def authenticate(request) -> Optional[access.Principal]:
     return await _principal_from_jwt(token)
 
 
-def _deny(status_code: int, detail: str, **extra) -> JSONResponse:
-    return JSONResponse({"detail": detail, **extra}, status_code=status_code)
+def _deny(status_code: int, detail: str, headers: Optional[dict] = None, **extra) -> JSONResponse:
+    return JSONResponse({"detail": detail, **extra}, status_code=status_code, headers=headers)
 
 
 class AccessControlMiddleware(BaseHTTPMiddleware):
@@ -92,7 +92,8 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
 
         if method == "OPTIONS" or perms.is_public(method, path):
             return await call_next(request)
-        if not path.startswith("/api/"):
+        is_mcp = path == perms.MCP_PATH
+        if not (path.startswith("/api/") or is_mcp):
             return await call_next(request)
 
         # Instalación: abierta solo mientras no existe ninguna cuenta.
@@ -101,6 +102,14 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
 
         principal = await authenticate(request)
         if principal is None:
+            if is_mcp:
+                return _deny(
+                    401,
+                    "Falta el token: agrega el encabezado 'Authorization: Bearer kbl_...' con un token "
+                    "personal (Acceso → Tokens en la consola).",
+                    headers={"WWW-Authenticate": 'Bearer realm="kaanbal"'},
+                    code="not_authenticated",
+                )
             return _deny(401, "Inicia sesión para continuar.", code="not_authenticated")
 
         has_rule, permission = perms.required_permission(method, path)

@@ -1543,6 +1543,87 @@ async def list_app_env_var_names(app_name: str, env: str = "prod"):
     }
 
 
+@router.get("/{app_name}/diagnosis")
+async def diagnose_app(app_name: str, env: str = "prod"):
+    """Por qué la app no arranca o no responde, en lenguaje simple y con la acción que lo arregla.
+
+    Solo lectura: estado del despliegue y de sus versiones, pods, eventos, las
+    últimas líneas de log (con los secretos enmascarados) y los NOMBRES de las
+    variables. Nunca valores.
+    """
+    db = get_db()
+    app = await db.apps.find_one({"name": app_name}, {"name": 1, "environments": 1})
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    if env not in (app.get("environments") or ["prod"]):
+        raise HTTPException(status_code=404, detail=f"{app_name} no tiene ambiente '{env}'")
+
+    from app.services import diagnosis
+
+    try:
+        return await diagnosis.diagnose(app_name, env)
+    except Exception as e:
+        logger.warning("No se pudo diagnosticar %s/%s: %s", env, app_name, e)
+        raise HTTPException(status_code=502, detail="No se pudo leer el estado del clúster para diagnosticar la app")
+
+
+@router.put("/{app_name}/variables/{variable}")
+async def set_app_variable(app_name: str, variable: str, body: dict, current_user: User = Depends(get_current_active_user)):
+    """Agregar a la app una variable de entorno que le falta (o, con overwrite, cambiarla).
+
+    Body: {"value": "..."} o {"generate": true}; opcionales "overwrite",
+    "environments" y "reveal" (ver una sola vez el valor recién generado). El
+    valor nunca se guarda en la bitácora ni vuelve en otra respuesta.
+    """
+    from app.services import app_variables
+
+    try:
+        wanted = app_variables.resolve(variable, body or {})
+    except app_variables.VariableError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    db = get_db()
+    app = await db.apps.find_one({"name": app_name}, {"name": 1, "environments": 1})
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    available = app.get("environments") or ["prod"]
+    environments = wanted.environments or available
+    unknown = [env for env in environments if env not in available]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"{app_name} no tiene ambiente(s): {', '.join(unknown)}")
+
+    try:
+        report = await AppDeployer().set_app_variable(
+            app_name, variable, wanted.value, environments, overwrite=wanted.overwrite,
+        )
+    except app_variables.VariableError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        logger.error(f"Setting variable {variable} failed for {app_name}: {e}")
+        raise HTTPException(status_code=502, detail=f"No se pudo guardar la variable: {e}")
+
+    await activity_log.log(
+        "app.variable.set",
+        category=CATEGORY_APP,
+        actor=current_user.username,
+        target=app_name,
+        detail={"variable": variable, "generated": wanted.generated, "environments": report["environments"]},
+    )
+
+    states = set(report["environments"].values())
+    if report["committed"]:
+        message = f"{variable} guardada. ArgoCD reiniciará la app con la variable nueva."
+    elif states == {app_variables.UNCHANGED}:
+        message = f"{variable} ya tenía ese valor: no hubo cambios."
+    else:
+        message = f"La app no tiene overlays donde guardar {variable}."
+    answer = {**report, "generated": wanted.generated, "message": message}
+    if wanted.reveal and report["committed"]:
+        answer["value"] = wanted.value
+        answer["message"] += " Copia el valor generado ahora: no se vuelve a mostrar."
+    return answer
+
+
 @router.post("/{app_name}/bindings/repair")
 async def repair_app_bindings(app_name: str, current_user: User = Depends(get_current_active_user)):
     """Publicar los nombres convencionales de la base vinculada en una app ya desplegada.

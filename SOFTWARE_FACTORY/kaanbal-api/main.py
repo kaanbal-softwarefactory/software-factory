@@ -20,10 +20,11 @@ import os
 import logging
 
 from app.config import settings
-from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core
+from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core, mcp
 from app.db import connect_db, close_db
 from app.middleware.acl import AccessControlMiddleware
 from app.services.activity_log import activity_log, CATEGORY_API, CATEGORY_ERROR
+from app.version import VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Kaanbal API",
     description="Kaanbal Engine Core Backend - Administra apps, clientes y configuración",
-    version="1.0.0",
+    version=VERSION,
     lifespan=lifespan
 )
 
@@ -158,13 +159,14 @@ app.include_router(sites.router, prefix="/api/v1/sites", tags=["Sites"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["Config"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Activity Logs"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
+app.include_router(mcp.router, tags=["MCP"])
 
 
 @app.get("/")
 async def root():
     return {
         "name": "Kaanbal API",
-        "version": "1.0.0",
+        "version": VERSION,
         "status": "running",
         "docs": "/docs"
     }
