@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-27
+
+### Added
+- **Remote MCP server.** The API serves the MCP protocol itself at `POST /mcp`
+  (Streamable HTTP, stateless). Claude Code, Cursor, Codex and any client with HTTP
+  support connect with the API URL and a personal access token: nothing to install.
+  Every tool goes back through the REST API with the caller's own credential, so
+  permissions, token scopes and the activity log are exactly those of the REST API.
+  Compatibility is tested with the official MCP SDK client.
+- **Diagnosis in plain language**: `GET /api/v1/apps/{app}/diagnosis`, the MCP tool
+  `diagnose_app` and a "Diagnose" panel in the console. Deterministic rules explain why
+  an app does not start or respond — a variable the code reads but nobody injects, a
+  database that rejects the credentials (including a volume left over from a previous
+  database with the same name), a new version stuck while the previous one keeps
+  serving, images that cannot be pulled, missing dependencies, out of memory, a wrong
+  port, rejected health checks — with masked evidence and an action from a safe list.
+- **App variables**: `PUT /api/v1/apps/{app}/variables/{name}`, the MCP tool
+  `set_app_variable` and one click from the diagnosis. Adds a missing environment
+  variable through the same GitOps path as database bindings, or generates a secure
+  value. Values are never returned (a freshly generated one is shown once, in the
+  console), existing variables are not overwritten without asking, and the variables the
+  platform manages are protected. New permission `apps.variables.manage`, included in
+  the operator role.
+
+### Changed
+- The local `kaanbal-mcp` package is now a minimal stdio bridge to `/mcp` for clients
+  that only speak stdio. The tools live in the platform.
+
+### Fixed
+- The account created by the installer was migrated to the `operador` role instead of
+  `owner` when roles were introduced, losing `core.updates.apply` among others.
+- Two core upgrades running at the same time (the console button and the node script)
+  could promote an image that neither had finished building. Upgrades now take a lock,
+  and the console refuses to start one while another is running, even from the node.
+
 ## [1.0.0] - 2026-09-26
 
 First public release.

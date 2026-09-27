@@ -51,8 +51,9 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
   never do more than their owner.
 - **Safe core updates.** Upgrade from the console as a Kubernetes Job that verifies
   the result and rolls back automatically.
-- **MCP server.** Let Claude Code, Codex or Cursor inspect your platform — apps,
-  health, logs, variable *names* — with a scoped, read-only token.
+- **MCP server built in.** Connect Claude Code, Cursor or Codex with just a URL and a
+  personal token (`https://<your-api>/mcp`) to inspect apps and diagnose failures in
+  plain language. It never sees secret values, and its few actions respect your permissions.
 - **Acuaponsito.** An embeddable agent runtime with a live character, where every
   action needs human approval.
 
@@ -63,7 +64,7 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
  │ kaanbal-console  │───────▶│      kaanbal-api       │───────▶│ MongoDB  │
  │  (Vue 3)         │        │  (FastAPI, ACL, tokens)│        └──────────┘
  └──────────────────┘        └───────────┬────────────┘
-   kaanbal-mcp ────────────────────────▶ │
+   AI agents · /mcp ───────────────────▶ │
                                          │  GitHub · Docker Hub · Cloudflare · Tailscale
                                          ▼
                            ┌────────────────────────┐   sync    ┌───────────────┐
@@ -128,7 +129,7 @@ SOFTWARE_FACTORY/
 ├── installer/                 web installer (Python standard library)
 ├── kaanbal-api/               FastAPI control plane
 ├── kaanbal-console/           Vue 3 console
-├── kaanbal-mcp/               MCP server for AI agents
+├── kaanbal-mcp/               stdio bridge to the built-in MCP server
 ├── kaanbal-templates/         template catalog
 ├── kaanbal-agent/             agent command-center UI (prototype)
 ├── acuaponsito/               embeddable agent runtime

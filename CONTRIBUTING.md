@@ -26,7 +26,7 @@ See the [README](README.md#repository-layout). The pieces you are most likely to
 | Console | `SOFTWARE_FACTORY/kaanbal-console` | Vue 3, Vite, Tailwind |
 | Installer | `SOFTWARE_FACTORY/installer` | Python **standard library only**, vanilla JS |
 | Templates | `SOFTWARE_FACTORY/kaanbal-templates` | see the [template spec](SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md) |
-| MCP server | `SOFTWARE_FACTORY/kaanbal-mcp` | Python |
+| MCP server | `SOFTWARE_FACTORY/kaanbal-api/app/mcp` (served at `/mcp`); stdio bridge in `SOFTWARE_FACTORY/kaanbal-mcp` | Python |
 | GitOps baseline | `SOFTWARE_FACTORY/infra-gitops` | Kustomize, Argo CD |
 
 ## Set up and run the tests
