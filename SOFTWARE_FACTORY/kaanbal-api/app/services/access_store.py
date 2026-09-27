@@ -47,6 +47,12 @@ async def ensure_seed() -> None:
     async for user in db[USERS].find({"roles": {"$exists": False}}):
         legacy = str(user.get("role") or "user").lower()
         slug = perms.LEGACY_ROLE_MAP.get(legacy, "operador")
+        # El instalador (POST /setup/install) crea la primera cuenta con
+        # is_superuser=True y sin `role`: sin esto caía al valor por defecto
+        # "user" -> "operador" y perdía core.updates.apply y el resto de
+        # permisos de dueño, justo la cuenta que más los necesita.
+        if user.get("is_superuser"):
+            slug = "owner"
         await db[USERS].update_one(
             {"_id": user["_id"]},
             {"$set": {
