@@ -90,6 +90,62 @@ migrate_origin() {
     || warn "No se pudo mudar origin. Hazlo a mano: git -C $SOURCE_DIR remote set-url origin https://github.com/$DEFAULT_UPSTREAM.git"
 }
 
+# ── Candado: un solo upgrade a la vez ────────────────────────────────────────
+# El botón de la consola (un Job) y este script en el nodo son dos caminos
+# independientes. Si corren a la vez, los dos sincronizan los mismos repos y
+# cada uno recalcula los tags leyendo el HEAD remoto: uno puede promover una
+# imagen que construyó el otro, o una que nadie construyó. El candado es un
+# ConfigMap que solo existe mientras dura un upgrade; crearlo es atómico.
+LOCK_NAME=kaanbal-upgrade-lock
+LOCK_TTL_SECONDS=${LOCK_TTL_SECONDS:-5400}
+LOCK_HOLDER=""
+
+acquire_upgrade_lock() {
+  local holder=${KAANBAL_UPGRADE_HOLDER:-"$(hostname)-$$"} out since age current
+  if out=$(kubectl create configmap "$LOCK_NAME" -n "$NS" \
+      --from-literal=holder="$holder" --from-literal=since="$(date -u +%s)" 2>&1); then
+    LOCK_HOLDER=$holder
+    trap release_upgrade_lock EXIT
+    log "Candado de upgrade tomado ($holder)"
+    return 0
+  fi
+  if [[ "$out" == *AlreadyExists* || "$out" == *"already exists"* ]]; then
+    current=$(kubectl get configmap "$LOCK_NAME" -n "$NS" -o jsonpath='{.data.holder}' 2>/dev/null || true)
+    since=$(kubectl get configmap "$LOCK_NAME" -n "$NS" -o jsonpath='{.data.since}' 2>/dev/null || true)
+    [[ "$since" =~ ^[0-9]+$ ]] || since=0
+    age=$(( $(date -u +%s) - since ))
+    if (( age > LOCK_TTL_SECONDS )); then
+      warn "El candado de ${current:-?} tiene ${age}s: se da por abandonado y se libera"
+      kubectl delete configmap "$LOCK_NAME" -n "$NS" >/dev/null 2>&1 || true
+      acquire_upgrade_lock
+      return
+    fi
+    die "Ya hay un upgrade en curso (${current:-?}, desde hace $((age / 60)) min). Espera a que termine; si se colgó, el candado caduca solo en $(( (LOCK_TTL_SECONDS - age) / 60 )) min."
+  fi
+  # Sin permiso para crearlo (una célula cuyo RBAC aún no lo trae): el upgrade
+  # que entrega ese permiso no puede exigirlo.
+  warn "No se pudo tomar el candado de upgrade; se continúa sin él: ${out}"
+}
+
+release_upgrade_lock() {
+  [[ -n "$LOCK_HOLDER" ]] || return 0
+  local current
+  current=$(kubectl get configmap "$LOCK_NAME" -n "$NS" -o jsonpath='{.data.holder}' 2>/dev/null || true)
+  if [[ "$current" == "$LOCK_HOLDER" ]]; then
+    kubectl delete configmap "$LOCK_NAME" -n "$NS" >/dev/null 2>&1 || true
+  fi
+}
+
+# La primera pasada de sync solo actualiza el checkout y se relanza: el candado lo
+# toma la segunda, que es la que escribe. Mirar el estado no necesita candado.
+needs_upgrade_lock() {
+  [[ "$PHASE" == verify || "$PHASE" == snapshot ]] && return 1
+  if [[ ( "$PHASE" == all || "$PHASE" == sync ) && -z "${KAANBAL_UPGRADE_REEXEC:-}" ]]; then
+    return 1
+  fi
+  return 0
+}
+
 command -v kubectl >/dev/null || die "kubectl no está en PATH"
 
 snapshot() {
@@ -332,6 +388,8 @@ verify() {
   done
   return $((1 - ok))
 }
+
+needs_upgrade_lock && acquire_upgrade_lock
 
 if [[ "$PHASE" == rollback ]]; then
   # --rollback api_tag console_tag: los tags que imprime el snapshot de cada upgrade.

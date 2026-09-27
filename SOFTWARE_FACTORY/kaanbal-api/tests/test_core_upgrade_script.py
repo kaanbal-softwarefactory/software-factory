@@ -128,5 +128,102 @@ class MigrateOriginTests(unittest.TestCase):
         self.assertEqual(legacy, core_release.LEGACY_UPSTREAM)
 
 
+# kubectl falso: cada ConfigMap es una carpeta en $FAKE_KUBE con un archivo por clave.
+FAKE_KUBECTL = r'''
+cmd=$1; shift
+case "$cmd" in
+  create)
+    name=$2; shift 2
+    if [[ -n "${FAKE_KUBE_FORBIDDEN:-}" ]]; then
+      echo "Error from server (Forbidden): configmaps is forbidden: cannot create resource" >&2; exit 1
+    fi
+    if [[ -d "$FAKE_KUBE/$name" ]]; then
+      echo "Error from server (AlreadyExists): configmaps \"$name\" already exists" >&2; exit 1
+    fi
+    mkdir -p "$FAKE_KUBE/$name"
+    for arg in "$@"; do
+      case "$arg" in --from-literal=*) kv=${arg#--from-literal=}; printf '%s' "${kv#*=}" > "$FAKE_KUBE/$name/${kv%%=*}";; esac
+    done ;;
+  get)
+    name=$2; shift 2
+    [[ -d "$FAKE_KUBE/$name" ]] || { echo "Error from server (NotFound)" >&2; exit 1; }
+    for arg in "$@"; do
+      case "$arg" in jsonpath=*) key=${arg#jsonpath=\{.data.}; key=${key%\}}; cat "$FAKE_KUBE/$name/$key" 2>/dev/null;; esac
+    done ;;
+  delete)
+    rm -rf "$FAKE_KUBE/$2" ;;
+esac
+'''
+
+
+@unittest.skipUnless(BASH, "bash es necesario")
+class UpgradeLockTests(unittest.TestCase):
+    """Dos upgrades a la vez (botón de la consola y script del nodo) se pisaban los tags."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="kaanbal-lock-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.kube = Path(self.tmp, "kube")
+        self.kube.mkdir()
+        self.fake = Path(self.tmp, "kubectl.sh")
+        self.fake.write_text(FAKE_KUBECTL, encoding="utf-8", newline="\n")
+        self.lock = self.kube / "kaanbal-upgrade-lock"
+
+    def _run(self, snippet, **env):
+        prelude = f'NS=prod; kubectl() {{ bash "{self.fake.as_posix()}" "$@"; }}; '
+        return bash(prelude + snippet, env={"FAKE_KUBE": self.kube.as_posix(),
+                                            "KAANBAL_UPGRADE_HOLDER": "este-upgrade", **env})
+
+    def _hold(self, holder, since):
+        self.lock.mkdir()
+        (self.lock / "holder").write_text(holder, encoding="utf-8")
+        (self.lock / "since").write_text(str(since), encoding="utf-8")
+
+    def test_it_takes_the_lock_while_running_and_frees_it_on_exit(self):
+        result = self._run('acquire_upgrade_lock; echo "durante=$(cat "$FAKE_KUBE/kaanbal-upgrade-lock/holder")"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("durante=este-upgrade", result.stdout)
+        self.assertFalse(self.lock.exists(), "al salir, el candado se libera")
+
+    def test_it_also_frees_it_when_the_upgrade_fails(self):
+        result = self._run('acquire_upgrade_lock; die "falló el build"')
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(self.lock.exists())
+
+    def test_a_second_upgrade_stops_and_leaves_the_first_ones_lock(self):
+        import time
+
+        self._hold("kaanbal-upgrade-123-abc", int(time.time()) - 300)
+        result = self._run('acquire_upgrade_lock; echo "no debería llegar aquí"')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Ya hay un upgrade en curso (kaanbal-upgrade-123-abc", result.stderr)
+        self.assertNotIn("no debería llegar", result.stdout)
+        self.assertEqual((self.lock / "holder").read_text(encoding="utf-8"), "kaanbal-upgrade-123-abc")
+
+    def test_an_abandoned_lock_is_released_and_taken(self):
+        self._hold("pod-que-murio", 1)
+        result = self._run('acquire_upgrade_lock; echo "ahora=$(cat "$FAKE_KUBE/kaanbal-upgrade-lock/holder")"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("abandonado", result.stderr)
+        self.assertIn("ahora=este-upgrade", result.stdout)
+
+    def test_without_permission_it_warns_and_goes_on(self):
+        """La célula que todavía no tiene el permiso lo recibe justo con este upgrade."""
+        result = self._run('acquire_upgrade_lock; echo SIGUE', FAKE_KUBE_FORBIDDEN="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("SIGUE", result.stdout)
+        self.assertIn("sin él", result.stderr)
+
+    def test_only_the_passes_that_write_take_the_lock(self):
+        cases = {
+            ("all", ""): 1, ("all", "1"): 0, ("sync", ""): 1, ("sync", "1"): 0,
+            ("build", ""): 0, ("promote", ""): 0, ("rollback", ""): 0,
+            ("verify", ""): 1, ("snapshot", ""): 1,
+        }
+        for (phase, reexec), expected in cases.items():
+            result = self._run(f'PHASE={phase}; needs_upgrade_lock', KAANBAL_UPGRADE_REEXEC=reexec)
+            self.assertEqual(result.returncode, expected, f"PHASE={phase} REEXEC={reexec!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

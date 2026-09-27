@@ -81,6 +81,35 @@ rules:
   resources: ["applications"]
   verbs: ["get", "patch"]
 ---
+# Candado de upgrade (tools/core-upgrade.sh): un ConfigMap que solo existe mientras
+# corre un upgrade, para que el botón de la consola y el script del nodo no se pisen.
+# `create` no se puede limitar por nombre; el resto sí.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kaanbal-upgrader-lock
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["kaanbal-upgrade-lock"]
+  verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kaanbal-upgrader-lock
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kaanbal-upgrader-lock
+subjects:
+- kind: ServiceAccount
+  name: kaanbal-upgrader
+  namespace: prod
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

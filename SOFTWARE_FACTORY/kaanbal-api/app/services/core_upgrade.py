@@ -52,6 +52,11 @@ TOOLS_FALLBACK_TAG = "1.36.4"
 ACTIVE_DEADLINE_SECONDS = 3600
 LOG_TAIL_LINES = 200
 
+# Candado que toma tools/core-upgrade.sh mientras corre (también desde el nodo,
+# donde la API no ve ningún Job). Mismo nombre y misma caducidad que el script.
+LOCK_NAME = "kaanbal-upgrade-lock"
+LOCK_TTL_SECONDS = 5400
+
 _REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$")
 
 
@@ -153,6 +158,28 @@ def _clients():
     return client.BatchV1Api(), client.CoreV1Api(), client.VersionApi()
 
 
+def lock_holder(lock_data: Optional[Dict[str, str]], *, now: Optional[float] = None) -> Optional[str]:
+    """Quién tiene el candado de upgrade, o None si está libre o caducó."""
+    if not lock_data:
+        return None
+    try:
+        age = (now if now is not None else time.time()) - int(lock_data.get("since") or 0)
+    except ValueError:
+        return None
+    if age > LOCK_TTL_SECONDS:
+        return None
+    return f"{lock_data.get('holder') or 'otro proceso'} (desde hace {int(age // 60)} min)"
+
+
+def _upgrade_lock(core) -> Optional[Dict[str, str]]:
+    try:
+        return core.read_namespaced_config_map(LOCK_NAME, NAMESPACE).data or {}
+    except Exception as exc:
+        if getattr(exc, "status", None) == 404:
+            return None
+        raise
+
+
 def _job_state(job) -> str:
     status = job.status
     if status.succeeded:
@@ -193,10 +220,16 @@ async def start_upgrade(*, actor: str, ref: str = "main") -> Dict[str, Any]:
     if not org:
         raise UpgradeError("La célula no tiene org de GitHub configurada.")
 
-    batch, _core, version_api = _clients()
+    batch, core, version_api = _clients()
     running = [j for j in _upgrade_jobs(batch) if _job_state(j) == "running"]
     if running:
         raise UpgradeError(f"Ya hay un upgrade en curso: {running[0].metadata.name}")
+    holder = lock_holder(_upgrade_lock(core))
+    if holder:
+        raise UpgradeError(
+            f"Ya hay un upgrade en curso: {holder}. Espera a que termine; si se colgó, "
+            f"el candado caduca solo a los {LOCK_TTL_SECONDS // 60} min."
+        )
 
     try:
         server_version = version_api.get_code().git_version

@@ -11,9 +11,11 @@ Standalone: py tests/test_core_upgrade.py
 import asyncio
 import os
 import sys
+import time
 import types
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -139,15 +141,43 @@ class FakeDB:
         self.system_config = types.SimpleNamespace(find_one=find_one)
 
 
+class NotFound(Exception):
+    status = 404
+
+
+class FakeCore:
+    """El ConfigMap del candado: existe solo mientras corre un upgrade."""
+
+    def __init__(self, lock=None):
+        self.lock = lock
+
+    def read_namespaced_config_map(self, name, namespace):
+        if self.lock is None:
+            raise NotFound()
+        return types.SimpleNamespace(data=self.lock)
+
+
 class StartUpgradeTests(unittest.TestCase):
-    def _start(self, jobs, config=None):
+    def _start(self, jobs, config=None, lock=None):
         batch = FakeBatch(jobs)
         version = types.SimpleNamespace(get_code=lambda: types.SimpleNamespace(git_version="v1.36.4+k3s1"))
         db = FakeDB(config if config is not None else {"github_org": "northwindlearning"})
         with mock.patch.object(cu, "get_db", return_value=db), \
-             mock.patch.object(cu, "_clients", return_value=(batch, None, version)):
+             mock.patch.object(cu, "_clients", return_value=(batch, FakeCore(lock), version)):
             result = run(cu.start_upgrade(actor="alice"))
         return batch, result
+
+    def test_refuses_while_the_node_script_holds_the_lock(self):
+        """El script del nodo no crea Jobs: sin el candado, el botón lanzaría un segundo upgrade."""
+        lock = {"holder": "nodo-1234", "since": str(int(time.time()) - 120)}
+        with self.assertRaises(cu.UpgradeError) as ctx:
+            self._start([], lock=lock)
+        self.assertIn("nodo-1234", str(ctx.exception))
+
+    def test_an_expired_lock_does_not_block(self):
+        lock = {"holder": "nodo-1234", "since": str(int(time.time()) - cu.LOCK_TTL_SECONDS - 60)}
+        batch, _ = self._start([], lock=lock)
+        self.assertEqual(len(batch.created), 1)
 
     def test_refuses_while_another_upgrade_runs(self):
         """Dos upgrades a la vez dejarían infra-gitops en un estado irreversible."""
@@ -178,6 +208,32 @@ class StartUpgradeTests(unittest.TestCase):
             os.environ.pop("KAANBAL_UPSTREAM", None)
             _, result = self._start([])
         self.assertEqual(result["upstream"], "kaanbal-softwarefactory/software-factory")
+
+
+class LockHolderTests(unittest.TestCase):
+    NOW = 1_800_000_000
+
+    def test_no_lock_means_free(self):
+        self.assertIsNone(cu.lock_holder(None, now=self.NOW))
+        self.assertIsNone(cu.lock_holder({}, now=self.NOW))
+
+    def test_a_fresh_lock_names_who_holds_it(self):
+        got = cu.lock_holder({"holder": "kaanbal-upgrade-1-abc", "since": str(self.NOW - 600)}, now=self.NOW)
+        self.assertIn("kaanbal-upgrade-1-abc", got)
+        self.assertIn("10 min", got)
+
+    def test_an_abandoned_lock_expires(self):
+        stale = {"holder": "x", "since": str(self.NOW - cu.LOCK_TTL_SECONDS - 1)}
+        self.assertIsNone(cu.lock_holder(stale, now=self.NOW))
+
+    def test_a_malformed_lock_is_ignored(self):
+        self.assertIsNone(cu.lock_holder({"holder": "x", "since": "ayer"}, now=self.NOW))
+
+    def test_the_api_and_the_script_agree_on_the_lock(self):
+        """Si el nombre o la caducidad divergieran, el botón no vería el candado del nodo."""
+        script = (Path(__file__).resolve().parents[2] / "tools" / "core-upgrade.sh").read_text(encoding="utf-8")
+        self.assertIn(f"LOCK_NAME={cu.LOCK_NAME}\n", script.replace("\r\n", "\n"))
+        self.assertIn(f"LOCK_TTL_SECONDS=${{LOCK_TTL_SECONDS:-{cu.LOCK_TTL_SECONDS}}}", script)
 
 
 if __name__ == "__main__":
