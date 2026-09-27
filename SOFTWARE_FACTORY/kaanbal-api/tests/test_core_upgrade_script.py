@@ -9,6 +9,7 @@ funciones reales del script (no una copia) contra un repositorio git temporal.
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -126,6 +127,53 @@ class MigrateOriginTests(unittest.TestCase):
         self.assertEqual(declared, core_release.DEFAULT_UPSTREAM)
         legacy = re.search(r"^LEGACY_UPSTREAM=(\S+)$", script_functions(), re.M).group(1)
         self.assertEqual(legacy, core_release.LEGACY_UPSTREAM)
+
+
+@unittest.skipUnless(BASH and GIT, "bash y git son necesarios")
+class CheckoutDriftTests(unittest.TestCase):
+    """Un checkout a medias (archivos que git no pudo reescribir) no se despliega."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="kaanbal-checkout-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.source = Path(self.tmp)
+        api = self.source / "SOFTWARE_FACTORY" / "kaanbal-api"
+        api.mkdir(parents=True)
+        (api / "acl.py").write_text("nuevo\n", encoding="utf-8")
+        run = lambda *args: subprocess.run([GIT, "-C", str(self.source), *args], check=True, capture_output=True)
+        run("init", "--quiet")
+        run("add", "-A")
+        run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "base")
+
+    def _drift(self):
+        result = bash(f'SOURCE_DIR="{self.source.as_posix()}"; '
+                      'SYNC_REPOS=(kaanbal-api kaanbal-console kaanbal-templates); checkout_drift')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.strip()
+
+    def test_a_clean_checkout_has_no_drift(self):
+        self.assertEqual(self._drift(), "")
+
+    def test_a_file_git_could_not_rewrite_is_reported(self):
+        """Lo que pasó: acl.py quedó en su versión vieja y el upgrade la publicó."""
+        (self.source / "SOFTWARE_FACTORY" / "kaanbal-api" / "acl.py").write_text("viejo\n", encoding="utf-8")
+        self.assertIn("SOFTWARE_FACTORY/kaanbal-api/acl.py", self._drift())
+
+    def test_a_leftover_file_inside_what_gets_published_is_reported(self):
+        (self.source / "SOFTWARE_FACTORY" / "kaanbal-api" / "tools.py").write_text("x\n", encoding="utf-8")
+        self.assertIn("?? SOFTWARE_FACTORY/kaanbal-api/tools.py", self._drift())
+
+    def test_a_loose_file_outside_what_gets_published_is_fine(self):
+        (self.source / "notas-del-nodo.txt").write_text("x\n", encoding="utf-8")
+        self.assertEqual(self._drift(), "")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "los dueños de archivos se prueban en Linux")
+    def test_reclaiming_a_checkout_that_is_already_its_owners_changes_nothing(self):
+        import getpass
+
+        result = bash(f'SOURCE_DIR="{self.source.as_posix()}"; reclaim_checkout "{getpass.getuser()}"; echo fin')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "fin")
 
 
 # kubectl falso: cada ConfigMap es una carpeta en $FAKE_KUBE con un archivo por clave.

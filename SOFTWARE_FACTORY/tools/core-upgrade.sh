@@ -136,6 +136,30 @@ release_upgrade_lock() {
   fi
 }
 
+# ── Checkout del nodo: exactamente la revisión pedida ────────────────────────
+# El checkout es de una persona, pero si alguna vez algo lo tocó como root (un
+# `sudo git pull`), git —que corre como su dueño— no puede reescribir esos
+# archivos: el checkout termina a medias y el upgrade publicaba la versión vieja
+# de ellos sin avisar.
+reclaim_checkout() {
+  local owner=$1 stray
+  stray=$(find "$SOURCE_DIR" -not -user "$owner" -print -quit 2>/dev/null || true)
+  [[ -z "$stray" ]] && return 0
+  log "Hay archivos del checkout que no son de $owner (p. ej. ${stray#"$SOURCE_DIR"/}): se le devuelven"
+  chown -R "$owner": "$SOURCE_DIR"
+}
+
+# Lo que difiere de la revisión: archivos del repo distintos (git no pudo
+# escribirlos o alguien los editó) y archivos sueltos dentro de lo que se publica.
+checkout_drift() {
+  local -a git_cmd=("$@" git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR")
+  local component
+  "${git_cmd[@]}" status --porcelain --untracked-files=no
+  for component in "${SYNC_REPOS[@]}"; do
+    "${git_cmd[@]}" status --porcelain --untracked-files=all -- "SOFTWARE_FACTORY/$component" | grep '^??' || true
+  done
+}
+
 # La primera pasada de sync solo actualiza el checkout y se relanza: el candado lo
 # toma la segunda, que es la que escribe. Mirar el estado no necesita candado.
 needs_upgrade_lock() {
@@ -420,6 +444,7 @@ if [[ "$PHASE" == all || "$PHASE" == sync ]]; then
     if [[ $EUID -eq 0 && "$owner" != root ]]; then
       as_owner=(runuser -u "$owner" --)
       command -v runuser >/dev/null || as_owner=(sudo -u "$owner")
+      reclaim_checkout "$owner"
     else
       as_owner=()
     fi
@@ -427,6 +452,10 @@ if [[ "$PHASE" == all || "$PHASE" == sync ]]; then
       || die "No se pudo descargar $REF del monorepo (¿archivos de .git con otro dueño? chown -R $owner $SOURCE_DIR)"
     "${as_owner[@]}" git -c safe.directory="$SOURCE_DIR" -C "$SOURCE_DIR" checkout --quiet --detach FETCH_HEAD \
       || die "No se pudo actualizar el checkout"
+    drift=$(checkout_drift "${as_owner[@]}")
+    [[ -z "$drift" ]] || die "El checkout no quedó igual a $REF, y desplegarlo publicaría otra cosa:
+$(printf '%s\n' "$drift" | head -10 | sed 's/^/       /')
+     Deja el checkout limpio (git -C $SOURCE_DIR status) y vuelve a correr."
     export KAANBAL_UPGRADE_REEXEC=1 KAANBAL_SOURCE="$SOURCE_DIR"
     exec bash "$SOURCE_DIR/SOFTWARE_FACTORY/tools/core-upgrade.sh" "${ORIGINAL_ARGS[@]}"
   fi
