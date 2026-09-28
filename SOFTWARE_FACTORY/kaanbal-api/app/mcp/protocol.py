@@ -3,9 +3,10 @@ Protocolo MCP sobre HTTP, sin estado
 ===================================
 
 El MCP de Kaanbal vive dentro de la API: JSON-RPC 2.0 por POST /mcp, el
-transporte "Streamable HTTP" del estándar. Solo expone herramientas, así que no
-necesita sesiones ni un canal SSE: cada petición trae su token, se responde en
-JSON y no queda nada guardado.
+transporte "Streamable HTTP" del estándar. Expone herramientas, flujos guiados
+(prompts) y la guía como recursos; nada de eso le escribe al cliente por su
+cuenta, así que no necesita sesiones ni un canal SSE: cada petición trae su
+token, se responde en JSON y no queda nada guardado.
 
 No usa el SDK oficial porque el SDK exige versiones de pydantic y starlette que
 la API no tiene; el test de compatibilidad del paquete kaanbal-mcp corre el
@@ -27,8 +28,13 @@ PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
+RESOURCE_NOT_FOUND = -32002
 
 ToolRunner = Callable[[str, Dict[str, Any]], Awaitable[Any]]
+# prompts/get: KeyError si el flujo no existe, ValueError si le falta un argumento.
+PromptGetter = Callable[[str, Dict[str, Any]], Dict[str, Any]]
+# resources/read: KeyError si el recurso no existe.
+ResourceReader = Callable[[str], Dict[str, Any]]
 Response = Union[Dict[str, Any], List[Dict[str, Any]]]
 
 
@@ -70,8 +76,16 @@ async def handle_message(
     instructions: str,
     tools: Sequence[Mapping[str, Any]],
     run_tool: ToolRunner,
+    prompts: Sequence[Mapping[str, Any]] = (),
+    get_prompt: Optional[PromptGetter] = None,
+    resources: Sequence[Mapping[str, Any]] = (),
+    read_resource: Optional[ResourceReader] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Responder un mensaje JSON-RPC. None cuando no lleva respuesta (notificaciones)."""
+    """Responder un mensaje JSON-RPC. None cuando no lleva respuesta (notificaciones).
+
+    Prompts y recursos son opcionales: sin `get_prompt` / `read_resource` el
+    servidor no los anuncia y sus métodos responden "no soportado".
+    """
     if not isinstance(message, dict) or message.get("jsonrpc") != "2.0":
         message_id = message.get("id") if isinstance(message, dict) else None
         return error_response(message_id, INVALID_REQUEST, "Se esperaba un mensaje JSON-RPC 2.0.")
@@ -88,9 +102,14 @@ async def handle_message(
         return error_response(message_id, INVALID_PARAMS, "params debe ser un objeto.")
 
     if method == "initialize":
+        capabilities: Dict[str, Any] = {"tools": {"listChanged": False}}
+        if get_prompt is not None:
+            capabilities["prompts"] = {"listChanged": False}
+        if read_resource is not None:
+            capabilities["resources"] = {"subscribe": False, "listChanged": False}
         return _result(message_id, {
             "protocolVersion": negotiate(params.get("protocolVersion")),
-            "capabilities": {"tools": {"listChanged": False}},
+            "capabilities": capabilities,
             "serverInfo": dict(server_info),
             "instructions": instructions,
         })
@@ -100,7 +119,34 @@ async def handle_message(
         return _result(message_id, {"tools": [dict(tool) for tool in tools]})
     if method == "tools/call":
         return await _call_tool(message_id, params, tools, run_tool)
+    if get_prompt is not None and method == "prompts/list":
+        return _result(message_id, {"prompts": [dict(prompt) for prompt in prompts]})
+    if get_prompt is not None and method == "prompts/get":
+        return _get_prompt(message_id, params, get_prompt)
+    if read_resource is not None and method == "resources/list":
+        return _result(message_id, {"resources": [dict(resource) for resource in resources]})
+    if read_resource is not None and method == "resources/templates/list":
+        return _result(message_id, {"resourceTemplates": []})
+    if read_resource is not None and method == "resources/read":
+        uri = str(params.get("uri") or "")
+        try:
+            return _result(message_id, {"contents": [read_resource(uri)]})
+        except KeyError:
+            return error_response(message_id, RESOURCE_NOT_FOUND, f"Recurso desconocido: {uri}")
     return error_response(message_id, METHOD_NOT_FOUND, f"Método no soportado: {method}")
+
+
+def _get_prompt(message_id: Any, params: Dict[str, Any], get_prompt: PromptGetter) -> Dict[str, Any]:
+    name = str(params.get("name") or "")
+    arguments = params.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        return error_response(message_id, INVALID_PARAMS, "arguments debe ser un objeto.")
+    try:
+        return _result(message_id, get_prompt(name, arguments))
+    except KeyError:
+        return error_response(message_id, INVALID_PARAMS, f"Flujo desconocido: {name}")
+    except ValueError as exc:
+        return error_response(message_id, INVALID_PARAMS, str(exc))
 
 
 async def _call_tool(message_id: Any, params: Dict[str, Any], tools: Sequence[Mapping[str, Any]], run_tool: ToolRunner):

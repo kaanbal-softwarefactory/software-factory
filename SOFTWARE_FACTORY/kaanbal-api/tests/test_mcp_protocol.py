@@ -67,7 +67,7 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(handle(request("ping"))["result"], {})
 
     def test_unknown_method(self):
-        self.assertEqual(handle(request("resources/list"))["error"]["code"], protocol.METHOD_NOT_FOUND)
+        self.assertEqual(handle(request("sampling/createMessage"))["error"]["code"], protocol.METHOD_NOT_FOUND)
 
     def test_not_json_rpc(self):
         self.assertEqual(handle({"id": 1, "method": "ping"})["error"]["code"], protocol.INVALID_REQUEST)
@@ -108,6 +108,62 @@ class ToolTests(unittest.TestCase):
     def test_arguments_must_be_an_object(self):
         answer = handle(request("tools/call", {"name": "get_app", "arguments": ["shop"]}))
         self.assertEqual(answer["error"]["code"], protocol.INVALID_PARAMS)
+
+
+def handle_full(message):
+    """Con flujos guiados y la guía como recursos, como lo sirve la API."""
+    from app.mcp import guide, prompts
+
+    return asyncio.run(protocol.handle_message(
+        message, server_info={"name": "kaanbal", "version": "t"}, instructions="i", tools=TOOLS, run_tool=runner,
+        prompts=prompts.definitions(), get_prompt=prompts.get,
+        resources=guide.resources(), read_resource=guide.read_resource,
+    ))
+
+
+class PromptAndResourceTests(unittest.TestCase):
+    def test_they_are_announced_only_when_served(self):
+        full = handle_full(request("initialize", {"protocolVersion": "2025-06-18"}))["result"]["capabilities"]
+        self.assertEqual(full["prompts"], {"listChanged": False})
+        self.assertEqual(full["resources"], {"subscribe": False, "listChanged": False})
+        self.assertEqual(handle(request("prompts/list"))["error"]["code"], protocol.METHOD_NOT_FOUND)
+
+    def test_prompts_list_and_get(self):
+        names = [p["name"] for p in handle_full(request("prompts/list"))["result"]["prompts"]]
+        self.assertIn("lanzar-sitio", names)
+        self.assertIn("diagnosticar", names)
+        result = handle_full(request("prompts/get", {"name": "diagnosticar", "arguments": {"app": "tienda-api"}}))["result"]
+        message = result["messages"][0]
+        self.assertEqual(message["role"], "user")
+        self.assertIn("diagnose_app(name='tienda-api', env='prod')", message["content"]["text"])
+
+    def test_every_prompt_renders_with_its_required_arguments(self):
+        from app.mcp import prompts
+
+        for item in prompts.definitions():
+            arguments = {arg["name"]: "tienda" for arg in item["arguments"]}
+            text = prompts.get(item["name"], arguments)["messages"][0]["content"]["text"]
+            self.assertTrue(text.strip(), item["name"])
+
+    def test_prompt_errors_are_invalid_params(self):
+        self.assertEqual(handle_full(request("prompts/get", {"name": "borrar-todo"}))["error"]["code"], protocol.INVALID_PARAMS)
+        missing = handle_full(request("prompts/get", {"name": "diagnosticar", "arguments": {}}))
+        self.assertEqual(missing["error"]["code"], protocol.INVALID_PARAMS)
+        self.assertIn("app", missing["error"]["message"])
+
+    def test_the_guide_is_readable_as_resources(self):
+        resources = handle_full(request("resources/list"))["result"]["resources"]
+        uris = [r["uri"] for r in resources]
+        self.assertIn("kaanbal://guia/desarrollo-local", uris)
+        content = handle_full(request("resources/read", {"uri": "kaanbal://guia/mcp"}))["result"]["contents"][0]
+        self.assertEqual(content["mimeType"], "text/markdown")
+        self.assertIn("plan_id", content["text"])
+        self.assertEqual(handle_full(request("resources/templates/list"))["result"], {"resourceTemplates": []})
+
+    def test_an_unknown_resource_is_resource_not_found(self):
+        for uri in ("kaanbal://guia/secretos", "file:///etc/passwd", ""):
+            answer = handle_full(request("resources/read", {"uri": uri}))
+            self.assertEqual(answer["error"]["code"], protocol.RESOURCE_NOT_FOUND, uri)
 
 
 class BodyTests(unittest.TestCase):

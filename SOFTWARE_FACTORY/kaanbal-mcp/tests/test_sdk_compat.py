@@ -2,8 +2,9 @@
 
 La API implementa el protocolo sin el SDK (sus dependencias chocan con las de la
 API), así que la prueba de que un cliente real lo entiende es esta: el cliente
-oficial se conecta por HTTP al protocolo y al catálogo reales, cargados desde el
-código de la API, e inicializa, lista y llama herramientas.
+oficial se conecta por HTTP al protocolo, al catálogo, a los flujos guiados y a la
+guía reales, cargados desde el código de la API: inicializa, lista y llama
+herramientas, pide un flujo guiado y lee la guía como recurso.
 """
 
 import asyncio
@@ -46,6 +47,7 @@ class OfficialClientTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         protocol, catalog = load("protocol"), load("catalog")
+        guide, prompts = load("guide"), load("prompts")
 
         async def run_tool(name, arguments):
             if name == "diagnose_app":
@@ -60,6 +62,8 @@ class OfficialClientTests(unittest.TestCase):
             answer = await protocol.handle_body(
                 await request.body(), server_info={"name": "kaanbal", "version": "prueba"},
                 instructions="prueba", tools=catalog.definitions(), run_tool=run_tool,
+                prompts=prompts.definitions(), get_prompt=prompts.get,
+                resources=guide.resources(), read_resource=guide.read_resource,
             )
             return Response(status_code=202) if answer is None else JSONResponse(answer)
 
@@ -73,6 +77,7 @@ class OfficialClientTests(unittest.TestCase):
             time.sleep(0.05)
         cls.url = f"http://127.0.0.1:{port}/mcp"
         cls.catalog = catalog
+        cls.prompts = prompts
 
     @classmethod
     def tearDownClass(cls):
@@ -91,6 +96,32 @@ class OfficialClientTests(unittest.TestCase):
                         return init, listed, ok, refused
 
         return asyncio.run(run())
+
+    def guided(self):
+        async def run():
+            async with create_mcp_http_client(headers={"Authorization": TOKEN}) as http:
+                async with streamable_http_client(self.url, http_client=http) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        await session.initialize()
+                        listed = await session.list_prompts()
+                        prompt = await session.get_prompt("diagnosticar", {"app": "shop-api", "ambiente": "dev"})
+                        resources = await session.list_resources()
+                        try:
+                            guide = await session.read_resource("kaanbal://guia/mcp")
+                        except (TypeError, ValueError):  # versiones que piden AnyUrl
+                            from pydantic import AnyUrl
+
+                            guide = await session.read_resource(AnyUrl("kaanbal://guia/mcp"))
+                        return listed, prompt, resources, guide
+
+        return asyncio.run(run())
+
+    def test_the_official_client_gets_guided_flows_and_reads_the_guide(self):
+        listed, prompt, resources, guide = self.guided()
+        self.assertEqual(sorted(p.name for p in listed.prompts), sorted(p["name"] for p in self.prompts.PROMPTS))
+        self.assertIn("diagnose_app(name='shop-api', env='dev')", prompt.messages[0].content.text)
+        self.assertIn("kaanbal://guia/desarrollo-local", [str(r.uri) for r in resources.resources])
+        self.assertIn("plan_id", guide.contents[0].text)
 
     def test_the_official_client_initializes_lists_and_calls_tools(self):
         init, listed, ok, refused = self.scenario()

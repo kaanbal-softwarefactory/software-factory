@@ -1,8 +1,9 @@
 # MCP de Kaanbal
 
 Conecta tu agente (Claude Code, Cursor, Codex…) a **tu** Kaanbal para que entienda
-qué hay desplegado y por qué algo falla, y pueda arreglar lo que es seguro
-arreglar: apps, salud, diagnóstico, logs, dominios, bitácora y tres acciones.
+qué hay desplegado y por qué algo falla, lance apps y stacks, las conecte, las
+publique en tus dominios y las opere — con el plan a la vista antes de cambiar nada,
+y guiado por la propia plataforma (cómo trabajar en local, cómo desplegar).
 
 **No hay nada que instalar.** La propia plataforma sirve el MCP por HTTP:
 
@@ -18,10 +19,10 @@ ver: si el token no trae un permiso, la plataforma le dice cuál falta.
 En la consola: **Acceso → Tokens → + Nuevo token**. Ponle un nombre que diga para
 qué es ("MCP de <tu nombre>") y cópialo: se muestra una sola vez.
 
-- **Solo lectura (recomendado para empezar):** ver apps, diagnosticar, leer logs.
-- Para que además pueda **sincronizar** o **reconectar la base**: `apps.apps.deploy`.
-- Para que pueda **agregar variables que faltan** (p. ej. generar `ADMIN_PASSWORD`):
-  `apps.variables.manage`.
+- **Solo lectura (recomendado para empezar):** ver apps, diagnosticar, leer logs y
+  la guía. El rol **Agente** es exactamente eso.
+- Para que además pueda **crear, conectar, publicar y operar**: el alcance del rol
+  **Operador** (o solo los permisos de la tabla de abajo que quieras darle).
 
 ## Conectar el agente
 
@@ -66,42 +67,99 @@ a `/mcp`. Solo necesita `httpx`.
 }
 ```
 
+## Plan antes de aplicar
+
+Todo lo que **crea algo o cambia lo que se ve en internet** se pide dos veces. La
+primera vez la herramienta devuelve el plan —qué apps se crean, qué URLs aparecen o
+dejan de responder, qué variables llegan (solo nombres)— y un `plan_id`, y no toca
+nada. El agente te muestra el plan; si lo apruebas, repite la llamada con el
+`plan_id`. La plataforma recalcula el plan y solo aplica si sigue siendo idéntico
+(si otra app tomó el nombre entre medias, no pasa nada y se pide el plan de nuevo).
+
+Lo largo (crear, exponer, mudar de dominio) corre en segundo plano: el agente lo
+sigue con `deploy_status` o `stack_status`.
+
 ## Qué puede hacer
+
+**Entender**
 
 | Herramienta | Para qué | Permiso |
 |---|---|---|
 | `diagnose_app` | **Por qué falla una app**, en lenguaje simple, con la evidencia y la acción que lo arregla | `apps.apps.diagnose` |
-| `list_apps` | Apps con su dominio, URL y estado | `apps.apps.view` |
-| `get_app` | Detalle de una app | `apps.apps.view` |
+| `list_apps` / `get_app` | Apps con su dominio, URLs, exposición y operaciones en curso | `apps.apps.view` |
 | `app_health` | Salud en ArgoCD por ambiente y último pipeline | `apps.apps.view` |
-| `app_logs` | Últimas líneas de log de los pods | `apps.apps.diagnose` |
+| `app_logs` | Últimas líneas de log de un ambiente, con credenciales enmascaradas | `apps.apps.diagnose` |
 | `app_env_var_names` | **Nombres** de las variables que recibe la app | `apps.apps.diagnose` |
-| `list_domains` | Dominios registrados | `domains.domains.view` |
-| `list_stacks` | Catálogo de stacks y últimos lanzamientos | `stacks.catalog.view` |
+| `deploy_status` | En qué va una app: alta, exposición, dominio, homepage | `apps.apps.view` |
+| `stack_status` | En qué pieza va el lanzamiento de un stack | `stacks.catalog.view` |
+| `list_templates` / `list_stacks` / `list_domains` | Con qué se crea y dónde se publica | `*.view` |
 | `platform_status` | Versión, actualizaciones, salud, Vault | `system.health.view` |
 | `activity` | Bitácora: quién hizo qué y cuándo | `logs.records.view` |
-| `sync_app` | **Acción**: sincronizar con ArgoCD | `apps.apps.deploy` |
-| `repair_db_bindings` | **Acción**: republicar MONGO_URI, DATABASE_URL… | `apps.apps.deploy` |
-| `set_app_variable` | **Acción**: agregar una variable que falta (o generarla) | `apps.variables.manage` |
+
+**Crear** (con plan)
+
+| Herramienta | Para qué | Permiso |
+|---|---|---|
+| `create_app` | Una app desde una plantilla, con los valores del Wizard; opcionalmente conectada a su base (`database=`) o, si es un frontend, a su API (`api=`) | `apps.apps.create` |
+| `launch_stack` | Base + API + frontend de una vez, ya cableados, con o sin homepage | `stacks.stacks.launch` |
+
+**Conectar** (con plan)
+
+| Herramienta | Para qué | Permiso |
+|---|---|---|
+| `link_apps` / `unlink_apps` | Darle a una app las credenciales de su base (y `MONGO_URI`, `DATABASE_URL`…) o la dirección interna de otra app; quitar exactamente eso | `links.links.manage` |
+| `set_exposure` | Quién llega a cada ambiente: internet, VPN, LAN, solo el clúster o apagado | `apps.apps.expose` |
+| `attach_domain` | Mudar una app a otro dominio (la URL nueva se prueba antes de retirar la vieja) | `apps.apps.expose` |
+| `set_homepage` | Darle a una app la raíz de su dominio | `apps.apps.expose` |
+
+**Operar**
+
+| Herramienta | Para qué | Permiso |
+|---|---|---|
+| `start_app` / `stop_app` / `scale_app` | Encender, apagar o escalar un ambiente | `apps.apps.deploy` |
+| `sync_app` | Sincronizar con ArgoCD | `apps.apps.deploy` |
+| `repair_db_bindings` | Republicar MONGO_URI, DATABASE_URL… | `apps.apps.deploy` |
+| `set_app_variable` | Agregar una variable que falta (o generarla) | `apps.variables.manage` |
+
+**Guiar**
+
+| Herramienta | Para qué | Permiso |
+|---|---|---|
+| `platform_guide` | Cómo funciona Kaanbal: organización, desarrollo local, despliegue, conexiones, exposición, este MCP y problemas comunes | ninguno |
+| `app_contract` | Lo que una app necesita y cómo trabajar en ella: puerto, ruta de salud, variables, vínculos, URLs, ramas y pasos locales | `apps.apps.view` |
+
+### Flujos guiados y guía
+
+Además de las herramientas, el MCP trae **flujos guiados** (prompts; en Claude Code
+aparecen como comandos `/`): `lanzar-sitio`, `nueva-app`, `diagnosticar`,
+`desarrollo-local`, `publicar` y `conectar-apps`. Y la guía de la plataforma como
+**recursos** (`kaanbal://guia/<tema>`) para adjuntarla al contexto.
 
 ## Lo que no puede hacer, a propósito
 
-- **Leer el valor de un secreto.** Ni los nombres de variables ni el diagnóstico
-  traen valores, y las contraseñas en los logs llegan enmascaradas. Cuando
-  `set_app_variable` genera un valor, el agente nunca lo ve.
-- Pisar una variable existente sin `overwrite`, ni tocar las que gestiona la
-  plataforma (la conexión a la base).
-- Crear o borrar apps, tocar las credenciales de la plataforma, actualizar el core
-  o administrar accesos. Eso se hace en la consola, con una persona mirando.
+- **Leer el valor de un secreto.** Ni los nombres de variables, ni el diagnóstico,
+  ni los planes traen valores, y las credenciales en los logs llegan enmascaradas.
+  Cuando `set_app_variable` genera un valor o `link_apps` conecta una base, el agente
+  nunca lo ve.
+- Aplicar un cambio visible sin plan: `plan_id` no se puede inventar.
+- Pisar una variable existente, ni tocar las que gestiona la plataforma.
+- **Borrar** apps o dominios, tocar las credenciales de la plataforma, actualizar el
+  core o administrar accesos. Eso se hace en la consola, con una persona mirando.
 
-## Ejemplo
+## Ejemplos
 
 > «El backend de north-star-bay está en rojo, ¿por qué?»
 
 El agente llama `diagnose_app` y recibe: *«Tu código pide la variable MONGO_URI y
 la app no la recibe»*, con la línea del traceback como evidencia y la acción
-`repair_db_bindings`, y además que la versión nueva no arranca mientras la anterior
-sigue atendiendo. Si su token lo permite, lo arregla; si no, te dice qué hacer.
+`repair_db_bindings`. Si su token lo permite, lo arregla; si no, te dice qué hacer.
+
+> «Lanza una tienda con Vue, FastAPI y Mongo en midominio.com, en la raíz.»
+
+El agente muestra el plan de `launch_stack` (`tienda-db` → `tienda-api` →
+`tienda` en `https://midominio.com`), lo aplica cuando dices que sí, sigue el
+avance con `stack_status` y termina con `app_contract` para decirte cómo correr
+cada pieza en tu máquina.
 
 ## Desarrollo
 

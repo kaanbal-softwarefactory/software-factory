@@ -10,12 +10,14 @@ token personal, sin instalar nada:
 El middleware de acceso ya autenticó la petición; cada herramienta vuelve a
 pasar por la REST con la misma credencial, y el permiso se revisa también aquí
 para poder explicarle al agente qué le falta al token antes de intentarlo.
+Además de las herramientas, expone flujos guiados (prompts) y la guía de la
+plataforma como recursos.
 """
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from app.mcp import catalog, protocol, tools
+from app.mcp import catalog, guide, prompts, protocol, tools
 from app.mcp.loopback import LoopbackClient
 from app.version import VERSION
 
@@ -24,10 +26,15 @@ router = APIRouter()
 SERVER_INFO = {"name": "kaanbal", "title": "Kaanbal", "version": VERSION}
 
 INSTRUCTIONS = (
-    "Kaanbal es la plataforma donde viven estas aplicaciones. Cuando algo falla, empieza por "
+    "Kaanbal es la plataforma donde viven estas aplicaciones: lanza, conecta, publica y opera apps y stacks "
+    "(base + API + frontend). Si no conoces la plataforma, lee platform_guide. Cuando algo falla, empieza por "
     "diagnose_app: dice en lenguaje simple qué pasa, con la evidencia y la acción que lo arregla. "
-    "Nunca vas a poder leer el valor de un secreto. Solo tres herramientas cambian algo "
-    "(sync_app, repair_db_bindings y set_app_variable): pide confirmación antes de usarlas."
+    "Todo lo que crea algo o cambia lo que se ve en internet (create_app, launch_stack, link_apps, unlink_apps, "
+    "set_exposure, attach_domain, set_homepage) va en dos pasos: sin plan_id devuelve el plan y no toca nada; "
+    "muéstraselo a la persona y aplica repitiendo la llamada con el plan_id solo si lo aprueba. Las demás acciones "
+    "(start_app, stop_app, scale_app, sync_app, repair_db_bindings, set_app_variable) actúan directo: confirma "
+    "antes. Lo largo corre en segundo plano: síguelo con deploy_status o stack_status. Nunca vas a poder leer el "
+    "valor de un secreto, ni borrar apps, ni actualizar el core: eso se hace en la consola."
 )
 
 
@@ -45,7 +52,7 @@ async def mcp_messages(request: Request):
 
     async def run_tool(name, arguments):
         permission = catalog.TOOLS_BY_NAME[name]["permission"]
-        if not principal.can(permission):
+        if permission and not principal.can(permission):
             who = f"El token '{principal.token_name}'" if principal.via_token else "Tu cuenta"
             raise protocol.ToolError(
                 f"{who} no incluye el permiso '{permission}', que necesita {name}. "
@@ -59,6 +66,10 @@ async def mcp_messages(request: Request):
         instructions=INSTRUCTIONS,
         tools=catalog.definitions(),
         run_tool=run_tool,
+        prompts=prompts.definitions(),
+        get_prompt=prompts.get,
+        resources=guide.resources(),
+        read_resource=guide.read_resource,
     )
     if answer is None:
         return Response(status_code=202)
