@@ -87,6 +87,12 @@ def check_pair(consumer: Mapping, provider: Mapping) -> None:
         raise LinkError(
             f"'{consumer.get('name')}' es una base de datos: el vínculo va al revés (la app que la usa → la base)."
         )
+    if consumer.get("category") == "frontend" and kind_of(provider) == KIND_DATABASE:
+        # Mismo criterio que el alta (app_blueprint): lo que corre en el navegador no guarda credenciales.
+        raise LinkError(
+            f"'{consumer.get('name')}' es un frontend: no se conecta a la base. Conecta la base a su API "
+            "y el frontend a la URL pública de la API."
+        )
 
 
 def service_variables(provider_name: str, env: str, alias: str, port: int, port_name: str = "http") -> Dict[str, str]:

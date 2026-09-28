@@ -50,6 +50,13 @@ class EnvironmentTests(unittest.TestCase):
             app_links.check_pair(API, API)
         app_links.check_pair(API, DB)
 
+    def test_a_frontend_never_gets_database_credentials(self):
+        site = {"name": "tienda", "template": "vue3-spa", "category": "frontend", "environments": ["prod"]}
+        with self.assertRaises(app_links.LinkError) as ctx:
+            app_links.check_pair(site, DB)
+        self.assertIn("API", str(ctx.exception))
+        app_links.check_pair(site, PAGOS)  # a otra app sí (p. ej. un frontend con servidor propio)
+
 
 class VariablesTests(unittest.TestCase):
     def test_a_service_link_gives_the_in_cluster_address(self):
