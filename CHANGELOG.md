@@ -5,6 +5,53 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-27
+
+### Added
+- **The MCP now builds, connects and operates, not only diagnoses** (28 tools, up from 13):
+  - *Create*: `create_app` (an app from a template, with the Wizard's defaults, optionally
+    bound to a database or pointed at its API) and `launch_stack` (database + API + frontend
+    in one go, with or without the domain's homepage); `list_templates`.
+  - *Connect*: `link_apps` / `unlink_apps`, `set_exposure`, `attach_domain`, `set_homepage`.
+  - *Operate*: `start_app`, `stop_app`, `scale_app`; `deploy_status` and `stack_status` to
+    follow long operations; `app_logs` now reads the requested environment.
+  - *Guide*: `platform_guide` (how the platform works, local development, deploying,
+    connecting, exposing, troubleshooting) and `app_contract` (port, health path, variable
+    names, links, URLs, branches and local steps of one app).
+- **Plan before apply.** Everything that creates something or changes what is visible on
+  the internet answers first with a plan (names, URLs, variables that arrive) and a
+  `plan_id`, and applies nothing. The same call with the `plan_id` applies it, and only if
+  the plan is still identical: the REST API recomputes it and refuses a stale one. The
+  REST endpoints accept `dry_run=true` and `plan_id` (`POST /apps`, `POST /stacks`,
+  `POST /apps/{app}/domain`, `POST /apps/{app}/homepage` and the new ones below); the
+  console keeps applying directly, as before.
+- **Links that actually connect.** `POST /api/v1/apps/{app}/links` gives an app what it
+  needs to reach another one through the same GitOps path as database bindings: a
+  database's credentials plus the engine's standard names (`MONGO_URI`, `DATABASE_URL`…),
+  or another app's in-cluster address (`<ALIAS>_HOST/_PORT/_URL`). Values are never
+  returned, existing names are never overwritten, and `DELETE /apps/{app}/links/{other}`
+  removes exactly what the link added.
+- `POST /api/v1/apps/{app}/exposure` changes exposure in the background (state in
+  `exposure_change`), because publishing DNS and probing a URL can outlast the 100 s
+  Cloudflare allows a request. An app runs one long operation at a time.
+- The MCP serves **guided flows** as prompts (`lanzar-sitio`, `nueva-app`, `diagnosticar`,
+  `desarrollo-local`, `publicar`, `conectar-apps`; slash commands in Claude Code) and the
+  platform guide as resources (`kaanbal://guia/<topic>`).
+
+### Fixed
+- Creating an app bound to a database failed at "Resolving database bindings" with
+  `'str' object has no attribute 'canonical_aliases'` (since 1.0.0): every app created in
+  the Wizard with a database, and the API of every stack. A local variable shadowed the
+  module that publishes the engine's standard names. Apps that failed this way stay in
+  `error` with nothing deployed; after upgrading, remove the failed record and create
+  them again (the Git repository, if it was already created, is reused).
+- Launching a stack failed with an internal error right after recording the launch as
+  running, which also blocked new launches until it went stale.
+- An error while cloning infra-gitops could echo the Git URL, token included, in the
+  response of `set_app_variable` and `repair_db_bindings` (and in the API log).
+- `app_logs` ignored the environment and the number of lines it was asked for, and
+  returned log lines without masking credentials.
+
 ## [1.1.1] - 2026-09-27
 
 ### Fixed

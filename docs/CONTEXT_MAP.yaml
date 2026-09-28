@@ -62,9 +62,11 @@ by_area:
       - SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md
 
   mcp:
-    trigger: "MCP, agentes conectados a la plataforma, /mcp, diagnóstico de apps"
+    trigger: "MCP, agentes conectados a la plataforma, /mcp, diagnóstico de apps, planes (dry_run/plan_id), vínculos"
     globs: ["SOFTWARE_FACTORY/kaanbal-api/app/mcp/**", "SOFTWARE_FACTORY/kaanbal-api/app/routers/mcp.py",
-            "SOFTWARE_FACTORY/kaanbal-api/app/services/diagnosis.py", "SOFTWARE_FACTORY/kaanbal-mcp/**"]
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/diagnosis.py", "SOFTWARE_FACTORY/kaanbal-mcp/**",
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/plans.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/change_plans.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/app_blueprint.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/app_links.py"]
     read:
       - SOFTWARE_FACTORY/kaanbal-mcp/README.md
 

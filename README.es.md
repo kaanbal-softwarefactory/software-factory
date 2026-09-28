@@ -54,8 +54,10 @@ ambiente.
 - **Actualizaciones seguras del core.** Se aplican desde la consola como un Job de
   Kubernetes que verifica el resultado y revierte solo si algo falla.
 - **MCP integrado.** Conecta Claude Code, Cursor o Codex solo con una URL y un token
-  personal (`https://<tu-api>/mcp`) para ver tus apps y diagnosticar fallas en lenguaje
-  simple. Nunca ve valores secretos y sus pocas acciones respetan tus permisos.
+  personal (`https://<tu-api>/mcp`): tu agente diagnostica fallas en lenguaje simple,
+  lanza apps y stacks completos, los conecta, los publica en tus dominios y los opera —
+  siempre mostrando el plan antes de aplicarlo, y guiado por la propia plataforma. Nunca
+  ve valores secretos ni hace más de lo que permite tu token.
 - **Acuaponsito.** Un runtime de agente embebible con un personaje vivo, donde cada acción
   requiere aprobación humana.
 

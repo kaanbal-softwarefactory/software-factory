@@ -52,8 +52,10 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
 - **Safe core updates.** Upgrade from the console as a Kubernetes Job that verifies
   the result and rolls back automatically.
 - **MCP server built in.** Connect Claude Code, Cursor or Codex with just a URL and a
-  personal token (`https://<your-api>/mcp`) to inspect apps and diagnose failures in
-  plain language. It never sees secret values, and its few actions respect your permissions.
+  personal token (`https://<your-api>/mcp`): your agent diagnoses failures in plain
+  language, launches apps and full stacks, links them, publishes them on your domains and
+  operates them — always showing the plan before applying it, and guided by the platform
+  itself. It never sees secret values and never does more than your token allows.
 - **Acuaponsito.** An embeddable agent runtime with a live character, where every
   action needs human approval.
 
