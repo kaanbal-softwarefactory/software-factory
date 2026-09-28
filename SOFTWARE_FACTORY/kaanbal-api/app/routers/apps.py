@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
-from fastapi.responses import StreamingResponse
-from typing import List, Any
+from fastapi.responses import JSONResponse, StreamingResponse
+from typing import List, Any, Optional
 import asyncio
 import json
 import re
@@ -16,7 +16,7 @@ from app.services.pipeline_service import pipeline_service
 from app.services.ai_service import ai_service
 from app.services.argocd_service import argocd_service
 from app.services.activity_log import activity_log, CATEGORY_APP, CATEGORY_DEPLOY, CATEGORY_SYSTEM
-from app.services import domain_service
+from app.services import app_links, change_plans, domain_service, plans
 from app.defaults import EXPOSURE_RULES, EXPOSURE_RULES_DEFAULT
 from app.routers.auth import get_current_active_user
 
@@ -163,8 +163,7 @@ async def list_apps():
     for app in apps:
         app["_id"] = str(app["_id"])
         app["domain"] = domain_service.describe_app_domain(app, index)
-        app["domain_move"] = _domain_move_view(app.get("domain_move"))
-        app["root_promotion"] = _root_promotion_view(app.get("root_promotion"))
+        app.update(_task_views(app))
     return apps
 
 
@@ -177,7 +176,7 @@ async def get_app(app_name: str):
         raise HTTPException(status_code=404, detail="App not found")
     app["_id"] = str(app["_id"])
     app["domain"] = domain_service.describe_app_domain(app, await domain_service.domains_index())
-    app["root_promotion"] = _root_promotion_view(app.get("root_promotion"))
+    app.update(_task_views(app))
     return app
 
 
@@ -235,6 +234,26 @@ def _root_promotion_view(promotion: dict | None) -> dict | None:
     return _task_view(promotion, "La conversión se interrumpió (la API se reinició). Revisa la exposición y reintenta.")
 
 
+def _exposure_change_view(change: dict | None) -> dict | None:
+    return _task_view(change, "El cambio de exposición se interrumpió (la API se reinició). Revisa la exposición y reintenta.")
+
+
+def _task_views(app: dict) -> dict:
+    """Las operaciones largas de una app, tal como las ve la consola (y el MCP)."""
+    return {
+        "domain_move": _domain_move_view(app.get("domain_move")),
+        "root_promotion": _root_promotion_view(app.get("root_promotion")),
+        "exposure_change": _exposure_change_view(app.get("exposure_change")),
+    }
+
+
+def _plan_error(exc: Exception) -> HTTPException:
+    """Un plan que no se puede aplicar, como respuesta HTTP."""
+    if isinstance(exc, change_plans.ChangeError):
+        return HTTPException(status_code=exc.status, detail=str(exc))
+    return HTTPException(status_code=409, detail=str(exc))
+
+
 async def _move_domain_in_background(app: dict, per_env: dict, target: dict, actor: str):
     db = get_db()
     try:
@@ -281,6 +300,8 @@ async def change_app_domain(
     app_name: str,
     body: dict,
     background_tasks: BackgroundTasks,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
     """Mudar una app pública a otro dominio padre. Responde 202 de inmediato.
@@ -290,6 +311,9 @@ async def change_app_domain(
     verifica que ninguna otra app ocupe esos hosts en el dominio destino. Corre
     en segundo plano porque puede tardar más de lo que Cloudflare espera una
     respuesta; la consola sigue el estado con GET /{app_name}/domain.
+
+    Con dry_run devuelve el plan (URLs antes y después) y su plan_id sin mover
+    nada; con plan_id solo aplica si el plan sigue siendo ese (ver plans.py).
     """
     db = get_db()
     app = await db.apps.find_one({"name": app_name})
@@ -306,25 +330,17 @@ async def change_app_domain(
 
     index = await domain_service.domains_index()
     current = domain_service.describe_app_domain(app, index)
-    if not current["public"]:
-        raise HTTPException(
-            status_code=400,
-            detail="La app no tiene ambientes públicos: el dominio no aplica. Hazla pública desde su exposición primero.",
+    collisions = await _host_collisions(db, app, target["fqdn"]) if current["public"] else []
+    try:
+        plan = change_plans.domain_move_plan(
+            app, current, target["fqdn"], target_id=str(target["_id"]),
+            collisions=collisions, busy=change_plans.busy_reason(_task_views(app)),
         )
-    if current["id"] == str(target["_id"]):
-        raise HTTPException(status_code=409, detail=f"{app_name} ya vive en {target['fqdn']}.")
-
-    collisions = await _host_collisions(db, app, target["fqdn"])
-    if collisions:
-        first = collisions[0]
-        raise HTTPException(
-            status_code=409,
-            detail=f"{', '.join(first['hosts'])} ya lo usa la app '{first['app']}' en {target['fqdn']}.",
-        )
-
-    move_view = _domain_move_view(app.get("domain_move"))
-    if move_view and move_view.get("state") == "running":
-        raise HTTPException(status_code=409, detail="Ya hay una mudanza de dominio en curso para esta app.")
+        if dry_run:
+            return JSONResponse(plans.dry_run_answer("attach_domain", plan))
+        plans.verify("attach_domain", plan, plan_id)
+    except (change_plans.ChangeError, plans.PlanMismatch) as exc:
+        raise _plan_error(exc)
 
     per_env = current["modes"]
     move = {
@@ -378,6 +394,8 @@ async def _promote_to_root_in_background(app: dict, fqdn: str, actor: str):
 async def promote_app_to_homepage(
     app_name: str,
     background_tasks: BackgroundTasks,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
     """Convertir una app existente en el homepage de su dominio.
@@ -385,51 +403,36 @@ async def promote_app_to_homepage(
     Nadie tiene que relanzar ni renombrar nada: la app conserva su nombre, su
     repo y sus secretos, y su prod pasa de <app>.<dominio> a la raíz. Responde
     202 porque el cambio incluye DNS y un probe; la consola sigue el estado en
-    GET /{app_name}/homepage.
+    GET /{app_name}/homepage. dry_run y plan_id: ver change_app_domain.
     """
     db = get_db()
     app = await db.apps.find_one({"name": app_name})
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
-    if app.get("is_root_domain"):
-        raise HTTPException(status_code=409, detail=f"{app_name} ya es el homepage de su dominio.")
-
-    promotion = _root_promotion_view(app.get("root_promotion"))
-    if promotion and promotion.get("state") == "running":
-        raise HTTPException(status_code=409, detail="Ya hay una conversión en curso para esta app.")
 
     index = await domain_service.domains_index()
     current = domain_service.describe_app_domain(app, index)
     fqdn = current.get("fqdn") or ""
-    if not fqdn:
-        raise HTTPException(status_code=400, detail="La app no tiene dominio: regístralo antes de darle la raíz.")
-    if (current["modes"] or {}).get("prod") not in domain_service.PUBLIC_MODES:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"El homepage ocupa {fqdn}, así que su prod tiene que ser pública. "
-                "Cámbiala en 'Manage exposure' y vuelve a intentarlo."
-            ),
-        )
 
     # Una sola raíz por dominio: la del dominio de esta app.
+    root_owner = None
     for other in await db.apps.find({"is_root_domain": True}).to_list(100):
-        if other.get("name") == app_name:
-            continue
-        if domain_service.describe_app_domain(other, index).get("fqdn") == fqdn:
-            raise HTTPException(
-                status_code=409,
-                detail=f"La raíz de {fqdn} ya la ocupa '{other['name']}'. Solo puede haber un homepage por dominio.",
-            )
+        if other.get("name") != app_name and fqdn and domain_service.describe_app_domain(other, index).get("fqdn") == fqdn:
+            root_owner = other["name"]
+            break
 
     # El apex es un host más: si otra app lo reclamó, se ve aquí antes de tocar DNS.
-    collisions = await _host_collisions(db, {**app, "is_root_domain": True}, fqdn)
-    if collisions:
-        first = collisions[0]
-        raise HTTPException(
-            status_code=409,
-            detail=f"{', '.join(first['hosts'])} ya lo usa la app '{first['app']}' en {fqdn}.",
+    collisions = await _host_collisions(db, {**app, "is_root_domain": True}, fqdn) if fqdn else []
+    try:
+        plan = change_plans.homepage_plan(
+            app, current, root_owner=root_owner, collisions=collisions,
+            busy=change_plans.busy_reason(_task_views(app)),
         )
+        if dry_run:
+            return JSONResponse(plans.dry_run_answer("set_homepage", plan))
+        plans.verify("set_homepage", plan, plan_id)
+    except (change_plans.ChangeError, plans.PlanMismatch) as exc:
+        raise _plan_error(exc)
 
     promotion = {
         "state": "running",
@@ -468,6 +471,38 @@ async def create_app_record(app_data: AppCreate, actor: str) -> dict:
     stacks, para que lanzar un stack no pueda saltarse ninguna validación del
     Wizard (nombre libre, hosts sin choque, una raíz por dominio). No despliega:
     de eso se encarga quien llame, con _run_deploy.
+    """
+    db = get_db()
+    prepared = await prepare_app_record(app_data)
+    app_doc = prepared["doc"]
+
+    result = await db.apps.insert_one(app_doc)
+    app_id = str(result.inserted_id)
+
+    await activity_log.log(
+        "app.create.accepted",
+        category=CATEGORY_APP,
+        actor=actor,
+        target=app_data.name,
+        detail={
+            "template": app_data.template,
+            "app_group": app_doc["app_group"],
+            "environments": app_data.environments,
+            "is_root_domain": app_doc["is_root_domain"],
+            "exposure": app_data.exposure.model_dump() if app_data.exposure else None,
+        },
+    )
+
+    return {"id": app_id, "name": app_data.name, "doc": app_doc}
+
+
+async def prepare_app_record(app_data: AppCreate) -> dict:
+    """Todas las validaciones del alta y el documento de la app, sin guardarlo.
+
+    Devuelve {'doc', 'fqdn'}. Normaliza `app_data` en el camino (nombre, prod
+    pública de un homepage), igual que antes hacía create_app_record: es lo que
+    después recibe el deployer. El dry_run de POST /apps usa esto mismo, así que
+    el plan que se ve y el alta real no pueden diferir en las reglas.
     """
     db = get_db()
 
@@ -592,25 +627,7 @@ async def create_app_record(app_data: AppCreate, actor: str) -> dict:
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
-
-    result = await db.apps.insert_one(app_doc)
-    app_id = str(result.inserted_id)
-
-    await activity_log.log(
-        "app.create.accepted",
-        category=CATEGORY_APP,
-        actor=actor,
-        target=app_data.name,
-        detail={
-            "template": app_data.template,
-            "app_group": app_group,
-            "environments": app_data.environments,
-            "is_root_domain": use_root_domain,
-            "exposure": app_data.exposure.model_dump() if app_data.exposure else None,
-        },
-    )
-
-    return {"id": app_id, "name": app_data.name, "doc": app_doc}
+    return {"doc": app_doc, "fqdn": domain}
 
 
 def start_deploy(app_id: str, app_data: AppCreate, background_tasks, actor: str) -> str:
@@ -621,16 +638,41 @@ def start_deploy(app_id: str, app_data: AppCreate, background_tasks, actor: str)
     return f"/api/v1/apps/{app_id}/deploy/stream"
 
 
+async def _app_plan(app_data: AppCreate) -> dict:
+    """El plan de un alta, calculado por el mismo camino que el alta real."""
+    prepared = await prepare_app_record(app_data.model_copy(deep=True))
+    mode = app_data.creation_mode
+    return change_plans.app_plan(
+        prepared["doc"], prepared["fqdn"],
+        creation_mode=mode.value if hasattr(mode, "value") else str(mode),
+        database_bindings=app_data.database_bindings,
+    )
+
+
 @router.post("", status_code=202)
 async def create_app(
     app_data: AppCreate,
     background_tasks: BackgroundTasks,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
     """
     Crear una nueva app desde template.
     Returns immediately with app_id and stream_url for SSE progress.
+
+    Con dry_run devuelve el plan (nombre final, URLs, repo, bases) y su plan_id
+    sin crear nada; con plan_id solo crea si el plan sigue siendo ese.
     """
+    if dry_run or plan_id:
+        plan = await _app_plan(app_data)
+        if dry_run:
+            return JSONResponse(plans.dry_run_answer("create_app", plan))
+        try:
+            plans.verify("create_app", plan, plan_id)
+        except plans.PlanMismatch as exc:
+            raise _plan_error(exc)
+
     created = await create_app_record(app_data, current_user.username)
     stream_url = start_deploy(created["id"], app_data, background_tasks, current_user.username)
 
@@ -1126,12 +1168,16 @@ async def list_argocd_apps():
 
 
 @router.get("/{app_name}/argocd/logs")
-async def get_app_argocd_logs(app_name: str, pod_name: str = None):
+async def get_app_argocd_logs(app_name: str, pod_name: str = None, env: Optional[str] = None, lines: Optional[int] = None):
     """
     Obtener logs de pods de la app desde ArgoCD.
-    Útil para debuggear problemas de runtime.
+    Útil para debuggear problemas de runtime. `env` elige el ambiente y
+    `lines` se queda con las últimas N líneas de cada pod.
     """
-    result = await argocd_service.get_app_logs(app_name, pod_name)
+    if env is not None and not re.fullmatch(r"[a-z]{2,16}", env):
+        raise HTTPException(status_code=400, detail="Ambiente inválido")
+    tail = max(1, min(int(lines), 1000)) if lines else None
+    result = await argocd_service.get_app_logs(app_name, pod_name, env=env, tail_lines=tail)
     return result
 
 
@@ -1668,6 +1714,181 @@ async def repair_app_bindings(app_name: str, current_user: User = Depends(get_cu
     }
 
 
+_link_templates = None
+
+
+async def _service_port(provider: dict, env: str) -> int:
+    """Puerto del Service de una app: el del clúster si responde; si no, el de su plantilla."""
+    global _link_templates
+    try:
+        from app.services.exposure.probes import k8s_get
+
+        code, data = await k8s_get(f"/api/v1/namespaces/{env}/services/{provider['name']}")
+        ports = []
+        if code == 200:
+            ports = ((data or {}).get("spec") or {}).get("ports") or []
+        if ports and ports[0].get("port"):
+            return int(ports[0]["port"])
+    except Exception as exc:  # noqa: BLE001 — fuera del clúster no hay a quién preguntar
+        logger.info(f"Puerto del Service de {env}/{provider['name']} no disponible: {exc}")
+    try:
+        from app.services.template_service import TemplateService
+
+        _link_templates = _link_templates or TemplateService()
+        details = await _link_templates.get_template_details(provider.get("template") or "")
+        if details and details.get("port"):
+            return int(details["port"])
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"Puerto de la plantilla de {provider['name']} no disponible: {exc}")
+    return int((provider.get("specs") or {}).get("port") or 80)
+
+
+@router.post("/{app_name}/links", status_code=201)
+async def link_app(
+    app_name: str,
+    body: dict,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Vincular esta app con otra: recibe las variables para hablarle (ver app_links.py).
+
+    Body: {"to_app": "tienda-db", "alias": "TIENDA_DB", "environments": ["prod"]}.
+    Con una base, sus credenciales y los nombres estándar del motor; con otra app,
+    su dirección dentro del clúster. Nunca devuelve valores: solo nombres. Queda
+    registrado en la matriz de vínculos (y en el diagrama) para poder quitarlo.
+    dry_run y plan_id: ver change_app_domain.
+    """
+    db = get_db()
+    consumer = await db.apps.find_one({"name": app_name})
+    if not consumer:
+        raise HTTPException(status_code=404, detail="App not found")
+    to_app = str(body.get("to_app") or "").strip()
+    provider = await db.apps.find_one({"name": to_app}) if to_app else None
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"App '{to_app}' not found")
+    try:
+        app_links.check_pair(consumer, provider)
+        kind = app_links.kind_of(provider)
+        alias = app_links.alias_for(provider["name"], body.get("alias"))
+        environments = app_links.environments_for(consumer, provider, body.get("environments"))
+    except app_links.LinkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    ports = {}
+    if kind == app_links.KIND_SERVICE:
+        ports = {env: await _service_port(provider, env) for env in environments}
+
+    shown: dict = {}
+
+    def check_plan(report: dict):
+        # Corre con lo ya calculado y antes de publicar: el plan que se ve es el que se aplica.
+        shown["plan"] = change_plans.link_plan(app_name, provider["name"], kind=kind, alias=alias, report=report)
+        if not dry_run:
+            plans.verify("link_apps", shown["plan"], plan_id)
+
+    try:
+        result = await AppDeployer().link_apps(
+            consumer, provider, environments=environments, alias=alias, kind=kind,
+            ports=ports, dry_run=dry_run, before_push=check_plan,
+        )
+    except (change_plans.ChangeError, plans.PlanMismatch) as exc:
+        raise _plan_error(exc)
+    except app_links.LinkError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Link {app_name} → {to_app} failed: {_safe_error(exc)}")
+        raise HTTPException(status_code=502, detail=f"No se pudo vincular: {_safe_error(exc)}")
+
+    if dry_run:
+        return JSONResponse(plans.dry_run_answer("link_apps", shown["plan"]))
+
+    now = datetime.utcnow()
+    for env, item in result["environments"].items():
+        if not item.get("add"):
+            continue
+        key = {"from_app": app_name, "from_env": env, "to_app": provider["name"], "to_env": env, "managed": True}
+        existing = await db.service_links.find_one(key)
+        names = sorted(set((existing or {}).get("published_names") or []) | set(item["add"]))
+        fields = {
+            **key,
+            "port_name": "db" if kind == app_links.KIND_DATABASE else "http",
+            "port_number": ports.get(env),
+            "alias": alias,
+            "kind": kind,
+            "visibility": "app-scoped",
+            "published_names": names,
+            "updated_at": now,
+        }
+        if existing:
+            await db.service_links.update_one({"_id": existing["_id"]}, {"$set": fields})
+        else:
+            await db.service_links.insert_one({**fields, "description": "Vínculo publicado por Kaanbal", "created_at": now})
+
+    added = {env: item["add"] for env, item in result["environments"].items() if item.get("add")}
+    await activity_log.log(
+        "app.link.created", category=CATEGORY_APP, actor=current_user.username, target=app_name,
+        detail={"to": provider["name"], "kind": kind, "alias": alias, "added": added},
+    )
+    return {
+        "app": app_name,
+        "to": provider["name"],
+        "kind": kind,
+        "alias": alias,
+        "environments": result["environments"],
+        "committed": result["committed"],
+        "message": (
+            f"Vinculada con {provider['name']}. ArgoCD reiniciará {app_name} con las variables nuevas."
+            if result["committed"] else f"{app_name} ya tenía todo lo del vínculo: no hubo cambios."
+        ),
+    }
+
+
+@router.delete("/{app_name}/links/{to_app}")
+async def unlink_app(
+    app_name: str,
+    to_app: str,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Deshacer un vínculo publicado por Kaanbal: quita solo las variables que puso."""
+    db = get_db()
+    links = await db.service_links.find({"from_app": app_name, "to_app": to_app, "managed": True}).to_list(50)
+    if not links:
+        raise HTTPException(status_code=404, detail=f"'{app_name}' no tiene un vínculo con '{to_app}' hecho por Kaanbal.")
+
+    names_by_env: dict = {}
+    for link in links:
+        names_by_env.setdefault(link["from_env"], []).extend(link.get("published_names") or [])
+    plan = change_plans.unlink_plan(app_name, to_app, names_by_env)
+    if dry_run:
+        return JSONResponse(plans.dry_run_answer("unlink_apps", plan))
+    try:
+        plans.verify("unlink_apps", plan, plan_id)
+        result = await AppDeployer().unlink_apps(app_name, plan["remove"], provider_name=to_app)
+    except plans.PlanMismatch as exc:
+        raise _plan_error(exc)
+    except app_links.LinkError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Unlink {app_name} → {to_app} failed: {_safe_error(exc)}")
+        raise HTTPException(status_code=502, detail=f"No se pudo quitar el vínculo: {_safe_error(exc)}")
+
+    await db.service_links.delete_many({"from_app": app_name, "to_app": to_app, "managed": True})
+    await activity_log.log(
+        "app.link.removed", category=CATEGORY_APP, actor=current_user.username, target=app_name,
+        detail={"to": to_app, "removed": {env: item["removed"] for env, item in result["environments"].items()}},
+    )
+    return {
+        "app": app_name,
+        "to": to_app,
+        "environments": result["environments"],
+        "committed": result["committed"],
+        "message": f"Vínculo con {to_app} quitado." + (" ArgoCD reiniciará la app." if result["committed"] else ""),
+    }
+
+
 @router.patch("/{app_name}/tailscale-tags")
 async def update_tailscale_tags(app_name: str, body: dict, current_user: User = Depends(get_current_active_user)):
     """
@@ -1881,6 +2102,77 @@ async def _run_switch(app: dict, *, per_env: dict, port_exposure, target_domain_
         },
     )
     return result
+
+
+async def _change_exposure_in_background(app: dict, per_env: dict, actor: str):
+    db = get_db()
+    try:
+        result = await _run_switch(app, per_env=per_env, port_exposure=None, target_domain_id=None, actor=actor)
+        fresh = await db.apps.find_one({"name": app["name"]}) or app
+        urls = domain_service.describe_app_domain(fresh, await domain_service.domains_index())["urls"]
+        # "pending" igual que en la mudanza: aplicado, pero el probe aún no respondió.
+        await db.apps.update_one({"name": app["name"]}, {"$set": {
+            "exposure_change.state": "succeeded" if result.get("validated") else "pending",
+            "exposure_change.urls": urls,
+            "exposure_change.pending": result.get("pending") or [],
+            "exposure_change.finished_at": datetime.utcnow(),
+        }})
+    except Exception as exc:
+        logger.exception("exposure change failed for %s", app["name"])
+        await db.apps.update_one({"name": app["name"]}, {"$set": {
+            "exposure_change.state": "failed",
+            "exposure_change.error": str(exc)[:300],
+            "exposure_change.finished_at": datetime.utcnow(),
+        }})
+
+
+@router.post("/{app_name}/exposure", status_code=202)
+async def change_app_exposure(
+    app_name: str,
+    body: dict,
+    background_tasks: BackgroundTasks,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Cambiar la exposición por ambiente en segundo plano. Responde 202.
+
+    Hace lo mismo que PATCH /exposure, pero sin esperar: publicar DNS, esperar a
+    ArgoCD y probar la URL puede pasar de los 100 s que Cloudflare tolera. El
+    estado queda en `exposure_change` (GET /apps/{app}). Body: {"per_env": {...}}.
+    dry_run y plan_id: ver change_app_domain.
+    """
+    db = get_db()
+    app = await db.apps.find_one({"name": app_name})
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+
+    current = domain_service.describe_app_domain(app, await domain_service.domains_index())
+    try:
+        plan = change_plans.exposure_plan(app, current.get("fqdn") or "", body.get("per_env") or {})
+        busy = change_plans.busy_reason(_task_views(app))
+        if busy:
+            raise change_plans.ChangeError(busy, 409)
+        if dry_run:
+            return JSONResponse(plans.dry_run_answer("set_exposure", plan))
+        plans.verify("set_exposure", plan, plan_id)
+    except (change_plans.ChangeError, plans.PlanMismatch) as exc:
+        raise _plan_error(exc)
+
+    per_env = {env: change["to"] for env, change in plan["changes"].items()}
+    change = {
+        "state": "running",
+        "per_env": per_env,
+        "actor": current_user.username,
+        "started_at": datetime.utcnow(),
+    }
+    await db.apps.update_one({"name": app_name}, {"$set": {"exposure_change": change}})
+    await activity_log.log(
+        "app.exposure.change.started", category=CATEGORY_APP, actor=current_user.username,
+        target=app_name, detail={"per_env": per_env},
+    )
+    background_tasks.add_task(_change_exposure_in_background, app, per_env, current_user.username)
+    return {"app": app_name, "change": _exposure_change_view(change), "plan": plan}
 
 
 @router.get("/{app_name}/exposure/status")

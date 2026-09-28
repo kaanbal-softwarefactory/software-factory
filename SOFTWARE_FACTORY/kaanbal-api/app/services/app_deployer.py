@@ -20,6 +20,7 @@ import subprocess
 import logging
 import secrets as secrets_module
 import string
+from types import SimpleNamespace
 from typing import Optional
 from datetime import datetime
 from bson import ObjectId
@@ -3585,6 +3586,116 @@ secretGenerator:
             shutil.rmtree(infra_path, ignore_errors=True)
 
         return report
+
+    async def _link_variables(self, consumer: dict, provider: dict, env: str, alias: str, kind: str, port: int) -> dict:
+        """Variables que un vínculo le da a la app en un ambiente (con valores: no salen de aquí)."""
+        from app.services import app_links
+
+        if kind == app_links.KIND_SERVICE:
+            return app_links.service_variables(provider["name"], env, alias, port)
+
+        # Una base: el mismo camino que al crear la app ya vinculada.
+        binding = SimpleNamespace(
+            template=consumer.get("template"),
+            database_bindings={env: [{
+                "app_name": provider["name"], "env": env,
+                "template": provider.get("template"), "alias": alias,
+            }]},
+        )
+        resolved = await self._resolve_database_bindings(consumer["name"], binding, [env])
+        variables = resolved.get(env) or {}
+        engine = self._detect_db_template(provider.get("template"), provider)
+        app_links.check_database_variables(provider["name"], env, alias, engine, variables)
+        return variables
+
+    async def link_apps(self, consumer: dict, provider: dict, *, environments: list, alias: str, kind: str,
+                        ports: Optional[dict] = None, dry_run: bool = False, before_push=None) -> dict:
+        """Darle a una app las variables para hablar con otra (ver app_links.py).
+
+        Con dry_run calcula qué agregaría en cada ambiente y no escribe nada.
+        `before_push(report)` corre con el reporte ya calculado y antes de publicar:
+        si levanta una excepción, no se publica nada (así se verifica el plan_id).
+        """
+        from app.services import app_links
+
+        await self._load_credentials()
+        infra_path = os.path.join(self.workspace, "infra-gitops")
+        if os.path.exists(infra_path):
+            shutil.rmtree(infra_path)
+        subprocess.run(
+            ["git", "clone", self.provider.get_auth_clone_url("infra-gitops"), infra_path],
+            check=True, capture_output=True,
+        )
+
+        app_name = consumer["name"]
+        report: dict = {}
+        planned: dict = {}
+        try:
+            for env in environments:
+                literals = self._read_overlay_literals(infra_path, app_name, env)
+                if literals is None:
+                    report[env] = {"status": "sin_overlay", "add": [], "keep": []}
+                    continue
+                wanted = await self._link_variables(consumer, provider, env, alias, kind, (ports or {}).get(env) or 80)
+                new_literals, added, kept = app_links.merge(literals, wanted, alias)
+                report[env] = {"status": "agrega" if added else "al_dia", "add": added, "keep": kept}
+                if added:
+                    planned[env] = new_literals
+
+            if before_push is not None:
+                before_push(report)
+            if not dry_run and planned:
+                for env, new_literals in planned.items():
+                    self._patch_overlay_secrets(infra_path, app_name, env, {env: new_literals})
+                await self._push_infra(
+                    infra_path, app_name, list(planned),
+                    message=f"feat({app_name}): vínculo con {provider['name']} en {', '.join(planned)}",
+                )
+        finally:
+            shutil.rmtree(infra_path, ignore_errors=True)
+
+        return {"environments": report, "committed": bool(planned) and not dry_run}
+
+    async def unlink_apps(self, app_name: str, names_by_env: dict, *, provider_name: str) -> dict:
+        """Quitar de una app exactamente las variables que puso un vínculo."""
+        from app.services import app_links
+
+        await self._load_credentials()
+        infra_path = os.path.join(self.workspace, "infra-gitops")
+        if os.path.exists(infra_path):
+            shutil.rmtree(infra_path)
+        subprocess.run(
+            ["git", "clone", self.provider.get_auth_clone_url("infra-gitops"), infra_path],
+            check=True, capture_output=True,
+        )
+
+        report: dict = {}
+        changed: list = []
+        try:
+            for env, names in names_by_env.items():
+                literals = self._read_overlay_literals(infra_path, app_name, env)
+                if literals is None:
+                    report[env] = {"status": "sin_overlay", "removed": []}
+                    continue
+                remaining, removed = app_links.remove(literals, names)
+                if removed and not remaining:
+                    # _patch_overlay_secrets no sabe dejar un secretGenerator vacío.
+                    raise app_links.LinkError(
+                        f"Quitar el vínculo dejaría a '{app_name}' sin ninguna variable en {env}: hazlo desde infra-gitops."
+                    )
+                report[env] = {"status": "quitadas" if removed else "ya_no_estaban", "removed": removed}
+                if removed:
+                    self._patch_overlay_secrets(infra_path, app_name, env, {env: remaining})
+                    changed.append(env)
+            if changed:
+                await self._push_infra(
+                    infra_path, app_name, changed,
+                    message=f"chore({app_name}): quitar el vínculo con {provider_name} en {', '.join(changed)}",
+                )
+        finally:
+            shutil.rmtree(infra_path, ignore_errors=True)
+
+        return {"environments": report, "committed": bool(changed)}
 
     def _create_basic_overlay(self, overlay_path: str, app_name: str, env: str, app_data: AppCreate = None, workload_kind: str = "Deployment"):
         """Crear un overlay básico si no existe en el template"""

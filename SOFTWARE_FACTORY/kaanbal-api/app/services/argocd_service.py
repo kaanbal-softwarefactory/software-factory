@@ -216,9 +216,13 @@ class ArgoCDService:
         except Exception as e:
             return {"error": str(e)}
     
-    async def get_app_logs(self, app_name: str, pod_name: str = None, container: str = None) -> dict:
+    async def get_app_logs(self, app_name: str, pod_name: str = None, container: str = None,
+                           env: str = None, tail_lines: int = None) -> dict:
         """
-        Obtiene logs de los pods de una aplicación
+        Obtiene logs de los pods de una aplicación.
+
+        Cada ambiente es su propia Application ({app}-{env}); sin ambiente se
+        devuelve la primera que exista, como siempre.
         """
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=False, follow_redirects=True) as client:
@@ -227,8 +231,10 @@ class ArgoCDService:
                     params["podName"] = pod_name
                 if container:
                     params["container"] = container
+                if tail_lines:
+                    params["tailLines"] = str(int(tail_lines))
 
-                for suffix in ["-prod", "-dev", ""]:
+                for suffix in ([f"-{env}"] if env else ["-prod", "-dev", ""]):
                     name = f"{app_name}{suffix}" if suffix else app_name
                     response = await self._request("GET", f"/api/v1/applications/{name}/logs", client, params=params)
                     if response and response.status_code == 200:

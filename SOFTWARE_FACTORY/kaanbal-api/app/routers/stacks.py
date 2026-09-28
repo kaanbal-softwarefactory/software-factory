@@ -20,13 +20,14 @@ from typing import List, Optional
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from app.db import get_db
 from app.models import AppCreate, User
 from app.routers.apps import _run_deploy, create_app_record
 from app.routers.auth import get_current_active_user
-from app.services import domain_service, stack_launcher
+from app.services import change_plans, domain_service, plans, stack_launcher
 # La instancia, no el módulo: el módulo no tiene log() y lanzar un stack moría con
 # AttributeError justo después de registrar el lanzamiento como "running".
 from app.services.activity_log import CATEGORY_APP, activity_log
@@ -124,9 +125,15 @@ async def get_stack_run(run_id: str):
 async def launch_stack(
     request: StackLaunchRequest,
     background_tasks: BackgroundTasks,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
     current_user: User = Depends(get_current_active_user),
 ):
-    """Lanzar un stack completo. Responde 202; el progreso está en /stacks/runs/{id}."""
+    """Lanzar un stack completo. Responde 202; el progreso está en /stacks/runs/{id}.
+
+    Con dry_run devuelve el plan (nombres, URLs, cableado) y su plan_id sin crear
+    nada; con plan_id solo lanza si el plan sigue siendo ese (ver plans.py).
+    """
     db = get_db()
     stack = await template_service.get_stack_details(request.stack_id)
     if not stack:
@@ -166,12 +173,19 @@ async def launch_stack(
                     ),
                 )
 
+    view = change_plans.stack_plan_view(plan)
     running = await db.stack_runs.find_one({"state": "running"})
+    busy = None
     if running and _run_view(running)["state"] == "running":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya hay un stack lanzándose ('{running.get('base')}'). Espera a que termine.",
-        )
+        busy = f"Ya hay un stack lanzándose ('{running.get('base')}'). Espera a que termine."
+    if dry_run:
+        return JSONResponse(plans.dry_run_answer("launch_stack", view, notices=[busy] if busy else None))
+    if busy:
+        raise HTTPException(status_code=409, detail=busy)
+    try:
+        plans.verify("launch_stack", view, plan_id)
+    except plans.PlanMismatch as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
     run_doc = {
         "stack_id": plan["stack_id"],

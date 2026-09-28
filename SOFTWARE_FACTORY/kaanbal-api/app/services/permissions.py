@@ -169,6 +169,11 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}/(scale|start|stop)", "apps.apps.deploy"),
     rule("GET", rf"{_V1}/apps/{_SEG}/exposure/status", "apps.apps.view"),
     rule("PATCH", rf"{_V1}/apps/{_SEG}/exposure", "apps.apps.expose"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/exposure", "apps.apps.expose"),
+    # Un vínculo escribe variables en la app (con una base, sus credenciales),
+    # pero nadie las ve: por eso alcanza con links.links.manage.
+    rule("POST", rf"{_V1}/apps/{_SEG}/links", "links.links.manage"),
+    rule("DELETE", rf"{_V1}/apps/{_SEG}/links/{_SEG}", "links.links.manage"),
     rule("GET", rf"{_V1}/apps/{_SEG}/(domain|homepage)", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/{_SEG}/(domain|homepage)", "apps.apps.expose"),
     rule("PATCH", rf"{_V1}/apps/{_SEG}/(group|display-name|tailscale-tags)", "apps.apps.expose"),

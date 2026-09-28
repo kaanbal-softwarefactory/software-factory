@@ -22,6 +22,7 @@ sys.modules.setdefault("app.db", types.SimpleNamespace(get_db=lambda: None))
 
 try:
     from app.services import app_deployer
+    from app.services import app_links
 except ImportError as exc:  # pragma: no cover - depende del entorno
     IMPORT_ERROR = exc
 else:
@@ -108,6 +109,19 @@ class ResolveBindingsTests(unittest.TestCase):
         self.assertIn("UNA_URI", result["prod"])
         self.assertIn("OTRA_URI", result["prod"])
         self.assertNotIn("DATABASE_URL", result["prod"])
+
+    def test_link_apps_resolves_a_database_through_the_same_path(self):
+        variables = asyncio.run(self.deployer._link_variables(
+            {"name": "residuos-api", "template": "fastapi-api"}, DATABASES[0], "prod", "RESIDUOS_BD", "database", 0,
+        ))
+        self.assertIn("DATABASE_URL", variables)
+        self.assertIn("RESIDUOS_BD_PASSWORD", variables)
+
+    def test_link_apps_stops_when_the_credentials_are_missing(self):
+        with self.assertRaises(app_links.LinkError):
+            asyncio.run(self.deployer._link_variables(
+                {"name": "residuos-api", "template": "fastapi-api"}, DATABASES[0], "dev", "RESIDUOS_BD", "database", 0,
+            ))
 
 
 if __name__ == "__main__":
