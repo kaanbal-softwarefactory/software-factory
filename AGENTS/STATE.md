@@ -1,6 +1,6 @@
 # Estado operativo
 
-Actualizado: 2026-09-27 · Versión: 1.2.0
+Actualizado: 2026-09-27 · Versión: 1.2.1
 
 ## Resumen
 

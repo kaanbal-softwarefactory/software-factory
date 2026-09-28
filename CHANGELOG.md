@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-27
+
+### Security
+- The API wrote its MongoDB connection string, password included, to its log on every
+  start, and the log endpoint returned logs as they were: anyone allowed to diagnose apps
+  (the operator and agent roles) could read the platform database's root password from
+  the logs of `kaanbal-api`. The startup message now hides the password, and
+  `GET /apps/{app}/argocd/logs` masks credentials and tokens in every line. **Rotate the
+  datastore root password** of installations where other people could read those logs.
+
+### Changed
+- `link_apps` refuses to give a frontend a database's credentials, as `create_app`
+  already did: link the database to the API and the frontend to the API's public URL.
+
 ## [1.2.0] - 2026-09-27
 
 ### Added
