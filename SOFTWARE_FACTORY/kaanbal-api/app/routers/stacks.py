@@ -26,8 +26,10 @@ from app.db import get_db
 from app.models import AppCreate, User
 from app.routers.apps import _run_deploy, create_app_record
 from app.routers.auth import get_current_active_user
-from app.services import activity_log, domain_service, stack_launcher
-from app.services.activity_log import CATEGORY_APP
+from app.services import domain_service, stack_launcher
+# La instancia, no el módulo: el módulo no tiene log() y lanzar un stack moría con
+# AttributeError justo después de registrar el lanzamiento como "running".
+from app.services.activity_log import CATEGORY_APP, activity_log
 from app.services.template_service import TemplateService
 
 logger = logging.getLogger(__name__)
