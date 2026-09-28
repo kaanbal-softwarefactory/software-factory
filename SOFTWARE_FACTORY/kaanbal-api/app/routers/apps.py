@@ -1178,6 +1178,12 @@ async def get_app_argocd_logs(app_name: str, pod_name: str = None, env: Optional
         raise HTTPException(status_code=400, detail="Ambiente inválido")
     tail = max(1, min(int(lines), 1000)) if lines else None
     result = await argocd_service.get_app_logs(app_name, pod_name, env=env, tail_lines=tail)
+    # Una app que imprime su cadena de conexión no puede regalarle la contraseña a
+    # quien solo tiene permiso de diagnosticar: los logs salen enmascarados.
+    if isinstance(result, dict) and isinstance(result.get("logs"), str):
+        from app.services.diagnosis import mask
+
+        result["logs"] = "\n".join(mask(line) for line in result["logs"].split("\n"))
     return result
 
 

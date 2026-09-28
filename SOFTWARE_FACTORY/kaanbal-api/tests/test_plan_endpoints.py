@@ -337,6 +337,29 @@ class PlanEndpointTests(unittest.TestCase):
         response = self.client.post("/api/v1/apps/tienda-db/links?dry_run=true", json={"to_app": "tienda-api"})
         self.assertEqual(response.status_code, 400)
 
+    # ── Logs ─────────────────────────────────────────────────────────────
+    def test_logs_never_carry_credentials(self):
+        """La API de la plataforma escribía su URI de Mongo en el log: quien diagnostica no ve la contraseña."""
+        ndjson = '{"result":{"content":"Connected to MongoDB: mongodb://admin:clave-raiz@datastore:27017/forge","podName":"api-1"}}'
+        fake_logs = mock.AsyncMock(return_value={"logs": ndjson, "app_name": "kaanbal-api"})
+        with mock.patch.object(apps_router.argocd_service, "get_app_logs", fake_logs):
+            response = self.client.get("/api/v1/apps/kaanbal-api/argocd/logs")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertNotIn("clave-raiz", response.text)
+        self.assertIn("mongodb://admin:****@datastore", response.json()["logs"])
+
+    def test_the_startup_message_hides_the_password(self):
+        # Las pruebas reemplazan app.db por un stub: se carga el módulo real por su ruta.
+        import importlib.util
+
+        path = os.path.join(os.path.dirname(__file__), "..", "app", "db.py")
+        spec = importlib.util.spec_from_file_location("kaanbal_real_db", path)
+        db_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(db_module)
+        self.assertEqual(db_module.redacted("mongodb://admin:clave-raiz@datastore:27017/forge?authSource=admin"),
+                         "mongodb://admin:****@datastore:27017/forge?authSource=admin")
+        self.assertEqual(db_module.redacted("mongodb://localhost:27017"), "mongodb://localhost:27017")
+
     # ── Stacks ───────────────────────────────────────────────────────────
     STACK_BODY = {"stack_id": "vue-fastapi-mongo", "name": "orbita", "environments": ["prod"], "homepage": False}
 
