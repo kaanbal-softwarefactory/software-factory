@@ -56,6 +56,11 @@ def _normalize_app_name(raw_name: str) -> str:
     return name
 
 
+def _safe_error(exc: Exception) -> str:
+    """El texto de un error sin credenciales: un `git clone` fallido trae la URL con el token."""
+    return re.sub(r"https://[^@\s/]+@", "https://***@", str(exc))[:300]
+
+
 def _normalize_app_group(raw_group: Any) -> str | None:
     group = str(raw_group or "").strip().lower()
     group = re.sub(r"\s+", "-", group)
@@ -1599,8 +1604,8 @@ async def set_app_variable(app_name: str, variable: str, body: dict, current_use
     except app_variables.VariableError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
-        logger.error(f"Setting variable {variable} failed for {app_name}: {e}")
-        raise HTTPException(status_code=502, detail=f"No se pudo guardar la variable: {e}")
+        logger.error(f"Setting variable {variable} failed for {app_name}: {_safe_error(e)}")
+        raise HTTPException(status_code=502, detail=f"No se pudo guardar la variable: {_safe_error(e)}")
 
     await activity_log.log(
         "app.variable.set",
@@ -1642,8 +1647,8 @@ async def repair_app_bindings(app_name: str, current_user: User = Depends(get_cu
     try:
         report = await deployer.repair_db_bindings(app_name, app.get("environments") or ["prod"])
     except Exception as e:
-        logger.error(f"Bindings repair failed for {app_name}: {e}")
-        raise HTTPException(status_code=502, detail=f"No se pudieron publicar las variables: {e}")
+        logger.error(f"Bindings repair failed for {app_name}: {_safe_error(e)}")
+        raise HTTPException(status_code=502, detail=f"No se pudieron publicar las variables: {_safe_error(e)}")
 
     await activity_log.log(
         "app.bindings.repaired",
