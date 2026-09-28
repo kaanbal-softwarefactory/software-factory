@@ -3279,22 +3279,24 @@ spec:
             resolved: list[tuple[str, dict]] = []  # (motor, componentes) para los nombres convencionales
             for b in bindings:
                 db_app = b["app_name"]
-                db_env = b["env"]
+                # El ambiente de la base. No se llama db_env: taparía al módulo db_env, que
+                # se usa abajo para los nombres estándar (y rompía todo vínculo con una base).
+                bound_env = b["env"]
                 db_doc = apps_index.get(db_app)
                 template_id = self._detect_db_template(b.get("template"), db_doc)
-                host = f"{db_app}.{db_env}.svc.cluster.local"
+                host = f"{db_app}.{bound_env}.svc.cluster.local"
                 port = self._DB_PORT_DEFAULTS.get(template_id, 0)
                 if port == 0:
-                    logger.warning(f"Skipping binding for {db_app}/{db_env}: unknown template '{template_id}'")
+                    logger.warning(f"Skipping binding for {db_app}/{bound_env}: unknown template '{template_id}'")
                     if emit:
-                        await emit("db_bindings", f"Unknown DB template for {db_app}/{db_env}, skipped", "warning")
+                        await emit("db_bindings", f"Unknown DB template for {db_app}/{bound_env}, skipped", "warning")
                     continue
 
-                secrets = await self._read_app_secrets(db_app, db_env)
+                secrets = await self._read_app_secrets(db_app, bound_env)
                 if not secrets and emit:
                     await emit(
                         "db_bindings",
-                        f"No se encontraron credenciales de {db_app}/{db_env} ni en Vault ni en el clúster",
+                        f"No se encontraron credenciales de {db_app}/{bound_env} ni en Vault ni en el clúster",
                         "warning",
                     )
                 conn = self._build_db_connection_string(
@@ -3334,7 +3336,7 @@ spec:
                 if emit:
                     await emit(
                         "db_bindings",
-                        f"{backend_env}: linked {db_app}/{db_env} as {alias} ({template_id})",
+                        f"{backend_env}: linked {db_app}/{bound_env} as {alias} ({template_id})",
                         "success",
                     )
             # Nombres convencionales del motor (MONGO_URI, DATABASE_URL, PGHOST...):
