@@ -23,6 +23,10 @@ qué es ("MCP de <tu nombre>") y cópialo: se muestra una sola vez.
   la guía. El rol **Agente** es exactamente eso.
 - Para que además pueda **crear, conectar, publicar y operar**: el alcance del rol
   **Operador** (o solo los permisos de la tabla de abajo que quieras darle).
+- Para reparar con comandos o proponer código: concede los permisos de autonomía,
+  recursos exactos en **Acceso → Autonomía** y, para operaciones críticas, emite
+  un token con **Control total** y confirmación de contraseña. Estos tokens duran
+  como máximo 24 horas. Cada token muestra vigencia, revocación y actividad.
 
 ## Conectar el agente
 
@@ -69,8 +73,8 @@ a `/mcp`. Solo necesita `httpx`.
 
 ## Plan antes de aplicar
 
-Todo lo que **crea algo o cambia lo que se ve en internet** se pide dos veces. La
-primera vez la herramienta devuelve el plan —qué apps se crean, qué URLs aparecen o
+Las herramientas ordinarias que **crean apps o cambian lo que se ve en internet**
+se piden dos veces. La primera vez devuelven el plan —qué apps se crean, qué URLs aparecen o
 dejan de responder, qué variables llegan (solo nombres)— y un `plan_id`, y no toca
 nada. El agente te muestra el plan; si lo apruebas, repite la llamada con el
 `plan_id`. La plataforma recalcula el plan y solo aplica si sigue siendo idéntico
@@ -78,6 +82,10 @@ nada. El agente te muestra el plan; si lo apruebas, repite la llamada con el
 
 Lo largo (crear, exponer, mudar de dominio) corre en segundo plano: el agente lo
 sigue con `deploy_status` o `stack_status`.
+
+Las herramientas de **Autonomía avanzada** tienen controles distintos: ACL, token,
+concesión exacta del recurso y, para operaciones críticas, confirmación al emitir
+el token. Al invocarlas ejecutan la acción solicitada; revisa el alcance antes.
 
 ## Qué puede hacer
 
@@ -121,6 +129,28 @@ sigue con `deploy_status` o `stack_status`.
 | `repair_db_bindings` | Republicar MONGO_URI, DATABASE_URL… | `apps.apps.deploy` |
 | `set_app_variable` | Agregar una variable que falta (o generarla) | `apps.variables.manage` |
 
+**Autonomía avanzada**
+
+El MCP HTTP integrado anuncia estas herramientas según los permisos del token.
+`platform_capabilities` devuelve el catálogo vivo y los esquemas de argumentos:
+después de actualizar Kaanbal, nuevas capacidades compatibles aparecen en
+`tools/list` sin reinstalar el cliente.
+
+| Herramienta | Para qué | Permiso |
+|---|---|---|
+| `execute_app_command` | Ejecutar un comando dentro de la app autorizada | `autonomy.apps.execute` y token crítico |
+| `execute_node_command` | Reparación root en un nodo exacto | `autonomy.host.execute` y token crítico |
+| `open_app_workspace` / `open_core_workspace` | Preparar código en contenedor temporal | `autonomy.workspaces.manage` y, para core, `autonomy.core.contribute` |
+| `workspace_files` / `write_workspace_file` / `run_workspace_command` | Examinar, editar o validar código | `autonomy.workspaces.manage` |
+| `workspace_diff` / `publish_workspace_pr` | Revisar cambios y proponer un PR | `autonomy.changes.propose` al publicar |
+| `merge_app_pr` | Integrar una app con SHA revisado y checks de GitHub | `autonomy.changes.merge` y token crítico |
+| `platform_upgrade` / `platform_upgrade_status` | Job de actualización del core | `core.updates.apply` / `core.updates.view` |
+
+La política inicia desactivada. Los workspaces usan un snapshot del commit y
+publican a GitHub desde la API; no reciben la credencial GitHub. El core siempre
+queda como PR borrador para revisión y merge del owner. [Flujos, límites y
+activación](../docs/MCP_AUTONOMY.md).
+
 **Guiar**
 
 | Herramienta | Para qué | Permiso |
@@ -137,14 +167,16 @@ aparecen como comandos `/`): `lanzar-sitio`, `nueva-app`, `diagnosticar`,
 
 ## Lo que no puede hacer, a propósito
 
-- **Leer el valor de un secreto.** Ni los nombres de variables, ni el diagnóstico,
+- **Leer el valor de un secreto mediante las herramientas ordinarias.** Ni los nombres de variables, ni el diagnóstico,
   ni los planes traen valores, y las credenciales en los logs llegan enmascaradas.
   Cuando `set_app_variable` genera un valor o `link_apps` conecta una base, el agente
   nunca lo ve.
 - Aplicar un cambio visible sin plan: `plan_id` no se puede inventar.
 - Pisar una variable existente, ni tocar las que gestiona la plataforma.
-- **Borrar** apps o dominios, tocar las credenciales de la plataforma, actualizar el
-  core o administrar accesos. Eso se hace en la consola, con una persona mirando.
+- Borrar apps o dominios mediante las herramientas ordinarias. La ejecución de
+  comandos críticos puede afectar recursos y revelar datos en su alcance; exige
+  token crítico, ACL y concesión expresa. La actualización del core reutiliza el
+  Job existente cuando el token tiene `core.updates.apply`.
 
 ## Ejemplos
 

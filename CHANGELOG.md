@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
+  repair commands, source workspaces, GitHub PRs and core upgrade tools.
+- Critical tokens require a password confirmation, risk acknowledgement and expiry
+  within 24 hours. Tokens support scheduled activation, visible revocation and an
+  activity history. Normal tokens may have no expiry with an explicit warning.
+- The built-in HTTP MCP discovers new governed tools as the platform evolves;
+  existing MCP tools and guided flows remain available.
+
+This is disabled by default. Kubernetes permissions for app exec and privileged
+node operations require an owner-reviewed GitOps change before activation.
+
 ## [1.2.1] - 2026-09-27
 
 ### Security

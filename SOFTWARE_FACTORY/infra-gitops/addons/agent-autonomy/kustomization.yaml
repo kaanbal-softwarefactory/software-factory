@@ -1,0 +1,5 @@
+# Opt-in source workspace only. No runtime exec or privileged host permissions.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - workspaces.yaml

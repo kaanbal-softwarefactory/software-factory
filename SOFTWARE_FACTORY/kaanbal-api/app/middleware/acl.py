@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Optional
 
 from fastapi.responses import JSONResponse
@@ -83,6 +84,18 @@ def _deny(status_code: int, detail: str, headers: Optional[dict] = None, **extra
     return JSONResponse({"detail": detail, **extra}, status_code=status_code, headers=headers)
 
 
+async def _record_token_request(principal, method, path, status):
+    if not principal.via_token:
+        return
+    try:
+        await get_db()["token_activity"].insert_one({
+            "credential_id": principal.token_id, "actor": principal.username,
+            "timestamp": datetime.utcnow(), "method": method, "path": path, "status": status,
+        })
+    except Exception:
+        logger.error("No se pudo registrar actividad de token")
+
+
 class AccessControlMiddleware(BaseHTTPMiddleware):
     """Autentica y autoriza cada petición a la API."""
 
@@ -116,6 +129,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
         if not has_rule:
             # Fail-closed: preferimos un endpoint inaccesible a uno abierto por olvido.
             logger.error("Endpoint sin regla ACL: %s %s", method, path)
+            await _record_token_request(principal, method, path, 403)
             return _deny(
                 403,
                 f"{method} {path} no tiene regla de acceso declarada. "
@@ -124,6 +138,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
             )
 
         if not principal.can(permission):
+            await _record_token_request(principal, method, path, 403)
             detail = f"Tu cuenta no tiene el permiso '{permission}'."
             if principal.via_token:
                 detail = (
@@ -133,4 +148,10 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
             return _deny(403, detail, code="permission_denied", permission=permission)
 
         request.state.principal = principal
-        return await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            await _record_token_request(principal, method, path, 500)
+            raise
+        await _record_token_request(principal, method, path, response.status_code)
+        return response

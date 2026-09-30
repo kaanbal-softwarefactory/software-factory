@@ -60,6 +60,15 @@ def rule(method: str, pattern: str, permission_key: Optional[str]) -> AclRule:
 
 # ── Catálogo ─────────────────────────────────────────────────────────────
 PERMISSIONS: Tuple[PermissionDef, ...] = (
+    permission("autonomy.policy.manage", "Configurar usuarios, recursos y vigencia para autonomía.", risk=RISK_CRITICAL),
+    permission("autonomy.tools.view", "Descubrir capacidades y consultar operaciones propias."),
+    permission("autonomy.apps.execute", "Ejecutar comandos con acceso a datos y credenciales de una app.", risk=RISK_CRITICAL),
+    permission("autonomy.host.execute", "Ejecutar comandos como root en nodos autorizados.", risk=RISK_CRITICAL),
+    permission("autonomy.workspaces.manage", "Crear, editar y ejecutar contenedores de trabajo sin credenciales.", risk=RISK_HIGH),
+    permission("autonomy.core.contribute", "Preparar cambios de Kaanbal para revisión del owner.", risk=RISK_HIGH),
+    permission("autonomy.changes.propose", "Publicar cambios como rama y pull request.", risk=RISK_HIGH),
+    permission("autonomy.changes.merge", "Integrar PRs de apps cuando GitHub permita el merge.", risk=RISK_CRITICAL),
+    permission("security.tokens.elevated", "Emitir tokens críticos con contraseña y expiración.", risk=RISK_CRITICAL),
     # Aplicaciones
     permission("apps.apps.view", "Ver las aplicaciones y su estado."),
     permission("apps.apps.create", "Lanzar aplicaciones nuevas."),
@@ -138,6 +147,22 @@ MCP_PATH = "/mcp"
 # ── Reglas ACL ───────────────────────────────────────────────────────────
 # Las literales van ANTES que las paramétricas: gana la primera que coincide.
 ACL_RULES: Tuple[AclRule, ...] = (
+    rule("GET", rf"{_V1}/autonomy/capabilities", "autonomy.tools.view"),
+    rule("GET", rf"{_V1}/autonomy/operations/{_SEG}", "autonomy.tools.view"),
+    rule("GET", rf"{_V1}/autonomy/policy", "autonomy.policy.manage"),
+    rule("PUT", rf"{_V1}/autonomy/policy", "autonomy.policy.manage"),
+    rule("POST", rf"{_V1}/autonomy/apps/{_SEG}/execute", "autonomy.apps.execute"),
+    rule("POST", rf"{_V1}/autonomy/nodes/{_SEG}/execute", "autonomy.host.execute"),
+    rule("POST", rf"{_V1}/autonomy/workspaces", "autonomy.workspaces.manage"),
+    rule("POST", rf"{_V1}/autonomy/core/workspaces", "autonomy.core.contribute"),
+    rule("GET", rf"{_V1}/autonomy/workspaces/{_SEG}", "autonomy.workspaces.manage"),
+    rule("DELETE", rf"{_V1}/autonomy/workspaces/{_SEG}", "autonomy.workspaces.manage"),
+    rule("GET", rf"{_V1}/autonomy/workspaces/{_SEG}/(files|diff)", "autonomy.workspaces.manage"),
+    rule("POST", rf"{_V1}/autonomy/workspaces/{_SEG}/(initialize|files|execute)", "autonomy.workspaces.manage"),
+    rule("POST", rf"{_V1}/autonomy/workspaces/{_SEG}/pull-request", "autonomy.changes.propose"),
+    rule("POST", rf"{_V1}/autonomy/workspaces/{_SEG}/merge", "autonomy.changes.merge"),
+    rule("POST", rf"{_V1}/security/tokens/elevated", "security.tokens.elevated"),
+    rule("GET", rf"{_V1}/security/tokens/{_SEG}/activity", "security.tokens.self"),
     # Autenticación (lo público está más abajo, en PUBLIC_PATHS)
     rule("GET", rf"{_V1}/auth/me", None),
     rule("POST", rf"{_V1}/auth/users", "security.users.manage"),
@@ -345,6 +370,7 @@ VIEW_PERMISSIONS = tuple(item.key for item in PERMISSIONS if item.action == "vie
 
 # Lo que necesita un agente (MCP) para entender un problema sin poder tocarlo.
 AGENT_PERMISSIONS = (
+    "autonomy.tools.view",
     "apps.apps.view", "apps.apps.diagnose", "stacks.catalog.view", "domains.domains.view",
     "clients.clients.view", "templates.catalog.view", "links.links.view", "sites.sites.view",
     "core.updates.view", "core.vault.view", "system.health.view", "system.cluster.view",
@@ -359,6 +385,12 @@ OPERATOR_PERMISSIONS = AGENT_PERMISSIONS + (
 )
 
 SYSTEM_ROLES: Tuple[dict, ...] = (
+    {
+        "slug": "agente-ingeniero", "name": "Agente ingeniero",
+        "description": "Prepara cambios y PRs en los recursos autorizados por la política.",
+        "superadmin": False, "system": True,
+        "permissions": sorted(set(AGENT_PERMISSIONS) | {"autonomy.workspaces.manage", "autonomy.core.contribute", "autonomy.changes.propose", "security.tokens.self"}),
+    },
     {
         "slug": "owner",
         "name": "Dueño",

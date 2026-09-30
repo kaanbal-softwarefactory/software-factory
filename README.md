@@ -54,8 +54,9 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
 - **MCP server built in.** Connect Claude Code, Cursor or Codex with just a URL and a
   personal token (`https://<your-api>/mcp`): your agent diagnoses failures in plain
   language, launches apps and full stacks, links them, publishes them on your domains and
-  operates them — always showing the plan before applying it, and guided by the platform
-  itself. It never sees secret values and never does more than your token allows.
+  operates them — always showing the plan before applying those changes, and guided by the
+  platform itself. Optional critical operations require explicit resource grants and a
+  short-lived elevated token; commands within that scope may expose sensitive data.
 - **Acuaponsito.** An embeddable agent runtime with a live character, where every
   action needs human approval.
 

@@ -1,0 +1,58 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kaanbal-workspaces
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: workspaces
+  namespace: kaanbal-workspaces
+spec:
+  hard:
+    pods: '4'
+    requests.cpu: '2'
+    requests.memory: 2Gi
+    limits.cpu: '8'
+    limits.memory: 4Gi
+---
+# Source enters via the API broker. Workspaces cannot connect to the network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workspace-isolation
+  namespace: kaanbal-workspaces
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workbench-controller
+  namespace: kaanbal-workspaces
+rules:
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list, create, delete]
+  - apiGroups: ['']
+    resources: [pods/exec]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workbench-controller
+  namespace: kaanbal-workspaces
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workbench-controller
+subjects:
+  - kind: ServiceAccount
+    name: kaanbal-api
+    namespace: prod

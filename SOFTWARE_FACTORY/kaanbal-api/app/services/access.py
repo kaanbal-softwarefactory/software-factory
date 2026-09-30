@@ -24,7 +24,7 @@ import hashlib
 import hmac
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
 from app.services import permissions as perms
@@ -91,6 +91,7 @@ class Principal:
     roles: List[str] = field(default_factory=list)
     token_id: Optional[str] = None
     token_name: Optional[str] = None
+    elevated: bool = False
 
     @property
     def via_token(self) -> bool:
@@ -131,12 +132,22 @@ def token_matches(raw_token: str, stored_hash: str) -> bool:
     return hmac.compare_digest(fingerprint(raw_token), str(stored_hash or ""))
 
 
+def utc_naive(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
+
 def token_is_usable(token_doc: dict, *, now: Optional[datetime] = None) -> bool:
     """Un token sirve si no fue revocado y no expiró."""
     if not token_doc or token_doc.get("revoked_at"):
         return False
+    now = utc_naive(now or datetime.utcnow())
+    starts = token_doc.get("not_before")
+    if isinstance(starts, datetime) and utc_naive(starts) > now:
+        return False
     expires_at = token_doc.get("expires_at")
-    if isinstance(expires_at, datetime) and expires_at <= (now or datetime.utcnow()):
+    if token_doc.get("elevated") and not isinstance(expires_at, datetime):
+        return False
+    if isinstance(expires_at, datetime) and utc_naive(expires_at) <= now:
         return False
     return True
 
@@ -151,17 +162,20 @@ def token_view(token_doc: dict) -> Dict[str, Any]:
         "scopes": token_doc.get("scopes") or [],
         "created_at": token_doc.get("created_at"),
         "expires_at": token_doc.get("expires_at"),
+        "not_before": token_doc.get("not_before"),
+        "elevated": bool(token_doc.get("elevated")),
         "last_used_at": token_doc.get("last_used_at"),
         "revoked_at": token_doc.get("revoked_at"),
     }
     view["state"] = (
         "revocado" if token_doc.get("revoked_at")
+        else "programado" if isinstance(token_doc.get("not_before"), datetime) and utc_naive(token_doc["not_before"]) > datetime.utcnow()
         else "expirado" if not token_is_usable(token_doc)
         else "activo"
     )
-    for key in ("created_at", "expires_at", "last_used_at", "revoked_at"):
+    for key in ("created_at", "expires_at", "not_before", "last_used_at", "revoked_at"):
         if isinstance(view.get(key), datetime):
-            view[key] = view[key].isoformat() + "Z"
+            view[key] = utc_naive(view[key]).isoformat() + "Z"
     return view
 
 

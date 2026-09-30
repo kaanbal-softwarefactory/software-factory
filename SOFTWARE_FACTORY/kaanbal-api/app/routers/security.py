@@ -60,6 +60,15 @@ class TokenCreate(BaseModel):
     name: str = Field(..., min_length=3, max_length=60)
     scopes: List[str] = Field(default_factory=list, description="Permisos del token; vacío = los de la persona")
     expires_in_days: Optional[int] = Field(default=90, ge=1, le=MAX_TOKEN_DAYS)
+    not_before: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    no_expiry_acknowledged: bool = False
+
+
+class ElevatedTokenCreate(TokenCreate):
+    admin_username: str
+    admin_password: str = Field(..., min_length=1, max_length=1024, repr=False)
+    risk_acknowledged: bool = False
 
 
 def _principal(request: Request) -> access.Principal:
@@ -307,9 +316,9 @@ async def create_token(body: TokenCreate, request: Request):
             detail=f"No puedes dar a un token permisos que tú no tienes: {', '.join(fuera)}.",
         )
 
-    expires_at = datetime.utcnow() + timedelta(days=body.expires_in_days) if body.expires_in_days else None
+    starts, expires_at = _token_window(body)
     created = await access_store.create_token(
-        username=principal.username, name=body.name, scopes=scopes, expires_at=expires_at,
+        username=principal.username, name=body.name, scopes=scopes, expires_at=expires_at, not_before=starts,
     )
     await activity_log.log(
         "security.token.created", category=CATEGORY_AUTH, actor=principal.username,
@@ -319,6 +328,54 @@ async def create_token(body: TokenCreate, request: Request):
         **created,
         "warning": "Guárdalo ahora: no se vuelve a mostrar.",
     }
+
+
+def _token_window(body: TokenCreate, *, elevated: bool = False):
+    now = datetime.utcnow()
+    starts = access.utc_naive(body.not_before) if body.not_before else now
+    expires = access.utc_naive(body.expires_at) if body.expires_at else (
+        starts + timedelta(days=body.expires_in_days) if body.expires_in_days else None
+    )
+    if expires is None and (elevated or not body.no_expiry_acknowledged):
+        raise HTTPException(422, "Un token crítico debe caducar. Para uno normal sin caducidad, acepta la advertencia.")
+    if expires and (expires <= max(starts, now) or expires - starts > timedelta(days=MAX_TOKEN_DAYS)):
+        raise HTTPException(422, "El rango debe terminar en el futuro y durar como máximo 365 días.")
+    if elevated and expires - starts > timedelta(hours=24):
+        raise HTTPException(422, "Los tokens críticos duran como máximo 24 horas; crea otro para la siguiente intervención.")
+    return starts, expires
+
+
+@router.post("/tokens/elevated", status_code=201)
+async def create_elevated_token(body: ElevatedTokenCreate, request: Request):
+    principal = _principal(request)
+    if not principal.can("security.tokens.elevated") or not body.risk_acknowledged:
+        raise HTTPException(403, "Se requiere permiso de emisión y aceptar el riesgo del control total.")
+    starts, expires = _token_window(body, elevated=True)
+    from app.services.step_up import confirm
+    await confirm(principal, body.admin_username, body.admin_password, action="token.elevated.create")
+    # Snapshot current permissions: new permissions in a future release are not inherited.
+    created = await access_store.create_token(username=principal.username, name=body.name,
+        scopes=sorted(principal.permissions), expires_at=expires, not_before=starts, elevated=True)
+    await activity_log.log("security.token.elevated.created", category=CATEGORY_AUTH, level="warn",
+        actor=principal.username, target=created["id"], detail={"not_before": starts, "expires_at": expires})
+    return {**created, "warning": "Control crítico. Conserva el token solo durante esta intervención y revócalo al terminar."}
+
+
+@router.get("/tokens/{token_id}/activity")
+async def token_activity(token_id: str, request: Request):
+    principal = _principal(request)
+    try:
+        identifier = ObjectId(token_id)
+    except InvalidId:
+        raise HTTPException(404, "Token no encontrado")
+    token = await get_db()[access_store.TOKENS].find_one({"_id": identifier})
+    if not token or (token.get("username") != principal.username and not principal.can("security.tokens.admin")):
+        raise HTTPException(404, "Token no encontrado")
+    rows = await get_db()["token_activity"].find({"credential_id": token_id}, {"_id": 0}).sort("timestamp", -1).to_list(100)
+    for row in rows:
+        if isinstance(row.get("timestamp"), datetime):
+            row["timestamp"] = access.utc_naive(row["timestamp"]).isoformat() + "Z"
+    return {"activity": rows}
 
 
 @router.delete("/tokens/{token_id}")

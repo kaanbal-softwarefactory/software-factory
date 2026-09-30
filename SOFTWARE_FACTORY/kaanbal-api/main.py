@@ -20,7 +20,7 @@ import os
 import logging
 
 from app.config import settings
-from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core, mcp
+from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core, mcp, autonomy
 from app.db import connect_db, close_db
 from app.middleware.acl import AccessControlMiddleware
 from app.services.activity_log import activity_log, CATEGORY_API, CATEGORY_ERROR
@@ -59,9 +59,14 @@ async def lifespan(app: FastAPI):
     # un reinicio) se restauran solos cuando Vault vuelve a estar abierto.
     from app.services import vault_sync
     vault_task = asyncio.create_task(vault_sync.reconcile_loop())
+    from app.services.autonomy import cleanup_loop, init_indexes
+    await init_indexes()
+    autonomy_cleanup = asyncio.create_task(cleanup_loop())
     yield
     # Shutdown
     vault_task.cancel()
+    autonomy_cleanup.cancel()
+    await asyncio.gather(vault_task, autonomy_cleanup, return_exceptions=True)
     await close_db()
 
 
@@ -154,6 +159,7 @@ app.include_router(domains.router, prefix="/api/v1/domains", tags=["Domains"])
 app.include_router(core.router, prefix="/api/v1/core", tags=["Core Updates"])
 app.include_router(links.router, prefix="/api/v1/links", tags=["Service Links"])
 app.include_router(security.router, prefix="/api/v1/security", tags=["Security"])
+app.include_router(autonomy.router, prefix="/api/v1/autonomy", tags=["Agent Autonomy"])
 app.include_router(stacks.router, prefix="/api/v1/stacks", tags=["Stacks"])
 app.include_router(sites.router, prefix="/api/v1/sites", tags=["Sites"])
 app.include_router(config.router, prefix="/api/v1/config", tags=["Config"])

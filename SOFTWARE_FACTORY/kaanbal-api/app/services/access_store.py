@@ -89,6 +89,7 @@ async def principal_from_user(user: dict, *, token: Optional[dict] = None) -> ac
         roles=list(role_slugs),
         token_id=str(token["_id"]) if token else None,
         token_name=token.get("name") if token else None,
+        elevated=bool(token and token.get("elevated")),
     )
 
 
@@ -115,6 +116,7 @@ async def principal_from_token(raw_token: str) -> Optional[access.Principal]:
 async def create_token(
     *, username: str, name: str, scopes: Optional[Sequence[str]] = None,
     expires_at: Optional[datetime] = None,
+    not_before: Optional[datetime] = None, elevated: bool = False,
 ) -> Dict[str, Any]:
     """Crear un token personal. El valor completo se devuelve una sola vez."""
     raw, prefix, token_hash = access.generate_token()
@@ -126,6 +128,8 @@ async def create_token(
         "scopes": access.validate_scopes(scopes),
         "created_at": datetime.utcnow(),
         "expires_at": expires_at,
+        "not_before": not_before,
+        "elevated": elevated,
         "last_used_at": None,
         "revoked_at": None,
     }

@@ -69,6 +69,7 @@ by_area:
             "SOFTWARE_FACTORY/kaanbal-api/app/services/app_blueprint.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/app_links.py"]
     read:
       - SOFTWARE_FACTORY/kaanbal-mcp/README.md
+      - SOFTWARE_FACTORY/docs/MCP_AUTONOMY.md
 
   agent_runtime:
     globs: ["SOFTWARE_FACTORY/acuaponsito/**", "SOFTWARE_FACTORY/kaanbal-agent/**"]

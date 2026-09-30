@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+from urllib.parse import quote
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 from app.mcp import catalog, guide
@@ -42,6 +43,37 @@ class ApiClient(Protocol):
     async def get(self, path: str, params: Dict[str, Any] = None) -> Any: ...
     async def post(self, path: str, json: Dict[str, Any] = None) -> Any: ...
     async def put(self, path: str, json: Dict[str, Any] = None) -> Any: ...
+
+
+async def call_discovered_tool(client: ApiClient, spec: Dict[str, Any], args: Dict[str, Any]) -> Any:
+    """Call a server discovered operation through the same authenticated REST loopback."""
+    if not isinstance(args, dict):
+        raise ToolError("Los argumentos deben ser un objeto.")
+    allowed = set(spec["path_args"] + spec["query_args"] + spec["body_args"])
+    unknown = set(args) - allowed
+    if unknown:
+        raise ToolError(f"Argumentos no declarados: {', '.join(sorted(unknown))}.")
+    missing = [name for name in spec["required"] if name not in args]
+    if missing:
+        raise ToolError(f"Faltan argumentos: {', '.join(missing)}.")
+    method, path = spec["method"], spec["path"]
+    if method not in {"GET", "POST", "PUT", "DELETE"} or not path.startswith(("/autonomy/", "/core/", "/apps/")):
+        raise ToolError("Ruta de herramienta no admitida.")
+    for key in spec["path_args"]:
+        value = args.get(key)
+        if not isinstance(value, str) or not value or len(value) > 253:
+            raise ToolError(f"{key} requiere un identificador de texto.")
+        path = path.replace("{" + key + "}", quote(value, safe=""))
+    if "{" in path or "}" in path or ".." in path:
+        raise ToolError("Ruta de herramienta inválida.")
+    query = {key: args[key] for key in spec["query_args"] if key in args}
+    body = {key: args[key] for key in spec["body_args"] if key in args}
+    options = {}
+    if query:
+        options["params"] = query
+    if method in {"POST", "PUT"} and spec["body_args"]:
+        options["json"] = body
+    return await client.request(method, path, **options)
 
 
 # ── Argumentos ───────────────────────────────────────────────────────────

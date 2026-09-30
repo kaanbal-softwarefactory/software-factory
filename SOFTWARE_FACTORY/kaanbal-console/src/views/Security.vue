@@ -96,6 +96,8 @@
       </div>
     </section>
 
+    <AutonomyPolicy v-else-if="activeTab === 'autonomy' && can('autonomy.policy.manage')" :username="me.username" :users="users" />
+
     <!-- ── Tokens ── -->
     <section v-else class="space-y-4">
       <div class="flex justify-between items-center gap-3 flex-wrap">
@@ -129,6 +131,7 @@
               <th v-if="allTokens" class="text-left px-4 py-3">Dueño</th>
               <th class="text-left px-4 py-3">Alcance</th>
               <th class="text-left px-4 py-3">Último uso</th>
+              <th class="text-left px-4 py-3">Vigencia</th>
               <th class="text-left px-4 py-3">Estado</th>
               <th class="px-4 py-3"></th>
             </tr>
@@ -142,18 +145,33 @@
               <td v-if="allTokens" class="px-4 py-3 text-slate-400">{{ token.username }}</td>
               <td class="px-4 py-3 text-slate-400">
                 {{ token.scopes.length ? `${token.scopes.length} permiso(s)` : 'todo lo de su dueño' }}
+                <span v-if="token.elevated" class="block text-xs font-semibold text-amber-300">Control crítico</span>
               </td>
               <td class="px-4 py-3 text-slate-500 text-xs">{{ token.last_used_at ? formatDate(token.last_used_at) : 'nunca' }}</td>
+              <td class="px-4 py-3 text-xs text-slate-400">
+                <p>{{ token.not_before ? formatDate(token.not_before) : 'Desde su creación' }}</p>
+                <p :class="!token.expires_at && 'text-amber-300'">{{ token.expires_at ? `Hasta ${formatDate(token.expires_at)}` : 'Nunca caduca' }}</p>
+              </td>
               <td class="px-4 py-3">
                 <span :class="token.state === 'activo' ? 'text-emerald-300' : 'text-slate-500'">{{ token.state }}</span>
               </td>
               <td class="px-4 py-3 text-right">
-                <button v-if="token.state === 'activo'" @click="revokeToken(token)" class="text-xs text-red-400 hover:text-red-300">Revocar</button>
+                <button @click="showTokenActivity(token)" class="text-xs text-cyan-300 mr-3">Actividad</button>
+                <button v-if="['activo', 'programado'].includes(token.state)" @click="revokeToken(token)" class="px-3 py-1.5 rounded-lg border border-red-400/40 text-xs text-red-300 hover:bg-red-500/10">Revocar</button>
               </td>
             </tr>
             <tr v-if="!tokens.length"><td colspan="6" class="px-4 py-8 text-center text-slate-500 text-sm">Todavía no hay tokens.</td></tr>
           </tbody>
         </table>
+      </div>
+      <div v-if="tokenHistory.name" class="glass-panel rounded-2xl p-5 space-y-2">
+        <div class="flex justify-between"><h3 class="text-white">Actividad de {{ tokenHistory.name }}</h3><button @click="tokenHistory.name = ''" class="text-sm text-slate-400">Cerrar</button></div>
+        <p class="text-xs text-slate-400">Últimas 100 operaciones. Se registra la acción y el destino; los comandos se identifican por hash para evitar guardar contraseñas.</p>
+        <p v-if="!tokenHistory.rows.length" class="text-sm text-slate-500">Sin actividad registrada.</p>
+        <div v-for="(entry, index) in tokenHistory.rows" :key="index" class="text-xs border-t border-white/5 py-2 text-slate-300 break-all">
+          {{ formatDate(entry.timestamp) }} · {{ entry.action || entry.method }} · {{ entry.target || entry.path }} · {{ entry.status }}
+          <span v-if="entry.command_sha256" class="block text-slate-500 font-mono">SHA-256: {{ entry.command_sha256 }}</span>
+        </div>
       </div>
     </section>
 
@@ -269,11 +287,29 @@
                 <label class="block text-xs uppercase tracking-wider text-slate-500 mb-1.5">Para qué es</label>
                 <input v-model="tokenModal.form.name" placeholder="MCP de mi equipo" class="w-full bg-slate-800/80 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
               </div>
-              <div>
-                <label class="block text-xs uppercase tracking-wider text-slate-500 mb-1.5">Caduca en (días)</label>
-                <input v-model.number="tokenModal.form.expires_in_days" type="number" min="1" max="365" class="w-full bg-slate-800/80 border border-white/10 rounded-lg px-3 py-2 text-white text-sm" />
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="text-xs text-slate-400">Válido desde (hora local)
+                  <input v-model="tokenModal.form.not_before" type="datetime-local" class="mt-1 w-full bg-slate-800 rounded-lg px-3 py-2 text-white" />
+                </label>
+                <label class="text-xs text-slate-400">Válido hasta (hora local)
+                  <input v-model="tokenModal.form.expires_at" :disabled="tokenModal.form.never_expires" type="datetime-local" class="mt-1 w-full bg-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
+                </label>
               </div>
-              <div>
+              <label class="flex gap-2 text-sm text-slate-300"><input type="checkbox" v-model="tokenModal.form.never_expires" :disabled="tokenModal.form.elevated" /> No expira nunca</label>
+              <label v-if="tokenModal.form.never_expires" class="flex gap-2 p-3 rounded-lg border border-amber-500/40 text-xs text-amber-200">
+                <input type="checkbox" v-model="tokenModal.form.no_expiry_acknowledged" />
+                Entiendo que quien conserve este token podrá usarlo hasta que lo revoque o pierda permisos.
+              </label>
+              <div v-if="can('security.tokens.elevated')" class="rounded-xl border border-amber-500/40 p-4 space-y-3">
+                <label class="flex gap-2 text-sm font-semibold text-amber-200"><input type="checkbox" v-model="tokenModal.form.elevated" /> Control total para una intervención crítica</label>
+                <template v-if="tokenModal.form.elevated">
+                  <p class="text-sm text-amber-100">Incluye todos tus permisos actuales. Con la política habilitada puede ejecutar comandos, leer datos y credenciales, y modificar o borrar recursos, incluso como root en los nodos autorizados. Caduca en un máximo de 24 horas. Revócalo al terminar.</p>
+                  <label class="flex gap-2 text-xs text-amber-200"><input type="checkbox" v-model="tokenModal.form.risk_acknowledged" /> Entiendo y acepto este alcance.</label>
+                  <label class="block text-xs text-slate-400">Usuario administrador de esta sesión<input v-model="tokenModal.form.admin_username" autocomplete="username" class="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-white" /></label>
+                  <label class="block text-xs text-slate-400">Confirma tu contraseña<input v-model="tokenModal.form.admin_password" type="password" autocomplete="current-password" class="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-white" /></label>
+                </template>
+              </div>
+              <div v-if="!tokenModal.form.elevated">
                 <div class="flex items-center justify-between mb-2">
                   <label class="text-xs uppercase tracking-wider text-slate-500">Alcance</label>
                   <button @click="tokenModal.form.scopes = [...readOnlyScopes]" class="text-[11px] text-cyan-300 hover:underline">Solo lectura (recomendado)</button>
@@ -313,14 +349,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
+import AutonomyPolicy from '../components/AutonomyPolicy.vue'
 
-const tabs = [
+const tabs = computed(() => [
   { id: 'users', label: '👥 Personas' },
   { id: 'roles', label: '🎭 Roles' },
   { id: 'tokens', label: '🔑 Tokens' },
-]
+  ...(can('autonomy.policy.manage') ? [{ id: 'autonomy', label: 'Autonomía' }] : []),
+])
 
 const activeTab = ref('users')
 const me = ref({ permissions: [] })
@@ -331,6 +369,7 @@ const catalog = ref([])
 const allTokens = ref(false)
 const created = ref({})
 const copied = ref(false)
+const tokenHistory = reactive({ name: '', rows: [] })
 
 const toast = reactive({ show: false, message: '', type: 'success' })
 const userModal = reactive({ show: false, editing: null, saving: false, error: '', form: {} })
@@ -342,7 +381,7 @@ const showToast = (message, type = 'success') => {
   setTimeout(() => { toast.show = false }, 4000)
 }
 
-const can = (permission) => me.value.superadmin || (me.value.permissions || []).includes(permission)
+const can = (permission) => (me.value.permissions || []).includes(permission)
 const roleName = (slug) => roles.value.find(r => r.slug === slug)?.name || slug
 const formatDate = (value) => new Date(value).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })
 
@@ -454,15 +493,39 @@ const deleteRole = async () => {
 // ── Tokens ──
 const openTokenModal = () => {
   tokenModal.error = ''
-  tokenModal.form = { name: '', scopes: [], expires_in_days: 90 }
+  tokenModal.form = { name: '', scopes: [...readOnlyScopes.value], not_before: localDate(new Date()),
+    expires_at: localDate(new Date(Date.now() + 90 * 86400000)), never_expires: false,
+    elevated: false, admin_username: me.value.username, admin_password: '', risk_acknowledged: false, no_expiry_acknowledged: false }
   tokenModal.show = true
+}
+
+const localDate = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+watch(() => tokenModal.form.elevated, (enabled) => {
+  if (enabled) {
+    tokenModal.form.never_expires = false
+    tokenModal.form.expires_at = localDate(new Date(Date.now() + 3600000))
+  }
+})
+watch(() => tokenModal.show, (open) => { if (!open) tokenModal.form.admin_password = '' })
+
+const showTokenActivity = async (token) => {
+  try {
+    const { data } = await axios.get(`/api/v1/security/tokens/${token.id}/activity`)
+    Object.assign(tokenHistory, { name: token.name, rows: data.activity })
+  } catch (e) { showToast(e.response?.data?.detail || 'No se pudo consultar la actividad', 'error') }
 }
 
 const createToken = async () => {
   tokenModal.saving = true
   tokenModal.error = ''
   try {
-    const { data } = await axios.post('/api/v1/security/tokens', tokenModal.form)
+    const form = tokenModal.form
+    const payload = { name: form.name, scopes: form.scopes, expires_in_days: null,
+      not_before: new Date(form.not_before).toISOString(),
+      expires_at: form.never_expires ? null : new Date(form.expires_at).toISOString(),
+      no_expiry_acknowledged: form.no_expiry_acknowledged }
+    if (form.elevated) Object.assign(payload, { admin_username: form.admin_username, admin_password: form.admin_password, risk_acknowledged: form.risk_acknowledged })
+    const { data } = await axios.post(`/api/v1/security/tokens${form.elevated ? '/elevated' : ''}`, payload)
     created.value = data
     copied.value = false
     tokenModal.show = false
@@ -471,6 +534,7 @@ const createToken = async () => {
     tokenModal.error = e.response?.data?.detail || 'No se pudo crear el token'
   } finally {
     tokenModal.saving = false
+    tokenModal.form.admin_password = ''
   }
 }
 

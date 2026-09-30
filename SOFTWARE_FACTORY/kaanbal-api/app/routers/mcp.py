@@ -18,6 +18,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from app.mcp import catalog, guide, prompts, protocol, tools
+from app.routers import autonomy
 from app.mcp.loopback import LoopbackClient
 from app.version import VERSION
 
@@ -34,7 +35,8 @@ INSTRUCTIONS = (
     "muéstraselo a la persona y aplica repitiendo la llamada con el plan_id solo si lo aprueba. Las demás acciones "
     "(start_app, stop_app, scale_app, sync_app, repair_db_bindings, set_app_variable) actúan directo: confirma "
     "antes. Lo largo corre en segundo plano: síguelo con deploy_status o stack_status. Nunca vas a poder leer el "
-    "valor de un secreto, ni borrar apps, ni actualizar el core: eso se hace en la consola."
+    "valor de un secreto mediante las herramientas normales. Las capacidades críticas de autonomía pueden "
+    "ejecutar comandos, leer datos sensibles y actualizar el core cuando el token, ACL y política lo permiten."
 )
 
 
@@ -49,8 +51,20 @@ async def mcp_messages(request: Request):
 
     principal = request.state.principal
     client = LoopbackClient(request.app, request.headers.get("authorization", ""))
+    discovered = (await autonomy.capabilities(request))["tools"] if principal.can("autonomy.tools.view") else []
+    dynamic = {spec["name"]: spec for spec in discovered}
+    definitions = catalog.definitions() + [
+        {"name": spec["name"], "title": spec["name"],
+         "description": f"{spec['description']} (permiso: {spec['permission']})",
+         "inputSchema": spec["input_schema"],
+         "annotations": {"title": spec["name"], "readOnlyHint": spec["method"] == "GET",
+                          "destructiveHint": spec["method"] != "GET", "openWorldHint": True}}
+        for spec in discovered if spec["name"] not in catalog.TOOLS_BY_NAME
+    ]
 
     async def run_tool(name, arguments):
+        if name in dynamic:
+            return await tools.call_discovered_tool(client, dynamic[name], arguments)
         permission = catalog.TOOLS_BY_NAME[name]["permission"]
         if permission and not principal.can(permission):
             who = f"El token '{principal.token_name}'" if principal.via_token else "Tu cuenta"
@@ -64,7 +78,7 @@ async def mcp_messages(request: Request):
         await request.body(),
         server_info=SERVER_INFO,
         instructions=INSTRUCTIONS,
-        tools=catalog.definitions(),
+        tools=definitions,
         run_tool=run_tool,
         prompts=prompts.definitions(),
         get_prompt=prompts.get,
