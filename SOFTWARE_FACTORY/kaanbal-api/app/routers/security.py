@@ -336,12 +336,14 @@ def _token_window(body: TokenCreate, *, elevated: bool = False):
     expires = access.utc_naive(body.expires_at) if body.expires_at else (
         starts + timedelta(days=body.expires_in_days) if body.expires_in_days else None
     )
-    if expires is None and (elevated or not body.no_expiry_acknowledged):
-        raise HTTPException(422, "Un token crítico debe caducar. Para uno normal sin caducidad, acepta la advertencia.")
+    # Sin caducidad solo si quien lo crea lo pide de forma expresa (también uno de control
+    # total: el owner decide si un agente de confianza necesita un token permanente).
+    if expires is None and not body.no_expiry_acknowledged:
+        raise HTTPException(422, "Para un token sin caducidad, marca «No expira nunca» y acepta la advertencia.")
     if expires and (expires <= max(starts, now) or expires - starts > timedelta(days=MAX_TOKEN_DAYS)):
         raise HTTPException(422, "El rango debe terminar en el futuro y durar como máximo 365 días.")
-    if elevated and expires - starts > timedelta(hours=24):
-        raise HTTPException(422, "Los tokens críticos duran como máximo 24 horas; crea otro para la siguiente intervención.")
+    if elevated and expires and expires - starts > timedelta(hours=24):
+        raise HTTPException(422, "Un token crítico con fecha dura como máximo 24 horas. Para uno permanente, marca «No expira nunca».")
     return starts, expires
 
 
@@ -357,7 +359,11 @@ async def create_elevated_token(body: ElevatedTokenCreate, request: Request):
     created = await access_store.create_token(username=principal.username, name=body.name,
         scopes=sorted(principal.permissions), expires_at=expires, not_before=starts, elevated=True)
     await activity_log.log("security.token.elevated.created", category=CATEGORY_AUTH, level="warn",
-        actor=principal.username, target=created["id"], detail={"not_before": starts, "expires_at": expires})
+        actor=principal.username, target=created["id"],
+        detail={"not_before": starts, "expires_at": expires, "never_expires": expires is None})
+    if expires is None:
+        return {**created, "warning": "Control total sin vencimiento: funciona hasta que lo revoques. Guárdalo en un "
+                                      "gestor de secretos y revócalo de inmediato si se filtra."}
     return {**created, "warning": "Control crítico. Conserva el token solo durante esta intervención y revócalo al terminar."}
 
 

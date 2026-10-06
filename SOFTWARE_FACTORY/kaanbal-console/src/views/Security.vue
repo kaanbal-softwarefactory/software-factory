@@ -295,15 +295,17 @@
                   <input v-model="tokenModal.form.expires_at" :disabled="tokenModal.form.never_expires" type="datetime-local" class="mt-1 w-full bg-slate-800 rounded-lg px-3 py-2 text-white disabled:opacity-40" />
                 </label>
               </div>
-              <label class="flex gap-2 text-sm text-slate-300"><input type="checkbox" v-model="tokenModal.form.never_expires" :disabled="tokenModal.form.elevated" /> No expira nunca</label>
-              <label v-if="tokenModal.form.never_expires" class="flex gap-2 p-3 rounded-lg border border-amber-500/40 text-xs text-amber-200">
+              <label class="flex gap-2 text-sm text-slate-300"><input type="checkbox" v-model="tokenModal.form.never_expires" /> No expira nunca</label>
+              <label v-if="tokenModal.form.never_expires" class="flex gap-2 p-3 rounded-lg border text-xs" :class="tokenModal.form.elevated ? 'border-red-500/50 text-red-200' : 'border-amber-500/40 text-amber-200'">
                 <input type="checkbox" v-model="tokenModal.form.no_expiry_acknowledged" />
-                Entiendo que quien conserve este token podrá usarlo hasta que lo revoque o pierda permisos.
+                {{ tokenModal.form.elevated
+                  ? 'Entiendo que este token tendrá control total de la plataforma hasta que lo revoque. Lo guardaré en un gestor de secretos.'
+                  : 'Entiendo que quien conserve este token podrá usarlo hasta que lo revoque o pierda permisos.' }}
               </label>
               <div v-if="can('security.tokens.elevated')" class="rounded-xl border border-amber-500/40 p-4 space-y-3">
                 <label class="flex gap-2 text-sm font-semibold text-amber-200"><input type="checkbox" v-model="tokenModal.form.elevated" /> Control total para una intervención crítica</label>
                 <template v-if="tokenModal.form.elevated">
-                  <p class="text-sm text-amber-100">Incluye todos tus permisos actuales. Con la política habilitada puede ejecutar comandos, leer datos y credenciales, y modificar o borrar recursos, incluso como root en los nodos autorizados. Caduca en un máximo de 24 horas. Revócalo al terminar.</p>
+                  <p class="text-sm text-amber-100">Incluye todos tus permisos actuales. Con la política habilitada puede ejecutar comandos, leer datos y credenciales, y modificar o borrar recursos, incluso como root en los nodos autorizados. {{ tokenModal.form.never_expires ? 'Sin vencimiento: funciona hasta que lo revoques. Úsalo solo para un agente o una automatización de confianza.' : 'Con fecha dura como máximo 24 horas; para uno permanente marca «No expira nunca».' }}</p>
                   <label class="flex gap-2 text-xs text-amber-200"><input type="checkbox" v-model="tokenModal.form.risk_acknowledged" /> Entiendo y acepto este alcance.</label>
                   <label class="block text-xs text-slate-400">Usuario administrador de esta sesión<input v-model="tokenModal.form.admin_username" autocomplete="username" class="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-white" /></label>
                   <label class="block text-xs text-slate-400">Confirma tu contraseña<input v-model="tokenModal.form.admin_password" type="password" autocomplete="current-password" class="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-white" /></label>
@@ -501,10 +503,8 @@ const openTokenModal = () => {
 
 const localDate = (date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 watch(() => tokenModal.form.elevated, (enabled) => {
-  if (enabled) {
-    tokenModal.form.never_expires = false
-    tokenModal.form.expires_at = localDate(new Date(Date.now() + 3600000))
-  }
+  // Con fecha, el control total dura como máximo 24 horas: se propone una hora. «No expira nunca» se respeta.
+  if (enabled) tokenModal.form.expires_at = localDate(new Date(Date.now() + 3600000))
 })
 watch(() => tokenModal.show, (open) => { if (!open) tokenModal.form.admin_password = '' })
 

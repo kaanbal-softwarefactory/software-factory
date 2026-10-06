@@ -10,9 +10,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 - Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
   repair commands, source workspaces, GitHub PRs and core upgrade tools.
-- Critical tokens require a password confirmation, risk acknowledgement and expiry
-  within 24 hours. Tokens support scheduled activation, visible revocation and an
-  activity history. Normal tokens may have no expiry with an explicit warning.
+- Critical (full control) tokens require a password confirmation and a risk
+  acknowledgement. A dated one lasts at most 24 hours; the owner may also create one that
+  never expires, by choosing "No expira nunca" and accepting an explicit warning (for a
+  trusted agent or automation; it works until revoked). Tokens support scheduled
+  activation, visible revocation and an activity history. Normal tokens may have no
+  expiry with an explicit warning.
 - The built-in HTTP MCP discovers new governed tools as the platform evolves;
   existing MCP tools and guided flows remain available.
 

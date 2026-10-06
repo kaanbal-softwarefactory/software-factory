@@ -54,12 +54,19 @@ class HttpBoundaryTests(unittest.TestCase):
             self.assertTrue(create.await_args.kwargs["elevated"])
             self.assertEqual(create.await_args.kwargs["scopes"], sorted(PERMISSION_KEYS))
 
-    def test_critical_token_cannot_be_permanent_or_over_24_hours(self):
-        with patch.object(security.access_store, "create_token", AsyncMock()) as create:
+    def test_critical_token_is_permanent_only_on_purpose_and_dated_ones_last_24_hours(self):
+        """El owner puede crear control total sin vencimiento, pero solo pidiéndolo de forma expresa."""
+        with patch.object(step_up, "confirm", AsyncMock()), patch.object(security.access_store, "create_token", AsyncMock(return_value={"id": "new"})) as create:
             for updates in ({"expires_at": None}, {"expires_at": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()}):
                 response = self.client.post("/api/v1/security/tokens/elevated", json={**self.payload(), **updates})
                 self.assertEqual(response.status_code, 422)
             create.assert_not_awaited()
+            permanent = self.client.post("/api/v1/security/tokens/elevated",
+                                         json={**self.payload(), "expires_at": None, "no_expiry_acknowledged": True})
+            self.assertEqual(permanent.status_code, 201, permanent.text)
+            self.assertIsNone(create.await_args.kwargs["expires_at"])
+            self.assertTrue(create.await_args.kwargs["elevated"])
+            self.assertIn("sin vencimiento", permanent.json()["warning"])
 
     def test_normal_permanent_token_requires_explicit_warning_ack(self):
         body = {"name": "Normal agent", "scopes": ["apps.apps.view"], "expires_in_days": None}

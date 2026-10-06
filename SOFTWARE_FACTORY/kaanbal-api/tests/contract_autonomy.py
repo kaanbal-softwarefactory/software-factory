@@ -79,14 +79,18 @@ class AuthorizationTests(unittest.TestCase):
 
 
 class TokenWindowTests(unittest.TestCase):
-    def test_start_expiry_revocation_and_elevated_without_expiry(self):
+    def test_start_expiry_revocation_and_permanent_critical_tokens(self):
         now = datetime(2026, 9, 30, tzinfo=timezone.utc)
         valid = {"not_before": now, "expires_at": now + timedelta(hours=1), "elevated": True}
         self.assertTrue(access.token_is_usable(valid, now=now))
         self.assertFalse(access.token_is_usable(valid, now=now - timedelta(seconds=1)))
         self.assertFalse(access.token_is_usable(valid, now=now + timedelta(hours=1)))
         self.assertFalse(access.token_is_usable({**valid, "revoked_at": now}, now=now))
+        # Sin fecha, un token crítico solo sirve si nació permanente a propósito (no_expiry).
         self.assertFalse(access.token_is_usable({"elevated": True}, now=now))
+        permanent = {"elevated": True, "no_expiry": True, "not_before": now}
+        self.assertTrue(access.token_is_usable(permanent, now=now + timedelta(days=3650)))
+        self.assertFalse(access.token_is_usable({**permanent, "revoked_at": now}, now=now))
 
 
 class IsolationTests(unittest.TestCase):

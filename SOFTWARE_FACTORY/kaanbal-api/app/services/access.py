@@ -145,7 +145,9 @@ def token_is_usable(token_doc: dict, *, now: Optional[datetime] = None) -> bool:
     if isinstance(starts, datetime) and utc_naive(starts) > now:
         return False
     expires_at = token_doc.get("expires_at")
-    if token_doc.get("elevated") and not isinstance(expires_at, datetime):
+    # Un token crítico sin fecha solo sirve si se creó así a propósito (no_expiry); uno
+    # al que le falte la fecha por cualquier otra razón no se acepta.
+    if token_doc.get("elevated") and not isinstance(expires_at, datetime) and not token_doc.get("no_expiry"):
         return False
     if isinstance(expires_at, datetime) and utc_naive(expires_at) <= now:
         return False

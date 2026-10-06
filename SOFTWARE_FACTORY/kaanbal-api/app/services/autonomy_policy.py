@@ -49,7 +49,7 @@ def authorize(policy: dict, principal, *, feature: str, app: str = "", env: str 
 
 def require_elevated(principal):
     if principal.via_token and not principal.elevated:
-        raise AutonomyError("Esta acción exige un token crítico confirmado con contraseña y con vencimiento.", 403)
+        raise AutonomyError("Esta acción exige un token crítico (control total, confirmado con contraseña).", 403)
 
 
 def resource_name(value: str) -> str:
