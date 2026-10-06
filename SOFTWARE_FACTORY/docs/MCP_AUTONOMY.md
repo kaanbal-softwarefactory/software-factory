@@ -36,12 +36,14 @@ En **Acceso → Tokens → Nuevo token**:
 
 1. Define nombre, inicio y fin de vigencia. El navegador convierte la hora local
    a UTC. Antes del inicio figura como `programado` y no autentica.
-2. Para un token normal puedes marcar **No expira nunca**, con advertencia expresa.
-   Los intervalos con vencimiento admiten hasta 365 días.
+2. Puedes marcar **No expira nunca**, con advertencia expresa: el token funciona
+   hasta que lo revoques. Los intervalos con vencimiento admiten hasta 365 días.
 3. Para una intervención crítica marca **Control total**, acepta que los comandos
    pueden leer datos/credenciales, modificar o borrar recursos y acceder como root
    a nodos autorizados. Confirma el usuario y contraseña de tu propia sesión.
-   Su intervalo de vigencia tiene un máximo de 24 horas; la consola propone una hora.
+   Con fecha, su vigencia dura como máximo 24 horas (la consola propone una hora).
+   Para un agente o una automatización de confianza que necesite un token permanente,
+   marca **No expira nunca** y acepta la advertencia de control total.
 4. Copia el valor mostrado una sola vez. En Mongo se conserva su hash.
 5. Usa **Revocar** al terminar. Los tokens no pueden emitir otros tokens ni cambiar
    la política de autonomía mediante confirmación de contraseña.

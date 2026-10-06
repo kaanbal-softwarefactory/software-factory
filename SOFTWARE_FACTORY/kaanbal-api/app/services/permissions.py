@@ -68,7 +68,7 @@ PERMISSIONS: Tuple[PermissionDef, ...] = (
     permission("autonomy.core.contribute", "Preparar cambios de Kaanbal para revisión del owner.", risk=RISK_HIGH),
     permission("autonomy.changes.propose", "Publicar cambios como rama y pull request.", risk=RISK_HIGH),
     permission("autonomy.changes.merge", "Integrar PRs de apps cuando GitHub permita el merge.", risk=RISK_CRITICAL),
-    permission("security.tokens.elevated", "Emitir tokens críticos con contraseña y expiración.", risk=RISK_CRITICAL),
+    permission("security.tokens.elevated", "Emitir tokens críticos (control total) confirmados con contraseña.", risk=RISK_CRITICAL),
     # Aplicaciones
     permission("apps.apps.view", "Ver las aplicaciones y su estado."),
     permission("apps.apps.create", "Lanzar aplicaciones nuevas."),

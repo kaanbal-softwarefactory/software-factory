@@ -25,8 +25,9 @@ qué es ("MCP de <tu nombre>") y cópialo: se muestra una sola vez.
   **Operador** (o solo los permisos de la tabla de abajo que quieras darle).
 - Para reparar con comandos o proponer código: concede los permisos de autonomía,
   recursos exactos en **Acceso → Autonomía** y, para operaciones críticas, emite
-  un token con **Control total** y confirmación de contraseña. Estos tokens duran
-  como máximo 24 horas. Cada token muestra vigencia, revocación y actividad.
+  un token con **Control total** y confirmación de contraseña. Con fecha duran como
+  máximo 24 horas; si marcas **No expira nunca** (con advertencia expresa) funciona
+  hasta que lo revoques. Cada token muestra vigencia, revocación y actividad.
 
 ## Conectar el agente
 
