@@ -22,6 +22,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 This is disabled by default. Kubernetes permissions for app exec and privileged
 node operations require an owner-reviewed GitOps change before activation.
 
+### Fixed
+- The console sidebar navigation now scrolls independently when its links exceed the
+  viewport height, keeping the brand and status/logout controls visible.
+
 ## [1.2.1] - 2026-09-27
 
 ### Security

@@ -1,8 +1,8 @@
 <template>
   <div class="flex h-screen w-full overflow-hidden">
     <!-- Sidebar (authenticated only) -->
-    <aside v-if="authState.isAuthenticated" class="w-64 glass-panel border-r border-white/5 flex flex-col z-20">
-      <div class="p-6 flex items-center gap-3">
+    <aside v-if="authState.isAuthenticated" class="w-64 h-full min-h-0 shrink-0 glass-panel border-r border-white/5 flex flex-col z-20">
+      <div class="p-6 flex items-center gap-3 shrink-0">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5 text-white">
             <path fill-rule="evenodd" d="M9.315 7.584C12.195 3.883 16.695 1.5 21.75 1.5a.75.75 0 01.75.75c0 5.056-2.383 9.555-6.084 12.436A6.753 6.753 0 0119.75 20.25a.75.75 0 01-1.5 0 2.25 2.25 0 00-2.25-2.25.75.75 0 010-1.5c.875 0 1.714.16 2.492.457A9.006 9.006 0 0021 16.5c0-4.66-3.56-8.495-8.156-8.916zM6.671 18.006A6.746 6.746 0 011.5 15.75a.75.75 0 011.5 0 2.25 2.25 0 002.25 2.25.75.75 0 010 1.5c0 .875.16 1.714.457 2.492A9.006 9.006 0 009.75 21a.75.75 0 01.75.75 6.753 6.753 0 01-3.829-3.744z" clip-rule="evenodd" />
@@ -11,7 +11,7 @@
         <h1 class="text-lg font-bold tracking-tight text-white">Kaanbal<span class="text-blue-400">Console</span></h1>
       </div>
 
-      <nav class="flex-1 px-4 space-y-2 mt-4">
+      <nav class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 space-y-2 mt-4">
         <router-link to="/dashboard" class="nav-item" active-class="active">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
@@ -100,7 +100,7 @@
       </nav>
 
       <!-- Status Indicator -->
-      <div class="p-4 border-t border-white/5 bg-slate-900/40">
+      <div class="p-4 border-t border-white/5 bg-slate-900/40 shrink-0">
         <div class="flex items-center gap-3">
           <div class="relative flex h-3 w-3">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -117,7 +117,7 @@
           </div>
         </div>
       </div>
-      <div class="px-4 py-4 border-t border-white/5">
+      <div class="px-4 py-4 border-t border-white/5 shrink-0">
              <button @click="handleLogout" class="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
