@@ -55,6 +55,10 @@ templates/<category>/<template-id>/
 }
 ```
 
+Los secretos aceptan opcionalmente `"format": "laravel-key"`. Kaanbal genera
+entonces una clave `base64:` de 32 bytes compatible con `APP_KEY`, en lugar de
+una contraseña alfanumérica genérica.
+
 ## Reglas de aceptación
 
 1. `id` único, slug DNS-safe (el nombre de app deriva subdominios).

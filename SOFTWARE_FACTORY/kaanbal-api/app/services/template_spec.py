@@ -15,6 +15,7 @@ Usage:
 """
 
 import string
+import base64
 import secrets as secrets_module
 import logging
 
@@ -193,6 +194,11 @@ class TemplateSpec:
                 continue
 
             if secret_def.get("auto_generate", True):
+                if secret_def.get("format") == "laravel-key":
+                    result[name] = "base64:" + base64.b64encode(
+                        secrets_module.token_bytes(32)
+                    ).decode("ascii")
+                    continue
                 length = secret_def.get("length", 24)
                 result[name] = self._generate_password(length)
             else:

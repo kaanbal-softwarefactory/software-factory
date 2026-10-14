@@ -64,6 +64,7 @@ from app.db import get_db
 from app.services import db_env, tailscale_guard
 from app.services.template_service import TemplateService
 from app.services.template_spec import TemplateSpec
+from app.services.project_runtime import detect_project_runtime
 from app.services.git_provider import GitProvider, get_git_provider, build_provider_from_config
 
 # Protocol → Ingress annotations. Dual nginx+traefik so either controller works
@@ -4202,12 +4203,25 @@ patches:
         template_config = getattr(app_data, 'template_config', {}) or {}
         
         # Detectar tipo de proyecto
-        has_package_json = os.path.exists(os.path.join(app_path, "package.json"))
-        has_requirements = os.path.exists(os.path.join(app_path, "requirements.txt"))
+        runtime = detect_project_runtime(app_path)
+        has_composer = runtime == "php"
+        has_package_json = runtime == "node"
+        has_requirements = runtime == "python"
         
         # Detect package manager for Node projects
         pkg_manager = "npm"
-        if has_package_json:
+        if has_composer:
+            image = "composer:2"
+            build_steps = f"""      - step:
+          name: "🐘 Install PHP Dependencies"
+          caches:
+            - composer
+          script:
+            - composer validate --strict
+            - composer install --no-interaction --prefer-dist --no-progress --optimize-autoloader
+          artifacts:
+            - ./**"""
+        elif has_package_json:
             if os.path.exists(os.path.join(app_path, "pnpm-lock.yaml")):
                 pkg_manager = "pnpm"
             elif os.path.exists(os.path.join(app_path, "yarn.lock")):
@@ -4280,7 +4294,7 @@ patches:
             workspace_or_org=workspace_or_org,
             pipeline_email=pipeline_email,
             infra_repo="infra-gitops",
-            pkg_manager=pkg_manager if has_package_json else None,
+            pkg_manager=pkg_manager if has_package_json and not has_composer else None,
         )
         
         # Ensure parent directories exist (GitHub needs .github/workflows/)

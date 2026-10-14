@@ -80,6 +80,40 @@
       ]
     },
     {
+      "id": "laravel-inertia-react",
+      "name": "Laravel + Inertia React",
+      "description": "Laravel 13 backend with React 19, Inertia 3 and an MVVM-ready structure",
+      "icon": "laravel",
+      "color": "#ff2d20",
+      "category": "backend",
+      "stack": ["php", "laravel", "inertia", "react", "typescript"],
+      "popular": true,
+      "status": "ready",
+      "port": 8000,
+      "service_type": "http",
+      "creation_modes": ["scaffold", "empty", "upload"],
+      "health_check_path": "/health",
+      "consumes": [
+        {"kind": "database", "engine": "postgres", "optional": true}
+      ],
+      "config_schema": {
+        "php_version": {
+          "type": "string",
+          "enum": ["8.4"],
+          "default": "8.4",
+          "label": "Versión de PHP"
+        }
+      },
+      "env_vars": [
+        {"name": "APP_NAME", "default": "{{APP_NAME}}"},
+        {"name": "APP_ENV", "default": "production"},
+        {"name": "APP_DEBUG", "default": "false"}
+      ],
+      "secrets": [
+        {"name": "APP_KEY", "auto_generate": true, "format": "laravel-key"}
+      ]
+    },
+    {
       "id": "mongodb",
       "name": "MongoDB",
       "description": "MongoDB document database — secrets in Vault; bind from Wizard",
@@ -297,6 +331,18 @@
         {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
         {"role": "backend", "template": "fastapi-api", "suffix": "-api", "exposure": "public", "binds": "database"},
         {"role": "frontend", "template": "react-spa", "suffix": "", "exposure": "public", "consumes": "backend", "can_be_homepage": true}
+      ]
+    },
+    {
+      "id": "laravel-inertia-postgres",
+      "name": "Laravel + Inertia React + PostgreSQL",
+      "description": "Aplicación full-stack Laravel con React/Inertia y PostgreSQL vinculada por Kaanbal.",
+      "icon": "🔥",
+      "color": "#ff2d20",
+      "popular": true,
+      "components": [
+        {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "laravel-inertia-react", "suffix": "", "exposure": "public", "binds": "database", "can_be_homepage": true}
       ]
     }
   ],

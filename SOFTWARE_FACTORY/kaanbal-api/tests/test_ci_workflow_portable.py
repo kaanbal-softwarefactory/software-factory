@@ -68,6 +68,25 @@ class PortableWorkflowTests(unittest.TestCase):
         self.assertIn("cd apps/${APP_NAME}/overlays/$DEPLOY_ENV", content)
         self.assertIn("newName: ${DOCKERHUB_USER}/${APP_NAME}", content)
 
+    def test_php_projects_get_composer_and_php_runtime_setup(self):
+        provider = GitHubProvider({"github_org": "example", "github_token": "t"})
+        _, content = provider.generate_ci_yaml(
+            app_name="laravel-app",
+            environments=["dev"],
+            image="composer:2",
+            build_steps="""      - step:
+          script:
+            - composer validate --strict
+            - composer install --no-interaction""",
+            dockerhub_user="example",
+            workspace_or_org="example",
+            pipeline_email="pipeline@example.com",
+        )
+        self.assertIn("shivammathur/setup-php@v2", content)
+        self.assertIn("php-version: '8.4'", content)
+        self.assertIn("composer validate --strict", content)
+        self.assertIn("composer install --no-interaction", content)
+
 
 if __name__ == "__main__":
     unittest.main()
