@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Laravel 13 backend template with PHP 8.4, Composer, React 19 + Inertia 3,
+  PostgreSQL bindings, MVVM-ready layers, health checks and generated tests.
+- PHP/Composer runtime detection in generated CI workflows and Laravel-compatible
+  `APP_KEY` generation for Vault-backed application secrets.
 - Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
   repair commands, source workspaces, GitHub PRs and core upgrade tools.
 - Critical (full control) tokens require a password confirmation and a risk
