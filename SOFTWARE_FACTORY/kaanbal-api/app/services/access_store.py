@@ -128,6 +128,8 @@ async def create_token(
         "scopes": access.validate_scopes(scopes),
         "created_at": datetime.utcnow(),
         "expires_at": expires_at,
+        # Marca explícita: un token crítico sin fecha solo sirve si nació así a propósito.
+        "no_expiry": expires_at is None,
         "not_before": not_before,
         "elevated": elevated,
         "last_used_at": None,

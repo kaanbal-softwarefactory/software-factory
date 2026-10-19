@@ -48,11 +48,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `data.backups.create`, `data.backups.restore` (critical), `data.records.read` (critical).
   The operator role gets releases and backups; the agent role gets `data.backups.view`
   and `apps.secrets.request`.
+- Laravel 13 backend template with PHP 8.4, Composer, React 19 + Inertia 3,
+  PostgreSQL bindings, MVVM-ready layers, health checks and generated tests.
+- PHP/Composer runtime detection in generated CI workflows and Laravel-compatible
+  `APP_KEY` generation for Vault-backed application secrets.
 - Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
   repair commands, source workspaces, GitHub PRs and core upgrade tools.
-- Critical tokens require a password confirmation, risk acknowledgement and expiry
-  within 24 hours. Tokens support scheduled activation, visible revocation and an
-  activity history. Normal tokens may have no expiry with an explicit warning.
+- Critical (full control) tokens require a password confirmation and a risk
+  acknowledgement. A dated one lasts at most 24 hours; the owner may also create one that
+  never expires, by choosing "No expira nunca" and accepting an explicit warning (for a
+  trusted agent or automation; it works until revoked). Tokens support scheduled
+  activation, visible revocation and an activity history. Normal tokens may have no
+  expiry with an explicit warning.
+- The built-in HTTP MCP discovers new governed tools as the platform evolves;
+  existing MCP tools and guided flows remain available.
 
 ### Changed
 - `platform_upgrade` is a critical capability, and `POST /core/upgrade` and
@@ -67,6 +76,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   missing and everything else works.
 - Existing critical tokens keep the permissions they captured: issue a new one to get
   the new `data.*` and `apps.releases.manage` permissions.
+
+### Fixed
+- The console sidebar navigation now scrolls independently when its links exceed the
+  viewport height, keeping the brand and status/logout controls visible.
 
 ## [1.2.1] - 2026-09-27
 

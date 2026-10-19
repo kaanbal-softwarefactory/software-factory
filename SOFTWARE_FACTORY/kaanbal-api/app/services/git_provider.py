@@ -775,9 +775,10 @@ class GitHubProvider(GitProvider):
 
         build_run = "\n            ".join(shell_cmds) if shell_cmds else "echo 'No build step'"
 
-        # Determine if Node or Python for setup action
+        # Determine runtime setup from the project image selected by AppDeployer.
         is_node = "node" in image
         is_python = "python" in image
+        is_php = "php" in image or image.startswith("composer:")
 
         if is_node:
             node_version = image.split(":")[1].split("-")[0] if ":" in image else "20"
@@ -801,6 +802,14 @@ class GitHubProvider(GitProvider):
             setup_step = f"""      - uses: actions/setup-python@v5
         with:
           python-version: '{py_version}'"""
+        elif is_php:
+            php_version = image.split(":")[1].split("-")[0] if image.startswith("php:") else "8.4"
+            setup_step = f"""      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '{php_version}'
+          tools: composer:v2
+          coverage: none"""
         else:
             setup_step = "      # No specific runtime setup needed"
 

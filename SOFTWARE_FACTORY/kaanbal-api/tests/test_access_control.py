@@ -191,7 +191,8 @@ class PersonalTokenTests(unittest.TestCase):
     def test_the_prefix_finds_the_row_without_revealing_the_secret(self):
         raw, prefix, _ = access.generate_token()
         self.assertEqual(access.token_prefix(raw), prefix)
-        self.assertNotIn(raw.split("_")[2], prefix)
+        # El secreto puede contener "_": se corta solo en los dos primeros.
+        self.assertNotIn(raw.split("_", 2)[2], prefix)
 
     def test_a_token_is_told_apart_from_a_session(self):
         raw, _, _ = access.generate_token()

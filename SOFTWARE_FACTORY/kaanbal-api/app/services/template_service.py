@@ -353,6 +353,24 @@ class TemplateService:
                     "creation_modes": ["scaffold", "empty", "upload"]
                 },
                 {
+                    "id": "laravel-inertia-react",
+                    "name": "Laravel + Inertia React",
+                    "description": "Laravel backend with React and Inertia",
+                    "icon": "laravel",
+                    "color": "#ff2d20",
+                    "category": "backend",
+                    "stack": ["php", "laravel", "inertia", "react"],
+                    "popular": True,
+                    "status": "ready",
+                    "port": 8000,
+                    "service_type": "http",
+                    "creation_modes": ["scaffold", "empty", "upload"],
+                    "health_check_path": "/health",
+                    "secrets": [
+                        {"name": "APP_KEY", "auto_generate": True, "format": "laravel-key"}
+                    ]
+                },
+                {
                     "id": "mongodb",
                     "name": "MongoDB",
                     "description": "NoSQL document database",
