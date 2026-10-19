@@ -86,8 +86,13 @@ VUE = {"id": "vue3-spa", "category": "frontend", "status": "ready", "port": 80, 
 TIENDA_DB = {"name": "tienda-db", "template": "mongodb", "environments": ["prod"]}
 
 PLAN_ID = "0123456789abcdef"
-PLANNED = ["create_app", "launch_stack", "link_apps", "unlink_apps", "set_exposure", "attach_domain", "set_homepage"]
-WRITERS = sorted(PLANNED + ["start_app", "stop_app", "scale_app", "sync_app", "repair_db_bindings", "set_app_variable"])
+PLANNED = ["create_app", "launch_stack", "link_apps", "unlink_apps", "set_exposure", "attach_domain", "set_homepage",
+           "rollback_app", "promote_app", "restore_database", "delete_app"]
+# Lo irreversible: plan, token crítico y aprobación de una persona.
+IRREVERSIBLE = ["delete_app", "restore_database"]
+WRITERS = sorted(PLANNED + ["start_app", "stop_app", "scale_app", "sync_app", "repair_db_bindings", "set_app_variable",
+                            "restart_app", "request_secret", "invoke_platform_tool", "backup_database",
+                            "set_app_group", "set_display_name"])
 
 
 class CatalogTests(unittest.TestCase):
@@ -98,10 +103,10 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(tool["inputSchema"]["type"], "object", tool["name"])
             self.assertIn(tool["group"], catalog.GROUPS, tool["name"])
 
-    def test_only_the_guide_needs_no_permission(self):
-        """La guía es texto fijo; todo lo que toca datos de la plataforma exige su permiso."""
-        free = [tool["name"] for tool in catalog.TOOLS if tool["permission"] is None]
-        self.assertEqual(free, ["platform_guide"])
+    def test_only_identity_and_the_guide_need_no_permission(self):
+        """La guía es texto fijo y la identidad es la del propio token; lo demás exige su permiso."""
+        free = sorted(tool["name"] for tool in catalog.TOOLS if tool["permission"] is None)
+        self.assertEqual(free, ["platform_capabilities", "platform_guide", "whoami"])
 
     def test_every_permission_exists_in_the_platform(self):
         for tool in catalog.TOOLS:
@@ -134,23 +139,43 @@ class CatalogTests(unittest.TestCase):
     def test_read_only_tools_only_need_read_permissions(self):
         for tool in catalog.TOOLS:
             if tool["annotations"]["readOnlyHint"] and tool["permission"]:
-                self.assertIn(tool["permission"].rsplit(".", 1)[-1], ("view", "diagnose"), tool["name"])
+                self.assertIn(tool["permission"].rsplit(".", 1)[-1], ("view", "diagnose", "read"), tool["name"])
+
+    def test_reading_data_needs_a_critical_token(self):
+        """Leer filas de una base es solo lectura, pero los datos pueden ser personales."""
+        tool = catalog.TOOLS_BY_NAME["query_database"]
+        self.assertTrue(tool["elevated"])
+        self.assertEqual(perms.PERMISSIONS_BY_KEY[tool["permission"]].risk, perms.RISK_CRITICAL)
 
     def test_nothing_reads_secret_values(self):
         for tool in catalog.TOOLS:
             self.assertNotIn(tool["permission"], ("system.secrets.view", "system.credentials.view",
                                                   "system.credentials.manage"), tool["name"])
 
-    def test_nothing_deletes_apps_or_domains_or_touches_the_core_or_access(self):
+    def test_the_irreversible_needs_plan_critical_token_and_a_person(self):
+        """Borrar o reemplazar datos: plan a la vista, token crítico y aprobación humana. Sin excepciones."""
         for tool in catalog.TOOLS:
             permission = tool["permission"] or ""
-            self.assertNotIn(permission.rsplit(".", 1)[-1], ("delete", "apply", "purge", "reconcile"), tool["name"])
+            risky = permission.rsplit(".", 1)[-1] in ("delete", "restore") or "delete" in tool["name"]
+            if risky:
+                self.assertIn(tool["name"], IRREVERSIBLE)
+        for name in IRREVERSIBLE:
+            tool = catalog.TOOLS_BY_NAME[name]
+            self.assertTrue(tool["plan_first"] and tool["elevated"] and tool["approval"], name)
+            self.assertIn("approval_id", tool["inputSchema"]["properties"], name)
+            self.assertTrue(tool["annotations"]["destructiveHint"], name)
+
+    def test_nothing_touches_access_credentials_or_purges(self):
+        """Accesos, credenciales de la plataforma y la bitácora quedan fuera del MCP."""
+        for tool in catalog.TOOLS:
+            permission = tool["permission"] or ""
+            self.assertNotIn(permission.rsplit(".", 1)[-1], ("apply", "purge", "reconcile"), tool["name"])
             self.assertFalse(permission.startswith(("security.", "setup.", "system.credentials", "system.tokens")),
                              tool["name"])
-            for word in ("delete", "purge", "upgrade", "borrar"):
+            for word in ("purge", "upgrade", "borrar"):
                 self.assertNotIn(word, tool["name"])
         managers = sorted(t["name"] for t in catalog.TOOLS if (t["permission"] or "").endswith(".manage"))
-        self.assertEqual(managers, ["link_apps", "set_app_variable", "unlink_apps"])
+        self.assertEqual(managers, ["link_apps", "promote_app", "rollback_app", "set_app_variable", "unlink_apps"])
 
     def test_the_client_sees_the_permission_each_tool_needs(self):
         for definition in catalog.definitions():

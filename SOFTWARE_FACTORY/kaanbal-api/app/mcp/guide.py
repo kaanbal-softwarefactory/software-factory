@@ -236,42 +236,62 @@ y corren en segundo plano: el resultado se ve con `deploy_status`.
     },
     "mcp": {
         "title": "Cómo trabajar con este MCP",
-        "description": "Plan antes de aplicar, permisos del token y lo que el MCP nunca hace.",
+        "description": "Identidad, capacidades, plan antes de aplicar, aprobación humana y lo que el MCP nunca hace.",
         "text": """\
 # Trabajar con el MCP de Kaanbal
 
+## Primero: ¿a quién le hablo y qué puedo?
+
+- `whoami`: la instancia (URL de la API, dominio, versión), la cuenta, el token
+  y si es crítico. Con varios conectores de Kaanbal, dice cuál es cuál.
+- `platform_capabilities`: todas las herramientas, cada una con su tipo
+  (consulta, plan, acción, crítica), si este token puede usarla y qué le falta.
+
 ## Plan antes de aplicar
 
-Todo lo que crea algo o cambia lo que se ve en internet se pide dos veces:
+Todo lo que crea algo, cambia lo que se ve en internet o cambia qué versión corre
+se pide dos veces:
 
-1. Sin `plan_id`: la herramienta devuelve el **plan** (qué se crea, qué URLs
-   cambian, qué variables llegan) y un `plan_id`. No se aplica nada.
+1. Sin `plan_id`: la herramienta devuelve el **plan** y un `plan_id`. No se aplica nada.
 2. Se le muestra el plan a la persona. Si lo aprueba, se repite la llamada con los
    mismos argumentos y `plan_id`.
 
-Si algo cambió entre medias (otra app tomó el nombre, la app cambió de estado), el
-plan ya no coincide y no se toca nada: se pide el plan de nuevo. Aplica a
+Si algo cambió entre medias, el plan ya no coincide y no se toca nada. Aplica a
 `create_app`, `launch_stack`, `link_apps`, `unlink_apps`, `set_exposure`,
-`attach_domain` y `set_homepage`.
+`attach_domain`, `set_homepage`, `rollback_app`, `promote_app`,
+`restore_database` y `delete_app`.
 
-Lo demás actúa directo: `sync_app`, `repair_db_bindings`, `set_app_variable`,
-`start_app`, `stop_app` y `scale_app`. Igual se confirma con la persona antes.
+## Aprobación humana para lo irreversible
 
-## Permisos
+Restaurar una base, borrar una app, ejecutar comandos en una app o en un nodo,
+integrar un PR y actualizar el core exigen un **token crítico** y, además, que una
+persona lo apruebe:
 
-El token decide qué puede hacer el agente: cada herramienta dice qué permiso
-necesita. Un token de solo lectura puede diagnosticar y guiar, pero no crear ni
-cambiar. Los tokens se crean en la consola, en **Acceso → Tokens**.
+1. La llamada (ya con su `plan_id`, si lo tiene) responde con un `approval_id`.
+2. La persona revisa la solicitud en la consola, en **Acceso → Solicitudes**,
+   confirma su contraseña y la aprueba o rechaza.
+3. Se repite exactamente la misma llamada con `approval_id`. Cada aprobación sirve
+   una vez y vence a los 30 minutos.
 
-## Lo que el MCP nunca hace
+## Acciones directas
 
-- Mostrar el valor de un secreto (ni variables, ni credenciales de bases).
-- Borrar apps o dominios, tocar las credenciales de la plataforma o actualizar el
-  core: eso se hace en la consola, con una persona mirando.
+`sync_app`, `repair_db_bindings`, `set_app_variable`, `start_app`, `stop_app`,
+`scale_app`, `restart_app`, `backup_database`, `set_app_group`,
+`set_display_name` y `request_secret` actúan directo. Igual se confirma antes.
+
+## Secretos
+
+El MCP nunca muestra el valor de un secreto. Para contraseñas internas,
+`set_app_variable` con `generate=true`. Para una credencial que solo tiene una
+persona (la clave de un proveedor), `request_secret`: la persona la pega en la
+consola y el agente nunca la ve.
 
 ## Por dónde empezar
 
-- "No funciona" → `diagnose_app`.
+- "No funciona" → `diagnose_app`; si es el build, `pipeline_logs`; si es lento o
+  se reinicia, `app_metrics`; si es la URL o el certificado, `check_urls`.
+- "Se rompió con el último despliegue" → `list_revisions` y `rollback_app`.
+- "¿Qué hay que ordenar?" → `audit_platform`.
 - "Quiero lanzar algo" → `platform_guide(plataforma)` y `list_stacks` / `list_templates`.
 - "¿Cómo trabajo en local?" → `app_contract`.
 """,
@@ -293,7 +313,11 @@ con la evidencia (sin secretos) y la acción que lo arregla.
 | Se queda "desplegando" | la versión nueva no arranca y la vieja sigue sirviendo | `diagnose_app` y `app_logs` |
 | No baja la imagen | el pipeline no publicó esa etiqueta | revisa el pipeline (`app_health`) |
 | Responde 502/404 en su URL | exposición o DNS a medias | `deploy_status` y `set_exposure` |
-| Se cae sin error | memoria insuficiente (OOMKilled) | `diagnose_app` lo confirma; el límite de memoria vive en su overlay de `infra-gitops` |
+| Se cae sin error | memoria insuficiente (OOMKilled) | `diagnose_app` lo confirma y `app_metrics` muestra el consumo; el límite vive en su overlay de `infra-gitops` |
+| Está sana pero "se reinició" | reinicio del nodo o del runtime, o memoria | `diagnose_app` explica la causa conocida; `app_metrics` |
+| El build falla | dependencias, tests o Dockerfile | `pipeline_logs` muestra el paso y el final de su log |
+| Se rompió con el último despliegue | la versión nueva tiene un error | `list_revisions` y `rollback_app` |
+| La URL no abre o el candado avisa | DNS, exposición o certificado | `check_urls` |
 
 `activity` muestra quién cambió qué y cuándo: útil para saber qué pasó justo antes.
 """,

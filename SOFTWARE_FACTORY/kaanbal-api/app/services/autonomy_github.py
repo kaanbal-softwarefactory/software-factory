@@ -84,9 +84,12 @@ class GitHubBroker:
                         raise AutonomyError("El repositorio comprimido supera 25 MiB.", 422)
             return bytes(data)
 
-    async def base(self, repo: str) -> dict:
+    async def base(self, repo: str, branch: str = None) -> dict:
+        """Commit de partida: la rama pedida (la de un ambiente) o la principal del repo."""
+        if branch is not None and not re.fullmatch(r"[A-Za-z0-9._/-]{1,100}", branch):
+            raise AutonomyError("Nombre de rama inválido.", 422)
         info = await self.repo(repo)
-        branch = info["default_branch"]
+        branch = branch or info["default_branch"]
         commit = await self.request("GET", f"/repos/{repository(repo)}/commits/{quote(branch, safe='')}")
         return {"base_branch": branch, "base_sha": commit["sha"], "base_tree": commit["commit"]["tree"]["sha"]}
 

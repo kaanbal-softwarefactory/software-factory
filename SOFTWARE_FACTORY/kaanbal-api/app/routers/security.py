@@ -112,6 +112,8 @@ async def whoami(request: Request):
         "permissions": sorted(principal.permissions),
         "via_token": principal.via_token,
         "token_name": principal.token_name,
+        # Un token crítico (confirmado con contraseña y con vencimiento) puede lo irreversible.
+        "elevated": bool(principal.elevated),
     }
 
 

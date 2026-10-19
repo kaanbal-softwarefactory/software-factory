@@ -140,12 +140,23 @@ async def _domain_id(client: ApiClient, fqdn: Any) -> str:
 
 
 # ── Plan → aplicar ───────────────────────────────────────────────────────
+def _approval_id(args: Dict[str, Any]) -> Optional[str]:
+    value = args.get("approval_id")
+    if value in (None, ""):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{20}", str(value)):
+        raise ToolError("approval_id no es válido: usa el que devolvió la API (20 caracteres).")
+    return str(value)
+
+
 async def _plan_or_apply(client: ApiClient, method: str, path: str, args: Dict[str, Any],
-                         body: Optional[Dict[str, Any]] = None) -> Tuple[bool, Any]:
+                         body: Optional[Dict[str, Any]] = None,
+                         params: Optional[Dict[str, Any]] = None) -> Tuple[bool, Any]:
     """(aplicado, respuesta). Sin plan_id: el plan, sin tocar nada."""
     plan_id = _plan_id(args)
+    params = dict(params or {})
     if plan_id is None:
-        answer = await client.request(method, path, params={"dry_run": "true"}, json=body)
+        answer = await client.request(method, path, params={**params, "dry_run": "true"}, json=body)
         planned = {
             "applied": False,
             "plan": answer.get("plan"),
@@ -158,7 +169,10 @@ async def _plan_or_apply(client: ApiClient, method: str, path: str, args: Dict[s
         if answer.get("notices"):
             planned["notices"] = answer["notices"]
         return False, planned
-    return True, await client.request(method, path, params={"plan_id": plan_id}, json=body)
+    approval = _approval_id(args)
+    if approval:
+        params["approval_id"] = approval
+    return True, await client.request(method, path, params={**params, "plan_id": plan_id}, json=body)
 
 
 # ── Resúmenes ────────────────────────────────────────────────────────────
@@ -355,8 +369,13 @@ async def _app_contract(client: ApiClient, app: str, env: str) -> Dict[str, Any]
 
 
 # ── Despacho ─────────────────────────────────────────────────────────────
-async def call_tool(client: ApiClient, name: str, args: Dict[str, Any]) -> Any:
+async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
+                    context: Optional[Dict[str, Any]] = None) -> Any:
     args = args or {}
+    from app.mcp import admin_tools
+
+    if name in admin_tools.HANDLED:
+        return await admin_tools.call(client, name, args, context or {})
 
     # Entender
     if name == "list_apps":

@@ -2,19 +2,25 @@
 Herramientas del MCP de Kaanbal
 ===============================
 
-Cinco grupos, en el orden en que se trabaja:
+Siete grupos, en el orden en que se trabaja:
 
-- **Entender**: listar, detallar, diagnosticar, logs, bitácora, estado de un despliegue.
+- **Entender**: identidad y capacidades del token, listar, detallar, diagnosticar,
+  logs (de la app y del pipeline), consumo, URLs, versiones, bitácora y auditoría.
 - **Crear**: una app desde una plantilla o un stack completo (base + API + frontend).
 - **Conectar**: vincular apps, exposición, dominio y homepage.
-- **Operar**: encender, apagar, escalar, sincronizar, reparar y agregar variables.
+- **Operar**: encender, apagar, escalar, reiniciar, sincronizar, reparar, variables,
+  secretos pedidos a una persona, rollback y promoción entre ambientes.
+- **Datos**: respaldos, restauración y consultas de solo lectura de las bases.
+- **Administrar**: grupo y nombre visible, y borrar una app.
 - **Guiar**: la guía de la plataforma y el contrato de cada app.
 
-Lo que crea algo o cambia lo que se ve en internet va en dos pasos (`plan_first`):
-sin plan_id devuelve el plan y no toca nada; con el plan_id, lo aplica si el plan
-sigue siendo el mismo. Lo que no existe a propósito: borrar apps o dominios, leer
-el valor de un secreto, tocar las credenciales de la plataforma y actualizar el
-core. Eso se hace desde la consola, con una persona mirando.
+Lo que crea algo, cambia lo que se ve en internet o cambia qué versión corre va en
+dos pasos (`plan_first`): sin plan_id devuelve el plan y no toca nada; con el
+plan_id, lo aplica si el plan sigue siendo el mismo. Lo irreversible (restaurar
+una base, borrar una app) además exige un token crítico (`elevated`) y la
+aprobación de una persona en la consola (`approval`). Lo que no existe a
+propósito: leer el valor de un secreto o tocar las credenciales y los accesos de
+la plataforma.
 
 Cada herramienta declara el permiso que exige la API; el cliente lo ve en la
 descripción para poder explicar qué le falta al token cuando la API dice que no.
@@ -32,7 +38,7 @@ CONFIG_ACTION = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint
 PUBLIC_ACTION = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True}
 POWER_OFF = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False}
 
-GROUPS = ("entender", "crear", "conectar", "operar", "guiar")
+GROUPS = ("entender", "crear", "conectar", "operar", "datos", "administrar", "guiar")
 EXPOSURE_MODES = ["public", "tailscale", "lan", "internal", "off", "both"]
 GUIDE_TOPICS = ["plataforma", "desarrollo-local", "desplegar", "conectar", "exponer", "mcp", "problemas"]
 
@@ -49,6 +55,16 @@ _PLAN_ID = {
     ),
 }
 _PLAN_NOTE = " Primero devuelve el plan y un plan_id sin tocar nada; se aplica repitiendo la llamada con ese plan_id."
+_APPROVAL = {
+    "type": "string",
+    "pattern": "^[0-9a-f]{20}$",
+    "description": (
+        "Al aplicar desde un token, la API pide aprobación humana y devuelve un approval_id. Cuando una "
+        "persona la apruebe en la consola (Acceso → Solicitudes), repite la llamada con plan_id y approval_id."
+    ),
+}
+_APPROVAL_NOTE = " Exige token crítico y aprobación de una persona en la consola (approval_id)."
+_ELEVATED_NOTE = " Exige un token crítico (confirmado con contraseña y con vencimiento)."
 
 
 def _schema(properties: Dict[str, Any] = None, required: List[str] = ()) -> Dict[str, Any]:
@@ -59,19 +75,36 @@ def _schema(properties: Dict[str, Any] = None, required: List[str] = ()) -> Dict
 
 
 def _tool(name: str, title: str, group: str, permission: Optional[str], description: str,
-          schema: Dict[str, Any], annotations: Dict[str, Any], *, plan_first: bool = False) -> Dict[str, Any]:
+          schema: Dict[str, Any], annotations: Dict[str, Any], *, plan_first: bool = False,
+          elevated: bool = False, approval: bool = False) -> Dict[str, Any]:
     if plan_first:
         schema["properties"]["plan_id"] = _PLAN_ID
         description += _PLAN_NOTE
+    if approval:
+        schema["properties"]["approval_id"] = _APPROVAL
+        description += _APPROVAL_NOTE
+    elif elevated:
+        description += _ELEVATED_NOTE
     return {
         "name": name, "title": title, "group": group, "permission": permission,
         "description": description, "inputSchema": schema, "annotations": annotations,
-        "plan_first": plan_first,
+        "plan_first": plan_first, "elevated": elevated or approval, "approval": approval,
     }
 
 
 TOOLS: List[Dict[str, Any]] = [
     # ── Entender ─────────────────────────────────────────────────────────
+    _tool("whoami", "Quién soy en esta plataforma", "entender", None,
+          "Instancia a la que apunta este conector (URL de la API, dominio principal, versión), la cuenta y el "
+          "token (si es crítico y cuándo vence), y la política de autonomía que le aplica. Úsala primero cuando "
+          "haya varios conectores de Kaanbal: dice exactamente a qué plataforma le vas a hablar.",
+          _schema(), READ_ONLY),
+    _tool("platform_capabilities", "Capacidades de este token", "entender", None,
+          "TODAS las herramientas de este MCP (las de la plataforma y las de autonomía), cada una con: tipo "
+          "(consulta, plan, acción, crítica), el permiso que exige, si este token puede usarla ahora y, si no, "
+          "qué le falta (permiso, token crítico, aprobación humana o concesión de la política).",
+          _schema({"only_available": {"type": "boolean", "default": False,
+                                      "description": "Solo las que este token puede usar ahora."}}), READ_ONLY),
     _tool("list_apps", "Listar apps", "entender", "apps.apps.view",
           "Lista las aplicaciones con su dominio, URL pública y estado. Punto de partida para casi todo.",
           _schema({
@@ -128,6 +161,39 @@ TOOLS: List[Dict[str, Any]] = [
               "category": {"type": "string", "description": "Filtrar por categoría (app, deploy, auth, system…)."},
               "target": {"type": "string", "description": "Solo lo que tocó a esta app."},
           }), READ_ONLY),
+    _tool("list_revisions", "Versiones de una app", "entender", "apps.apps.diagnose",
+          "Las imágenes que corrieron en un ambiente (de la más nueva a la más vieja), cuál declara GitOps y cuál "
+          "sirve hoy. Es la lista de versiones a las que rollback_app puede volver.",
+          _schema({"name": _APP, "env": _ENV}, ["name"]), READ_ONLY),
+    _tool("pipeline_logs", "Logs del pipeline", "entender", "apps.apps.diagnose",
+          "Por qué falló el build o la publicación de la imagen: estado del último pipeline, los pasos que fallaron "
+          "con el final de su log (credenciales enmascaradas) y los últimos pipelines. app_logs muestra los pods; "
+          "esto muestra el CI.",
+          _schema({"name": _APP, "history": {"type": "integer", "minimum": 0, "maximum": 10, "default": 5},
+                   "max_chars": {"type": "integer", "minimum": 500, "maximum": 20000, "default": 6000}}, ["name"]),
+          READ_ONLY),
+    _tool("app_metrics", "Consumo de una app", "entender", "apps.apps.diagnose",
+          "CPU y memoria de cada pod contra sus límites, reinicios y avisos (cerca de quedarse sin memoria, sin "
+          "límite, CPU saturada).",
+          _schema({"name": _APP, "env": _ENV}, ["name"]), READ_ONLY),
+    _tool("check_urls", "¿Responde su URL?", "entender", "apps.apps.view",
+          "Prueba desde la plataforma las URLs públicas de la app: código HTTP, tiempo de respuesta y certificado "
+          "TLS (emisor y días para vencer). Solo las URLs de esa app.",
+          _schema({"name": _APP}, ["name"]), READ_ONLY),
+    _tool("wait_for_deploy", "Esperar un despliegue", "entender", "apps.apps.view",
+          "Espera, del lado del servidor, a que termine lo que está en curso en una app (alta, exposición, dominio, "
+          "homepage, rollback) y devuelve el estado final. Evita consultar deploy_status una y otra vez.",
+          _schema({"name": _APP, "timeout_seconds": {"type": "integer", "minimum": 10, "maximum": 150, "default": 90}},
+                  ["name"]), READ_ONLY),
+    _tool("audit_platform", "Auditar la plataforma", "entender", "apps.apps.view",
+          "Revisa todo el inventario y devuelve hallazgos con severidad y la herramienta que los arregla: piezas "
+          "conectadas en grupos distintos, nombres con errores de escritura, bases sin uso o sin respaldo, apps en "
+          "error o no sanas, apps sin grupo o sin nombre visible. No cambia nada.",
+          _schema({"include_health": {"type": "boolean", "default": True},
+                   "include_backups": {"type": "boolean", "default": True}}), READ_ONLY),
+    _tool("list_secret_requests", "Secretos pedidos", "entender", "apps.apps.diagnose",
+          "Las variables secretas que se pidieron para una app con request_secret y si una persona ya las capturó.",
+          _schema({"name": _APP}, ["name"]), READ_ONLY),
 
     # ── Crear ────────────────────────────────────────────────────────────
     _tool("create_app", "Crear una app", "crear", "apps.apps.create",
@@ -225,6 +291,93 @@ TOOLS: List[Dict[str, Any]] = [
               "overwrite": {"type": "boolean", "description": "Reemplazar el valor si la variable ya existe.", "default": False},
               "environments": {"type": "array", "items": {"type": "string"}, "description": "Por defecto, todos los de la app."},
           }, ["name", "variable"]), CONFIG_ACTION),
+    _tool("restart_app", "Reiniciar un ambiente", "operar", "apps.apps.deploy",
+          "ACCIÓN: reinicia los pods de un ambiente de a uno (como kubectl rollout restart), sin apagarlo y sin "
+          "cambiar nada de GitOps. Útil tras rotar una credencial externa o cuando la app quedó en mal estado.",
+          _schema({"name": _APP, "env": _ENV}, ["name"]), SAFE_ACTION),
+    _tool("request_secret", "Pedir un secreto a una persona", "operar", "apps.secrets.request",
+          "ACCIÓN: pide a una persona que capture el valor de una variable secreta que solo ella tiene (clave de un "
+          "proveedor, token de un servicio externo). El agente nunca ve el valor: la persona lo pega en la consola, "
+          "en Acceso → Solicitudes, y la app lo recibe. Para contraseñas internas usa set_app_variable con generate=true.",
+          _schema({
+              "name": _APP,
+              "variable": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Nombre de la variable."},
+              "reason": {"type": "string", "description": "Para qué hace falta y de dónde se obtiene (lo lee la persona)."},
+              "environments": {"type": "array", "items": {"type": "string"}, "description": "Por defecto, todos los de la app."},
+          }, ["name", "variable", "reason"]), SAFE_ACTION),
+    _tool("rollback_app", "Volver a una versión anterior", "operar", "apps.releases.manage",
+          "ACCIÓN: vuelve un ambiente a una imagen que ya corrió (list_revisions), escribiendo su tag en GitOps; "
+          "ArgoCD la despliega. No revierte cambios de esquema en la base. Dura hasta el próximo despliegue.",
+          _schema({"name": _APP, "env": _ENV,
+                   "tag": {"type": "string", "description": "Tag de la versión (list_revisions)."}}, ["name", "tag"]),
+          CONFIG_ACTION, plan_first=True),
+    _tool("promote_app", "Promover entre ambientes", "operar", "apps.releases.manage",
+          "ACCIÓN: lleva a un ambiente la imagen exacta que corre en otro (por defecto staging → prod), escribiendo "
+          "su tag en GitOps. No aplica a frontends: su build lleva las URLs de su ambiente (se promueven fusionando la rama).",
+          _schema({"name": _APP,
+                   "from_env": {"type": "string", "default": "staging"},
+                   "to_env": {"type": "string", "default": "prod"}}, ["name"]),
+          CONFIG_ACTION, plan_first=True),
+    _tool("invoke_platform_tool", "Invocar una capacidad de la plataforma", "operar", "autonomy.tools.view",
+          "Llama por nombre a una capacidad de autonomía que la plataforma publica (platform_capabilities las "
+          "lista), aunque este cliente haya cargado la lista de herramientas antes de una actualización. Las "
+          "irreversibles siguen pidiendo token crítico y aprobación humana.",
+          _schema({"tool": {"type": "string", "description": "Nombre de la capacidad."},
+                   "arguments": {"type": "object", "description": "Sus argumentos, como los describe platform_capabilities."}},
+                  ["tool"]),
+          {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": False}),
+
+    # ── Datos ────────────────────────────────────────────────────────────
+    _tool("list_backups", "Respaldos de una base", "datos", "data.backups.view",
+          "Respaldos y restauraciones de una base (postgres o mongodb): cuándo, de qué ambiente, tamaño, huella y "
+          "estado. Se guardan fuera del disco de la base (sobreviven si se borra) y se conservan los últimos 10.",
+          _schema({"name": _APP}, ["name"]), READ_ONLY),
+    _tool("backup_database", "Respaldar una base", "datos", "data.backups.create",
+          "ACCIÓN: toma un respaldo completo de una base (pg_dump / mongodump) en segundo plano. No detiene la base. "
+          "Hazlo antes de migraciones, restauraciones o cambios grandes.",
+          _schema({"name": _APP, "env": _ENV}, ["name"]),
+          {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}),
+    _tool("restore_database", "Restaurar una base", "datos", "data.backups.restore",
+          "ACCIÓN IRREVERSIBLE: reemplaza los datos de una base con un respaldo (list_backups). Antes toma un "
+          "respaldo de seguridad del estado actual. Las apps conectadas pueden ver errores mientras corre.",
+          _schema({"name": _APP, "env": _ENV,
+                   "backup_id": {"type": "string", "description": "Id del respaldo (list_backups)."}},
+                  ["name", "backup_id"]),
+          POWER_OFF | {"idempotentHint": False}, plan_first=True, approval=True),
+    _tool("query_database", "Consultar una base (solo lectura)", "datos", "data.records.read",
+          "Lee datos de una base. Postgres: una sentencia SELECT/WITH/SHOW/EXPLAIN en transacción de solo lectura, "
+          "con tope de filas y tiempo. MongoDB: operation collections, count o find con filter/projection/sort. "
+          "Nunca escribe. Los datos pueden ser personales: pide solo lo necesario.",
+          _schema({
+              "name": _APP, "env": _ENV,
+              "sql": {"type": "string", "description": "Postgres: la consulta."},
+              "operation": {"type": "string", "enum": ["collections", "find", "count"], "description": "MongoDB."},
+              "database": {"type": "string", "description": "MongoDB: base (por defecto, la de la app)."},
+              "collection": {"type": "string", "description": "MongoDB: colección."},
+              "filter": {"type": "object"}, "projection": {"type": "object"}, "sort": {"type": "object"},
+              "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+          }, ["name"]), READ_ONLY, elevated=True),
+
+    # ── Administrar ──────────────────────────────────────────────────────
+    _tool("set_app_group", "Cambiar el grupo", "administrar", "apps.apps.expose",
+          "ACCIÓN: mueve una app a un grupo (o lo quita con group vacío) para ordenarla junto a sus piezas en la "
+          "consola. No cambia URLs, repositorio ni despliegue.",
+          _schema({"name": _APP, "group": {"type": "string", "description": "Grupo; vacío para quitarlo."}},
+                  ["name", "group"]), SAFE_ACTION),
+    _tool("set_display_name", "Cambiar el nombre visible", "administrar", "apps.apps.expose",
+          "ACCIÓN: el nombre con el que se ve la app en la consola. El nombre interno no cambia: es su identidad en "
+          "el repositorio, el clúster, el DNS y Vault.",
+          _schema({"name": _APP, "display_name": {"type": "string", "description": "Hasta 60 caracteres; vacío lo quita."}},
+                  ["name", "display_name"]), SAFE_ACTION),
+    _tool("delete_app", "Eliminar una app", "administrar", "apps.apps.delete",
+          "ACCIÓN IRREVERSIBLE: elimina una app con su repositorio, secretos, overlays y despliegues. El plan muestra "
+          "quién depende de ella; una base exige un respaldo de las últimas 24 h (o without_backup=true, que queda "
+          "en el plan).",
+          _schema({"name": _APP,
+                   "without_backup": {"type": "boolean", "default": False,
+                                      "description": "Borrar una base sin respaldo reciente. Queda escrito en el plan."}},
+                  ["name"]),
+          POWER_OFF | {"idempotentHint": False}, plan_first=True, approval=True),
 
     # ── Guiar ────────────────────────────────────────────────────────────
     _tool("platform_guide", "Guía de Kaanbal", "guiar", None,

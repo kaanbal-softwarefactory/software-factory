@@ -84,6 +84,8 @@ class Policy(StrictModel):
     workspace_enabled: bool = False
     host_enabled: bool = False
     merge_enabled: bool = False
+    # Ejecutar, integrar, restaurar, borrar y actualizar el core esperan a una persona.
+    approval_required: bool = True
     workbench_image: str = Field(default="", max_length=300)
     core_fork: str = Field(default="", max_length=150)
     workspace_lifetime_seconds: int = Field(default=3600, ge=300, le=14400)
@@ -96,13 +98,20 @@ class PolicyUpdate(StrictModel):
     admin_password: str = Field(..., min_length=1, max_length=1024, repr=False)
 
 
+_APPROVAL = r"^[0-9a-f]{20}$"
+
+
 class Command(StrictModel):
     command: str = Field(..., min_length=1, max_length=16384)
     timeout_seconds: int = Field(default=30, ge=1, le=120)
     reason: str = Field(..., min_length=5, max_length=500)
 
 
-class AppCommand(Command):
+class GovernedCommand(Command):
+    approval_id: Optional[str] = Field(default=None, pattern=_APPROVAL)
+
+
+class AppCommand(GovernedCommand):
     env: str = Field(default="prod", max_length=63)
 
 
@@ -110,6 +119,8 @@ class OpenWorkspace(StrictModel):
     app: str = Field(..., min_length=1, max_length=63)
     env: str = Field(default="prod", max_length=63)
     reason: str = Field(..., min_length=5, max_length=500)
+    # Por defecto, la rama que despliega ese ambiente (develop, staging o la principal).
+    base_branch: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9._/-]{1,100}$")
 
 
 class OpenCore(StrictModel):
@@ -130,6 +141,13 @@ class PullRequest(StrictModel):
 
 class Merge(StrictModel):
     expected_sha: str = Field(..., pattern=r"^[0-9a-f]{40}$")
+    approval_id: Optional[str] = Field(default=None, pattern=_APPROVAL)
+
+
+class Decision(StrictModel):
+    admin_username: str
+    admin_password: str = Field(..., min_length=1, max_length=1024, repr=False)
+    note: str = Field(default="", max_length=500)
 
 
 @router.get("/capabilities")
@@ -153,6 +171,74 @@ async def capabilities(request: Request):
     return {**result, "tools": enriched}
 
 
+@router.get("/access")
+async def my_access(request: Request):
+    """Qué le concede la política a quien pregunta: capacidades encendidas y sus concesiones vigentes.
+
+    Sirve para que un agente sepa ANTES de intentarlo si una acción le está
+    permitida, en vez de descubrirlo con un 403. No revela concesiones de otros.
+    """
+    from datetime import timezone
+    actor = principal(request)
+    policy = (await service.configuration()).get("autonomy", {}) or {}
+    now = datetime.now(timezone.utc)
+    grants = []
+    for grant in policy.get("grants", []):
+        if grant.get("username") != actor.username:
+            continue
+        if grant.get("token_id") and grant["token_id"] != actor.token_id:
+            continue
+        expires = grant.get("expires_at")
+        if expires:
+            try:
+                when = datetime.fromisoformat(str(expires).replace("Z", "+00:00"))
+                if when.tzinfo is None or when <= now:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        grants.append({key: grant.get(key) for key in ("apps", "environments", "nodes", "core", "expires_at")})
+    features = {name: bool(policy.get("enabled") and policy.get(f"{name}_enabled"))
+                for name in ("runtime", "workspace", "host", "merge")}
+    return {
+        "username": actor.username, "token": actor.token_name, "elevated": bool(actor.elevated),
+        "autonomy_enabled": bool(policy.get("enabled")), "features": features,
+        "approval_required": policy.get("approval_required", True) is not False,
+        "grants": grants,
+    }
+
+
+@router.get("/approvals")
+async def list_approvals(limit: int = 50):
+    from app.services import approvals
+    return {"approvals": await approvals.listing(limit)}
+
+
+@router.get("/approvals/{approval_id}")
+async def get_approval(approval_id: str, request: Request):
+    from app.services import approvals
+    return await approvals.get(principal(request), approval_id)
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve(approval_id: str, body: Decision, request: Request):
+    return await _decide(approval_id, body, request, approve=True)
+
+
+@router.post("/approvals/{approval_id}/reject")
+async def reject(approval_id: str, body: Decision, request: Request):
+    return await _decide(approval_id, body, request, approve=False)
+
+
+async def _decide(approval_id, body, request, *, approve):
+    from app.services import approvals
+    from app.services.step_up import confirm
+    actor = principal(request)
+    await confirm(actor, body.admin_username, body.admin_password, action="autonomy.approval.decide")
+    verb = "approve" if approve else "reject"
+    async with service.audit(actor, f"approval.{verb}", approval_id, body.note or f"Decision: {verb}"):
+        return await approvals.decide(actor, approval_id, approve=approve, note=body.note)
+
+
 @router.get("/policy")
 async def get_policy():
     return Policy.model_validate((await service.configuration()).get("autonomy", {})).model_dump(mode="json")
@@ -171,12 +257,14 @@ async def update_policy(body: PolicyUpdate, request: Request):
 
 @router.post("/apps/{app_name}/execute")
 async def execute_app(app_name: str, body: AppCommand, request: Request):
-    return await service.execute_app(principal(request), app_name, body.env, body.command, body.timeout_seconds, body.reason)
+    return await service.execute_app(principal(request), app_name, body.env, body.command, body.timeout_seconds,
+                                     body.reason, approval_id=body.approval_id)
 
 
 @router.post("/nodes/{node}/execute", status_code=202)
-async def execute_node(node: str, body: Command, request: Request):
-    return await service.execute_host(principal(request), node, body.command, body.timeout_seconds, body.reason)
+async def execute_node(node: str, body: GovernedCommand, request: Request):
+    return await service.execute_host(principal(request), node, body.command, body.timeout_seconds, body.reason,
+                                      approval_id=body.approval_id)
 
 
 @router.get("/operations/{operation_id}")
@@ -186,7 +274,8 @@ async def get_operation(operation_id: str, request: Request):
 
 @router.post("/workspaces", status_code=201)
 async def open_workspace(body: OpenWorkspace, request: Request):
-    return await service.open_workspace(principal(request), target="app", app=body.app, env=body.env, reason=body.reason)
+    return await service.open_workspace(principal(request), target="app", app=body.app, env=body.env,
+                                        reason=body.reason, base_branch=body.base_branch)
 
 
 @router.post("/core/workspaces", status_code=201)
@@ -236,7 +325,7 @@ async def publish_workspace(workspace_id: str, body: PullRequest, request: Reque
 
 @router.post("/workspaces/{workspace_id}/merge")
 async def merge_workspace(workspace_id: str, body: Merge, request: Request):
-    return await service.merge(principal(request), workspace_id, body.expected_sha)
+    return await service.merge(principal(request), workspace_id, body.expected_sha, approval_id=body.approval_id)
 
 
 @router.delete("/workspaces/{workspace_id}")

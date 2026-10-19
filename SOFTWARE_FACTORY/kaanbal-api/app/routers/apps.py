@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Any, Optional
 import asyncio
@@ -901,8 +901,17 @@ PROTECTED_ARGOCD_APPS = {
 
 
 @router.delete("/{app_id}")
-async def delete_app(app_id: str, current_user: User = Depends(get_current_active_user)):
-    """Eliminar una app y todos sus recursos"""
+async def delete_app(
+    app_id: str,
+    request: Request,
+    approval_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Eliminar una app y todos sus recursos.
+
+    Desde un token (un agente) exige un token crítico y la aprobación de una
+    persona: borrar se lleva el repositorio, los secretos y los despliegues.
+    """
     db = get_db()
 
     if not ObjectId.is_valid(app_id):
@@ -918,6 +927,14 @@ async def delete_app(app_id: str, current_user: User = Depends(get_current_activ
             status_code=403,
             detail=f"Cannot delete core infrastructure app '{app['name']}'. This app is required by the platform."
         )
+
+    from app.services import approvals
+    await approvals.gate(
+        request, action="app.delete", target=app["name"], payload={"app_id": app_id},
+        summary=f"Eliminar {app['name']} ({app.get('template')}) en {', '.join(app.get('environments') or ['prod'])}: "
+                "repositorio, secretos, overlays y despliegues.",
+        approval_id=approval_id,
+    )
 
     # Eliminar recursos externos
     deployer = AppDeployer()

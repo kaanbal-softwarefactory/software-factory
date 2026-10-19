@@ -24,6 +24,11 @@ rules:
 - apiGroups: ["apps"]
   resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
   verbs: ["get", "list", "watch"]
+# restart_app: solo la anotación kubectl.kubernetes.io/restartedAt de la plantilla
+# (lo mismo que `kubectl rollout restart`). No cambia nada que declare GitOps.
+- apiGroups: ["apps"]
+  resources: ["deployments", "statefulsets"]
+  verbs: ["patch"]
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
   verbs: ["get", "list", "watch"]

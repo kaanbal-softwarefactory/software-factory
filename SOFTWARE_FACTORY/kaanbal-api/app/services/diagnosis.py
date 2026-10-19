@@ -380,14 +380,20 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
         return {**base, "status": "problem", "summary": finding["title"], "findings": [finding], "pods": []}
 
     pods = bundle.get("pods") or []
-    pods_view = [{k: p.get(k) for k in ("name", "ready", "restarts", "image", "waiting_reason", "last_reason")} for p in pods]
+    pods_view = [{k: p.get(k) for k in ("name", "ready", "restarts", "image", "waiting_reason", "last_reason",
+                                        "last_exit_code")} for p in pods]
     if workload.get("desired") == 0:
         return {**base, "status": "ok", "summary": "La app está apagada en este ambiente (0 réplicas).",
                 "findings": [], "pods": pods_view}
+    warnings = _warning_events(bundle)
     if _healthy(bundle):
         image = (bundle.get("revisions") or [{}])[-1].get("image") or (pods[-1]["image"] if pods else "")
         summary = f"Todo en orden: {workload.get('ready')}/{workload.get('desired')} réplicas listas" + (f" ({image})." if image else ".")
-        return {**base, "status": "ok", "summary": summary, "findings": [], "pods": pods_view}
+        restarted = _restarts(bundle)
+        answer = {**base, "status": "ok", "summary": summary, "findings": [restarted] if restarted else [], "pods": pods_view}
+        if warnings:
+            answer["events"] = warnings
+        return answer
 
     lines = (bundle.get("logs") or {}).get("lines") or []
     env_names = set(bundle.get("env_names") or [])
@@ -486,7 +492,49 @@ def analyze(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "starting", INFO, "La app todavía se está desplegando",
             "Hay pods que aún no están listos pero no muestran errores. Si sigue así varios minutos, vuelve a diagnosticar."))
 
-    return {**base, "status": "problem", "summary": findings[0]["title"], "findings": findings, "pods": pods_view}
+    answer = {**base, "status": "problem", "summary": findings[0]["title"], "findings": findings, "pods": pods_view}
+    if warnings:
+        answer["events"] = warnings
+    return answer
+
+
+# Por qué un contenedor terminó, dicho para una persona.
+_EXIT_REASONS = {
+    "OOMKilled": "se quedó sin memoria y Kubernetes lo detuvo",
+    "Error": "el proceso terminó con error",
+    "Completed": "el proceso terminó solo, como si hubiera acabado su trabajo",
+    "ContainerCannotRun": "el contenedor no pudo arrancar",
+}
+_EXIT_CODES = {
+    137: "lo mató una señal SIGKILL (memoria o un reinicio forzado del nodo)",
+    143: "recibió SIGTERM (un apagado ordenado: reinicio del nodo o del despliegue)",
+    1: "el proceso salió con error",
+}
+_UNKNOWN_EXIT = ("Kubernetes no registró la causa (pasa cuando se reinicia el nodo o el runtime de contenedores: "
+                 "el contenedor anterior desaparece sin estado de salida)")
+
+
+def _restarts(bundle: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """La app está sana pero se reinició: decir por qué, si se sabe, con el log anterior."""
+    restarted = [p for p in bundle.get("pods") or [] if (p.get("restarts") or 0) > 0]
+    if not restarted:
+        return None
+    pod = max(restarted, key=lambda p: p.get("restarts") or 0)
+    reason, code = pod.get("last_reason"), pod.get("last_exit_code")
+    why = _EXIT_REASONS.get(reason or "") or _EXIT_CODES.get(code) or _UNKNOWN_EXIT
+    detail = (f"{pod['name']} se reinició {pod['restarts']} vez/veces; la última, porque {why}. Ahora está lista y "
+              "atendiendo. Si el número sigue subiendo, revisa la memoria con app_metrics y el log anterior.")
+    lines = [line for line in ((bundle.get("logs") or {}).get("lines") or []) if line.strip()]
+    severity = MEDIA if (pod.get("restarts") or 0) >= 5 or reason == "OOMKilled" else INFO
+    return _finding("restarted", severity, f"Sana, pero se reinició {pod['restarts']} vez/veces", detail,
+                    evidence=[mask(line) for line in lines[-6:]],
+                    last_reason=reason, last_exit_code=code)
+
+
+def _warning_events(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Los avisos recientes de Kubernetes (Warning), sin repetir ni secretos."""
+    rows = [e for e in bundle.get("events") or [] if e.get("type") == "Warning"]
+    return [{key: e.get(key) for key in ("object", "reason", "message", "count", "last_seen")} for e in rows[-10:]]
 
 
 async def diagnose(app_name: str, namespace: str) -> Dict[str, Any]:

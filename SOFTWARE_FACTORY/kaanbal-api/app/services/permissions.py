@@ -78,6 +78,13 @@ PERMISSIONS: Tuple[PermissionDef, ...] = (
     permission("apps.apps.diagnose", "Ver logs, pipeline y diagnóstico de una app."),
     permission("apps.maintenance.run", "Limpiezas masivas de secretos y dispositivos huérfanos.", risk=RISK_HIGH),
     permission("apps.variables.manage", "Agregar o cambiar variables de entorno de una app (sin ver sus valores).", risk=RISK_HIGH),
+    permission("apps.secrets.request", "Pedir a una persona que capture el valor de una variable secreta."),
+    permission("apps.releases.manage", "Volver a una versión anterior o promover una imagen entre ambientes.", risk=RISK_HIGH),
+    # Datos de las bases
+    permission("data.backups.view", "Ver los respaldos de las bases de datos."),
+    permission("data.backups.create", "Respaldar una base de datos.", risk=RISK_HIGH),
+    permission("data.backups.restore", "Restaurar una base de datos desde un respaldo (reemplaza sus datos).", risk=RISK_CRITICAL),
+    permission("data.records.read", "Consultar los datos de una base en modo solo lectura.", risk=RISK_CRITICAL),
     # Stacks
     permission("stacks.catalog.view", "Ver el catálogo de stacks."),
     permission("stacks.stacks.launch", "Lanzar un stack completo."),
@@ -148,7 +155,12 @@ MCP_PATH = "/mcp"
 # Las literales van ANTES que las paramétricas: gana la primera que coincide.
 ACL_RULES: Tuple[AclRule, ...] = (
     rule("GET", rf"{_V1}/autonomy/capabilities", "autonomy.tools.view"),
+    rule("GET", rf"{_V1}/autonomy/access", "autonomy.tools.view"),
     rule("GET", rf"{_V1}/autonomy/operations/{_SEG}", "autonomy.tools.view"),
+    # Aprobaciones humanas: el agente consulta las suyas; decide quien administra la autonomía.
+    rule("GET", rf"{_V1}/autonomy/approvals", "autonomy.policy.manage"),
+    rule("GET", rf"{_V1}/autonomy/approvals/{_SEG}", "autonomy.tools.view"),
+    rule("POST", rf"{_V1}/autonomy/approvals/{_SEG}/(approve|reject)", "autonomy.policy.manage"),
     rule("GET", rf"{_V1}/autonomy/policy", "autonomy.policy.manage"),
     rule("PUT", rf"{_V1}/autonomy/policy", "autonomy.policy.manage"),
     rule("POST", rf"{_V1}/autonomy/apps/{_SEG}/execute", "autonomy.apps.execute"),
@@ -191,7 +203,21 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("GET", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.deploy"),
     rule("DELETE", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.deploy"),
-    rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}/(scale|start|stop)", "apps.apps.deploy"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}/(scale|start|stop|restart)", "apps.apps.deploy"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}/rollback", "apps.releases.manage"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/promote", "apps.releases.manage"),
+    rule("GET", rf"{_V1}/apps/{_SEG}/(revisions|metrics)", "apps.apps.diagnose"),
+    rule("GET", rf"{_V1}/apps/{_SEG}/probe", "apps.apps.view"),
+    # Respaldos y datos de las bases
+    rule("GET", rf"{_V1}/apps/{_SEG}/backups", "data.backups.view"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/backups", "data.backups.create"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/backups/{_SEG}/restore", "data.backups.restore"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/query", "data.records.read"),
+    # Secretos pedidos por un agente: lo pide quien diagnostica, lo captura una persona.
+    rule("GET", rf"{_V1}/apps/{_SEG}/secret-requests", "apps.apps.diagnose"),
+    rule("POST", rf"{_V1}/apps/{_SEG}/secret-requests", "apps.secrets.request"),
+    rule("GET", rf"{_V1}/secret-requests", "apps.variables.manage"),
+    rule("POST", rf"{_V1}/secret-requests/{_SEG}/(fulfill|cancel)", "apps.variables.manage"),
     rule("GET", rf"{_V1}/apps/{_SEG}/exposure/status", "apps.apps.view"),
     rule("PATCH", rf"{_V1}/apps/{_SEG}/exposure", "apps.apps.expose"),
     rule("POST", rf"{_V1}/apps/{_SEG}/exposure", "apps.apps.expose"),
@@ -374,11 +400,12 @@ AGENT_PERMISSIONS = (
     "apps.apps.view", "apps.apps.diagnose", "stacks.catalog.view", "domains.domains.view",
     "clients.clients.view", "templates.catalog.view", "links.links.view", "sites.sites.view",
     "core.updates.view", "core.vault.view", "system.health.view", "system.cluster.view",
-    "logs.records.view",
+    "logs.records.view", "data.backups.view", "apps.secrets.request",
 )
 
 OPERATOR_PERMISSIONS = AGENT_PERMISSIONS + (
     "apps.apps.create", "apps.apps.deploy", "apps.apps.expose", "apps.variables.manage",
+    "apps.releases.manage", "data.backups.create",
     "stacks.stacks.launch", "domains.domains.manage", "clients.clients.manage",
     "templates.custom.manage", "links.links.manage", "system.sync.run",
     "logs.records.export", "admin.settings.view", "security.tokens.self",

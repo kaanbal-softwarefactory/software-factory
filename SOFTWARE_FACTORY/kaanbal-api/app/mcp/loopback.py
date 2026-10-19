@@ -51,7 +51,10 @@ def unwrap(response: httpx.Response) -> Any:
         raise ToolError(f"{_detail(response)} Si hace falta, crea otro token con ese alcance en Acceso → Tokens.")
     if response.status_code == 404:
         raise ToolError(_detail(response) or "No existe eso en esta plataforma.")
-    if response.status_code in (400, 409, 422):
+    if response.status_code == 428:
+        # Espera a una persona: el detalle trae el approval_id y cómo seguir.
+        raise ToolError(_detail(response) or "Esta acción requiere aprobación humana.")
+    if response.status_code in (400, 409, 410, 422):
         # Rechazos con motivo (un plan que choca, un nombre tomado): el detalle ya es para la persona.
         raise ToolError(_detail(response) or f"La API rechazó la petición ({response.status_code}).")
     if response.status_code >= 400:

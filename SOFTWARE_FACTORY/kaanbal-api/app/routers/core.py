@@ -10,7 +10,7 @@ seria el que muere a mitad de camino.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.routers.auth import get_current_active_user
 from app.services import core_release, core_upgrade, vault_sync
@@ -46,13 +46,20 @@ async def get_core_drift():
 
 
 @router.post("/upgrade", status_code=202)
-async def start_core_upgrade(body: Optional[dict] = None, current_user=Depends(get_current_active_user)):
+async def start_core_upgrade(request: Request, body: Optional[dict] = None, current_user=Depends(get_current_active_user)):
     """Lanza el upgrade del engine como Job. Responde de inmediato.
 
     La deriva se revisa aquí además de en el Job: es mejor que la consola lo
     diga antes de lanzar nada que ver fallar el Job a los pocos segundos.
+
+    Desde un token (un agente), actualizar el core exige un token crítico y la
+    aprobación de una persona (ver app/services/approvals.py).
     """
     ref = str((body or {}).get("ref") or "main")
+    from app.services import approvals
+    await approvals.gate(request, action="core.upgrade", target="kaanbal", payload={"ref": ref},
+                         summary=f"Actualizar el core de Kaanbal a {ref}",
+                         approval_id=(body or {}).get("approval_id"))
     drift = await core_release.detect_drift()
     if drift.get("any_custom"):
         custom = [n for n, c in (drift.get("components") or {}).items() if c.get("custom")]

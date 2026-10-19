@@ -17,7 +17,7 @@ plataforma como recursos.
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
-from app.mcp import catalog, guide, prompts, protocol, tools
+from app.mcp import catalog, guide, inventory, prompts, protocol, tools
 from app.routers import autonomy
 from app.mcp.loopback import LoopbackClient
 from app.version import VERSION
@@ -28,16 +28,28 @@ SERVER_INFO = {"name": "kaanbal", "title": "Kaanbal", "version": VERSION}
 
 INSTRUCTIONS = (
     "Kaanbal es la plataforma donde viven estas aplicaciones: lanza, conecta, publica y opera apps y stacks "
-    "(base + API + frontend). Si no conoces la plataforma, lee platform_guide. Cuando algo falla, empieza por "
-    "diagnose_app: dice en lenguaje simple qué pasa, con la evidencia y la acción que lo arregla. "
-    "Todo lo que crea algo o cambia lo que se ve en internet (create_app, launch_stack, link_apps, unlink_apps, "
-    "set_exposure, attach_domain, set_homepage) va en dos pasos: sin plan_id devuelve el plan y no toca nada; "
-    "muéstraselo a la persona y aplica repitiendo la llamada con el plan_id solo si lo aprueba. Las demás acciones "
-    "(start_app, stop_app, scale_app, sync_app, repair_db_bindings, set_app_variable) actúan directo: confirma "
-    "antes. Lo largo corre en segundo plano: síguelo con deploy_status o stack_status. Nunca vas a poder leer el "
-    "valor de un secreto mediante las herramientas normales. Las capacidades críticas de autonomía pueden "
-    "ejecutar comandos, leer datos sensibles y actualizar el core cuando el token, ACL y política lo permiten."
+    "(base + API + frontend). Empieza con whoami (a qué instancia le hablas, si hay varios conectores) y "
+    "platform_capabilities (qué puede este token y qué le falta). Si no conoces la plataforma, lee platform_guide. "
+    "Cuando algo falla, empieza por diagnose_app; para el CI, pipeline_logs; para el consumo, app_metrics. "
+    "Lo que crea algo, cambia lo que se ve en internet o cambia qué versión corre (create_app, launch_stack, "
+    "link_apps, unlink_apps, set_exposure, attach_domain, set_homepage, rollback_app, promote_app) va en dos pasos: "
+    "sin plan_id devuelve el plan y no toca nada; muéstraselo a la persona y aplica con el plan_id solo si lo "
+    "aprueba. Lo irreversible (restore_database, delete_app, ejecutar comandos, merge, actualizar el core) exige "
+    "además un token crítico y la aprobación de una persona: la API responde con un approval_id, la persona lo "
+    "aprueba en la consola (Acceso → Solicitudes) y repites la llamada con él. Las demás acciones actúan directo: "
+    "confirma antes. Lo largo corre en segundo plano: espera con wait_for_deploy o stack_status. Nunca vas a ver "
+    "el valor de un secreto: si hace falta uno que solo tiene una persona, pídelo con request_secret."
 )
+
+
+def _public_base(request: Request) -> str:
+    """La URL con la que llegó el agente, para que whoami diga a qué instancia le habla.
+
+    Detrás del túnel o del ingress, el host real viene en X-Forwarded-*.
+    """
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return f"{scheme}://{host.split(',')[0].strip()}"
 
 
 @router.post("/mcp")
@@ -62,17 +74,30 @@ async def mcp_messages(request: Request):
         for spec in discovered if spec["name"] not in catalog.TOOLS_BY_NAME
     ]
 
+    context = {"api_url": _public_base(request), "discovered": dynamic}
+
     async def run_tool(name, arguments):
-        if name in dynamic:
+        if name in dynamic and name not in catalog.TOOLS_BY_NAME:
             return await tools.call_discovered_tool(client, dynamic[name], arguments)
-        permission = catalog.TOOLS_BY_NAME[name]["permission"]
+        tool = catalog.TOOLS_BY_NAME[name]
+        permission = tool["permission"]
         if permission and not principal.can(permission):
             who = f"El token '{principal.token_name}'" if principal.via_token else "Tu cuenta"
             raise protocol.ToolError(
                 f"{who} no incluye el permiso '{permission}', que necesita {name}. "
                 "Pídeselo a quien administra la plataforma o crea un token con ese alcance en Acceso → Tokens."
             )
-        return await tools.call_tool(client, name, arguments)
+        if tool.get("elevated") and principal.via_token and not principal.elevated:
+            raise protocol.ToolError(
+                f"{name} exige un token crítico (Acceso → Tokens → Control total, confirmado con contraseña y "
+                "con vencimiento). Este token es de uso diario."
+            )
+        return await tools.call_tool(client, name, arguments, context)
+
+    async def read_resource(uri):
+        if uri.startswith(inventory.PREFIX):
+            return await inventory.read(client, uri)
+        return guide.read_resource(uri)
 
     answer = await protocol.handle_body(
         await request.body(),
@@ -82,8 +107,9 @@ async def mcp_messages(request: Request):
         run_tool=run_tool,
         prompts=prompts.definitions(),
         get_prompt=prompts.get,
-        resources=guide.resources(),
-        read_resource=guide.read_resource,
+        resources=guide.resources() + inventory.resources(),
+        resource_templates=inventory.templates(),
+        read_resource=read_resource,
     )
     if answer is None:
         return Response(status_code=202)

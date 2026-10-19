@@ -15,6 +15,7 @@ cliente oficial contra este módulo. Por eso aquí no se importa nada de `app.*`
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Sequence, Union
@@ -33,8 +34,8 @@ RESOURCE_NOT_FOUND = -32002
 ToolRunner = Callable[[str, Dict[str, Any]], Awaitable[Any]]
 # prompts/get: KeyError si el flujo no existe, ValueError si le falta un argumento.
 PromptGetter = Callable[[str, Dict[str, Any]], Dict[str, Any]]
-# resources/read: KeyError si el recurso no existe.
-ResourceReader = Callable[[str], Dict[str, Any]]
+# resources/read: KeyError si el recurso no existe. Puede ser async (el inventario lee la API).
+ResourceReader = Callable[[str], Union[Dict[str, Any], Awaitable[Dict[str, Any]]]]
 Response = Union[Dict[str, Any], List[Dict[str, Any]]]
 
 
@@ -80,6 +81,7 @@ async def handle_message(
     get_prompt: Optional[PromptGetter] = None,
     resources: Sequence[Mapping[str, Any]] = (),
     read_resource: Optional[ResourceReader] = None,
+    resource_templates: Sequence[Mapping[str, Any]] = (),
 ) -> Optional[Dict[str, Any]]:
     """Responder un mensaje JSON-RPC. None cuando no lleva respuesta (notificaciones).
 
@@ -126,13 +128,18 @@ async def handle_message(
     if read_resource is not None and method == "resources/list":
         return _result(message_id, {"resources": [dict(resource) for resource in resources]})
     if read_resource is not None and method == "resources/templates/list":
-        return _result(message_id, {"resourceTemplates": []})
+        return _result(message_id, {"resourceTemplates": [dict(item) for item in resource_templates]})
     if read_resource is not None and method == "resources/read":
         uri = str(params.get("uri") or "")
         try:
-            return _result(message_id, {"contents": [read_resource(uri)]})
+            content = read_resource(uri)
+            if inspect.isawaitable(content):
+                content = await content
+            return _result(message_id, {"contents": [content]})
         except KeyError:
             return error_response(message_id, RESOURCE_NOT_FOUND, f"Recurso desconocido: {uri}")
+        except ToolError as exc:
+            return error_response(message_id, INVALID_PARAMS, str(exc))
     return error_response(message_id, METHOD_NOT_FOUND, f"Método no soportado: {method}")
 
 

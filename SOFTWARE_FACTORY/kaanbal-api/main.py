@@ -20,7 +20,7 @@ import os
 import logging
 
 from app.config import settings
-from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core, mcp, autonomy
+from app.routers import apps, clients, config, webhooks, health, templates, setup, auth, system, admin, logs, domains, links, sites, security, stacks, core, mcp, autonomy, operations
 from app.db import connect_db, close_db
 from app.middleware.acl import AccessControlMiddleware
 from app.services.activity_log import activity_log, CATEGORY_API, CATEGORY_ERROR
@@ -61,6 +61,10 @@ async def lifespan(app: FastAPI):
     vault_task = asyncio.create_task(vault_sync.reconcile_loop())
     from app.services.autonomy import cleanup_loop, init_indexes
     await init_indexes()
+    from app.services import approvals, agent_requests, data_operations
+    await approvals.init_indexes()
+    await agent_requests.init_indexes()
+    await data_operations.init_indexes()
     autonomy_cleanup = asyncio.create_task(cleanup_loop())
     yield
     # Shutdown
@@ -150,6 +154,8 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(health.router, tags=["Health"])
 app.include_router(apps.router, prefix="/api/v1/apps", tags=["Apps"])
 app.include_router(apps.stream_router, prefix="/api/v1/apps", tags=["Apps"])
+app.include_router(operations.router, prefix="/api/v1/apps", tags=["App Operations"])
+app.include_router(operations.requests_router, prefix="/api/v1/secret-requests", tags=["App Operations"])
 app.include_router(templates.router, prefix="/api/v1/templates", tags=["Templates"])
 app.include_router(setup.router, prefix="/api/v1/setup", tags=["Setup"])
 app.include_router(system.router, prefix="/api/v1/system", tags=["System & Tokens"])

@@ -13,7 +13,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.db import get_db
-from app.services import autonomy_cluster as cluster
+from app.services import approvals, autonomy_cluster as cluster
 from app.services.autonomy_github import GitHubBroker, repository, validate_changes, contains_credential
 from app.services.autonomy_policy import AutonomyError, authorize, digest, redact, require_elevated, require_permission, resource_name, node_name, safe_path
 
@@ -81,12 +81,16 @@ async def registered_app(name, env):
     return app
 
 
-async def execute_app(principal, name, env, command, seconds, reason):
+async def execute_app(principal, name, env, command, seconds, reason, approval_id=None):
     require_permission(principal, "autonomy.apps.execute")
     require_elevated(principal)
     cfg = await configuration()
     authorize(cfg.get("autonomy", {}), principal, feature="runtime", app=name, env=env)
     await registered_app(name, env)
+    await approvals.require(principal, action="app.execute", target=f"{name}/{env}",
+                            payload={"command": command, "timeout_seconds": seconds},
+                            summary=f"$ {command}", reason=reason, approval_id=approval_id,
+                            policy=cfg.get("autonomy", {}))
     async with audit(principal, "app.execute", name, reason, env=env, command_sha256=digest(command)) as op:
         try:
             result = await asyncio.to_thread(cluster.app_execute, name, env, command, seconds)
@@ -98,13 +102,16 @@ async def execute_app(principal, name, env, command, seconds, reason):
         return {"operation_id": op["_id"], **result}
 
 
-async def execute_host(principal, node, command, seconds, reason):
+async def execute_host(principal, node, command, seconds, reason, approval_id=None):
     require_permission(principal, "autonomy.host.execute")
     require_elevated(principal)
     cfg = await configuration()
     policy = cfg.get("autonomy", {})
     authorize(policy, principal, feature="host", node=node)
     node_name(node)
+    await approvals.require(principal, action="host.execute", target=node,
+                            payload={"command": command, "timeout_seconds": seconds},
+                            summary=f"# {command}", reason=reason, approval_id=approval_id, policy=policy)
     async with audit(principal, "host.execute", node, reason, command_sha256=digest(command)) as op:
         op["job"] = "repair-" + op["_id"][:24]
         # Persist the deterministic job name before launch, including ambiguous network failures.
@@ -136,7 +143,11 @@ async def operation(principal, identifier):
     return {"id": identifier, **result}
 
 
-async def open_workspace(principal, *, target, app, env, reason):
+# Rama que despliega cada ambiente (ver el contrato de una app en el MCP).
+ENV_BRANCHES = {"dev": "develop", "staging": "staging", "prod": "main"}
+
+
+async def open_workspace(principal, *, target, app, env, reason, base_branch=None):
     require_permission(principal, "autonomy.workspaces.manage")
     if target == "core":
         require_permission(principal, "autonomy.core.contribute")
@@ -153,7 +164,8 @@ async def open_workspace(principal, *, target, app, env, reason):
         from app.services.core_release import get_upstream
         repo = "/".join(await get_upstream(cfg))
     github = broker(cfg)
-    base = await github.base(repo)
+    branch = base_branch or (ENV_BRANCHES.get(env) if target == "app" and env != "prod" else None)
+    base = await github.base(repo, branch)
     push_repo = await github.contribution_target(repo, policy.get("core_fork", "") if target == "core" else "")
     identifier = uuid4().hex
     lifetime = policy.get("workspace_lifetime_seconds", 3600)
@@ -297,13 +309,18 @@ async def publish(principal, identifier, title, body, expected_digest):
         return public_workspace(ws)
 
 
-async def merge(principal, identifier, expected_sha):
+async def merge(principal, identifier, expected_sha, approval_id=None):
     require_permission(principal, "autonomy.changes.merge")
     require_elevated(principal)
     ws, cfg = await workspace(principal, identifier, live=False)
     authorize(cfg.get("autonomy", {}), principal, feature="merge", app=ws["app"], env=ws["env"])
     if not ws.get("pull_request"):
         raise AutonomyError("El workspace todavía no tiene PR.")
+    pr = ws["pull_request"]
+    await approvals.require(principal, action="workspace.merge", target=f"{ws['repo']}#{pr.get('number')}",
+                            payload={"workspace": identifier, "expected_sha": expected_sha},
+                            summary=f"Merge de {pr.get('html_url') or ws['repo']} ({expected_sha[:12]}) en {ws['base_branch']}",
+                            approval_id=approval_id, policy=cfg.get("autonomy", {}))
     async with locked(ws):
         async with audit(principal, "workspace.merge", identifier, "Integrar PR de app", expected_sha=expected_sha):
             return await broker(cfg).merge(ws, expected_sha)

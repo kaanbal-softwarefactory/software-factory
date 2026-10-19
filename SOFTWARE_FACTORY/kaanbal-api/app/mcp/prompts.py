@@ -129,6 +129,71 @@ def _connect(args: Mapping[str, Any]) -> str:
     ])
 
 
+APPROVAL_RULE = (
+    "Lo irreversible (restaurar una base, borrar una app, ejecutar comandos, integrar un PR, actualizar el core) "
+    "además pide aprobación humana: si la API devuelve un approval_id, dime qué aprobar en la consola "
+    "(Acceso → Solicitudes) y espera a que te avise antes de repetir la llamada con él."
+)
+
+
+def _audit(args: Mapping[str, Any]) -> str:
+    return "\n".join([
+        "Quiero saber qué conviene ordenar o atender en la plataforma.",
+        "",
+        "1. Corre whoami para confirmar a qué instancia le hablas y audit_platform para el inventario completo.",
+        "2. Agrupa los hallazgos por severidad y explícamelos en lenguaje simple, con las apps involucradas.",
+        "3. Para cada hallazgo propone la acción concreta (la herramienta que sugiere el reporte), empezando por lo de severidad alta.",
+        "4. No apliques nada: dame la lista para que yo elija qué hacer y en qué orden.",
+    ])
+
+
+def _rollback(args: Mapping[str, Any]) -> str:
+    env = args.get("ambiente") or "prod"
+    app = args.get("app")
+    return "\n".join([
+        f"La versión que corre de '{app}' en {env} está fallando y quiero volver a la anterior.",
+        "",
+        f"1. Confirma el problema con diagnose_app(name='{app}', env='{env}') y, si es del build, pipeline_logs.",
+        f"2. Lista las versiones con list_revisions(name='{app}', env='{env}') y propón la última que funcionaba.",
+        "3. Si la app usa una base y la versión nueva pudo cambiar el esquema, adviérteme y propón backup_database antes.",
+        "4. Pide el plan de rollback_app, muéstramelo y aplícalo solo si lo apruebo.",
+        f"5. Espera con wait_for_deploy(name='{app}') y confirma con diagnose_app y check_urls.",
+        "",
+        PLAN_RULE,
+    ])
+
+
+def _data(args: Mapping[str, Any]) -> str:
+    app = args.get("base")
+    return "\n".join([
+        f"Quiero cuidar los datos de la base '{app}'.",
+        "",
+        f"1. Mira sus respaldos con list_backups(name='{app}'). Si no hay uno reciente, propone backup_database y espera a que diga succeeded.",
+        "2. Si quiero restaurar: pide el plan de restore_database con el backup_id elegido y explícame qué se reemplaza.",
+        "3. Si lo apruebo, aplica con el plan_id; recuerda que la plataforma toma un respaldo de seguridad antes.",
+        "4. Si necesito ver datos, usa query_database pidiendo solo las columnas y filas necesarias (pueden ser personales).",
+        "",
+        PLAN_RULE,
+        APPROVAL_RULE,
+    ])
+
+
+def _code_change(args: Mapping[str, Any]) -> str:
+    app = args.get("app")
+    env = args.get("ambiente") or "dev"
+    return "\n".join([
+        f"Quiero hacer este cambio en el código de '{app}': {args.get('cambio') or '(te lo explico)'}",
+        "",
+        f"1. Revisa platform_capabilities: necesitas open_app_workspace. Lee app_contract(name='{app}') para conocer reglas y ramas.",
+        f"2. Abre un workspace desde la rama de {env} con open_app_workspace (env='{env}'), espera a que esté Running e inicialízalo.",
+        "3. Lee los archivos que hagan falta, haz el cambio mínimo y valida con run_workspace_command (tests, build, lint).",
+        "4. Muéstrame workspace_diff completo. Si lo apruebo, publica el PR con publish_workspace_pr y su digest.",
+        "5. Cierra el workspace con close_workspace. El merge lo hago yo, o merge_app_pr con aprobación humana.",
+        "",
+        APPROVAL_RULE,
+    ])
+
+
 PROMPTS: List[Dict[str, Any]] = [
     {
         "name": "lanzar-sitio",
@@ -189,6 +254,41 @@ PROMPTS: List[Dict[str, Any]] = [
             _arg("con", "La base o el servicio al que se conecta.", required=True),
         ],
         "render": _connect,
+    },
+    {
+        "name": "auditar-plataforma",
+        "title": "Auditar la plataforma",
+        "description": "Qué conviene ordenar o atender: grupos, nombres, bases sin respaldo o sin uso, apps no sanas.",
+        "arguments": [],
+        "render": _audit,
+    },
+    {
+        "name": "volver-version",
+        "title": "Volver a la versión anterior",
+        "description": "Rollback de una app que se rompió con el último despliegue, con el plan a la vista.",
+        "arguments": [
+            _arg("app", "Nombre de la app.", required=True),
+            _arg("ambiente", "prod, staging o dev (por defecto prod)."),
+        ],
+        "render": _rollback,
+    },
+    {
+        "name": "cuidar-datos",
+        "title": "Respaldar, restaurar o consultar una base",
+        "description": "Respaldos, restauración con respaldo de seguridad y consultas de solo lectura.",
+        "arguments": [_arg("base", "Nombre de la base (app postgres o mongodb).", required=True)],
+        "render": _data,
+    },
+    {
+        "name": "cambiar-codigo",
+        "title": "Cambiar el código de una app",
+        "description": "Workspace efímero, cambio validado, diff a la vista y PR hacia la rama del ambiente.",
+        "arguments": [
+            _arg("app", "Nombre de la app.", required=True),
+            _arg("cambio", "Qué hay que cambiar."),
+            _arg("ambiente", "Rama de partida: dev (por defecto), staging o prod."),
+        ],
+        "render": _code_change,
     },
 ]
 

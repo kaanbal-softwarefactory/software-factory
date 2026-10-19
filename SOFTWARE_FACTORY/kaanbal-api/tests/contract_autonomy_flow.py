@@ -15,7 +15,7 @@ import zipfile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.modules["app.db"] = types.SimpleNamespace(get_db=lambda: None)
 
-from app.services import autonomy as service, autonomy_workspace_files as files, core_release
+from app.services import approvals, autonomy as service, autonomy_workspace_files as files, core_release
 from app.services.access import Principal
 from app.services.permissions import PERMISSION_KEYS
 from app.services.autonomy_policy import AutonomyError
@@ -34,6 +34,8 @@ class Collection:
                 if "$exists" in value and (key in row) != value["$exists"]:
                     return False
                 if "$lt" in value and (key not in row or row[key] >= value["$lt"]):
+                    return False
+                if "$gt" in value and (key not in row or row[key] <= value["$gt"]):
                     return False
             elif row.get(key) != value:
                 return False
@@ -64,7 +66,8 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.actor = Principal(username="example-agent", token_id="token-a", permissions=set(PERMISSION_KEYS), elevated=True)
-        self.db = {key: Collection() for key in ("autonomy_workspaces", "autonomy_operations", "token_activity")}
+        self.db = {key: Collection() for key in ("autonomy_workspaces", "autonomy_operations", "token_activity",
+                                                 approvals.COLLECTION)}
         self.config = {"autonomy": {"enabled": True, "workspace_enabled": True, "merge_enabled": True,
             "workbench_image": "local/workbench:1", "grants": [{"username": "example-agent", "token_id": "token-a",
                 "apps": ["demo-api"], "environments": ["dev"], "core": True}]}}
@@ -77,6 +80,7 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             commit=AsyncMock(return_value="c" * 40), publish=AsyncMock(return_value={"number": 5, "html_url": "https://github.com/owner/app/pull/5"}),
             merge=AsyncMock(return_value={"merged": True}))
         patches = [patch.object(service, "get_db", return_value=self.db),
+            patch.object(approvals, "_collection", return_value=self.db[approvals.COLLECTION]),
             patch.object(service, "configuration", AsyncMock(return_value=self.config)),
             patch.object(service, "registered_app", AsyncMock(return_value={"repo_url": "owner/app"})),
             patch.object(core_release, "get_upstream", AsyncMock(return_value=("owner", "core"))),
@@ -109,7 +113,21 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         published = await service.publish(self.actor, ws["id"], "Improve app", "Reviewed change", diff["digest"])
         self.assertEqual(published["pull_request"]["number"], 5)
         self.github.commit.assert_awaited_once()
-        self.assertTrue((await service.merge(self.actor, ws["id"], "c" * 40))["merged"])
+        # Desde un token, integrar espera a una persona: no se toca GitHub hasta que aprueba.
+        with self.assertRaises(approvals.ApprovalRequired) as waiting:
+            await service.merge(self.actor, ws["id"], "c" * 40)
+        self.github.merge.assert_not_awaited()
+        approval_id = waiting.exception.approval["_id"]
+        with self.assertRaises(AutonomyError) as pending:
+            await service.merge(self.actor, ws["id"], "c" * 40, approval_id=approval_id)
+        self.assertEqual(pending.exception.status, 428)
+        await approvals.decide(Principal(username="owner", permissions=set(PERMISSION_KEYS)), approval_id, approve=True)
+        with self.assertRaises(AutonomyError):  # la aprobación cubre ese SHA, no otro
+            await service.merge(self.actor, ws["id"], "d" * 40, approval_id=approval_id)
+        self.assertTrue((await service.merge(self.actor, ws["id"], "c" * 40, approval_id=approval_id))["merged"])
+        with self.assertRaises(AutonomyError):  # y sirve una sola vez
+            await service.merge(self.actor, ws["id"], "c" * 40, approval_id=approval_id)
+        self.github.merge.assert_awaited_once()
         self.assertEqual((await service.close(self.actor, ws["id"]))["state"], "closed")
         events = self.db["token_activity"].rows
         self.assertTrue(any(event["action"] == "workspace.merge" for event in events))
