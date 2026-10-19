@@ -98,6 +98,9 @@
 
     <AutonomyPolicy v-else-if="activeTab === 'autonomy' && can('autonomy.policy.manage')" :username="me.username" :users="users" />
 
+    <AgentRequests v-else-if="activeTab === 'requests'" :username="me.username"
+      :can-approve="can('autonomy.policy.manage')" :can-fulfill="can('apps.variables.manage')" />
+
     <!-- ── Tokens ── -->
     <section v-else class="space-y-4">
       <div class="flex justify-between items-center gap-3 flex-wrap">
@@ -352,12 +355,14 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import AutonomyPolicy from '../components/AutonomyPolicy.vue'
+import AgentRequests from '../components/AgentRequests.vue'
 
 const tabs = computed(() => [
   { id: 'users', label: '👥 Personas' },
   { id: 'roles', label: '🎭 Roles' },
   { id: 'tokens', label: '🔑 Tokens' },
   ...(can('autonomy.policy.manage') ? [{ id: 'autonomy', label: 'Autonomía' }] : []),
+  ...(can('autonomy.policy.manage') || can('apps.variables.manage') ? [{ id: 'requests', label: '🛎️ Solicitudes' }] : []),
 ])
 
 const activeTab = ref('users')
