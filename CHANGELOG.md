@@ -50,6 +50,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and `apps.secrets.request`.
 - Laravel 13 backend template with PHP 8.4, Composer, React 19 + Inertia 3,
   PostgreSQL bindings, MVVM-ready layers, health checks and generated tests.
+- **Next.js full-stack template** (Next.js 16, App Router, React 19, TypeScript): pages and
+  API in one app, so a demo no longer needs a separate frontend, API and database wired by
+  hand. It reads a linked database from the conventional names Kaanbal publishes
+  (`MONGODB_URI`, `POSTGRES_URL`, `DATABASE_URL`, `PGHOST`…) without configuration, creates
+  and seeds its `notes` collection or table on first run, and with no database at all it
+  still starts, keeps the data in memory and says so on the page. The image is Next's
+  `standalone` output running as a non-root user on port 3000, with `/api/health` as the
+  smoke test — it answers without touching the database, so a database outage does not
+  restart the pod.
+- Two stacks that launch it with its database in one go: `nextjs-mongo` and
+  `nextjs-postgres`. The application takes the public URL and can be the domain's homepage;
+  the database stays inside the cluster.
 - PHP/Composer runtime detection in generated CI workflows and Laravel-compatible
   `APP_KEY` generation for Vault-backed application secrets.
 - Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
@@ -80,6 +92,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - The console sidebar navigation now scrolls independently when its links exceed the
   viewport height, keeping the brand and status/logout controls visible.
+- The dashboard offered a Next.js tile pointing at a template id that did not exist
+  (`next-app`), so the wizard opened on nothing. It now opens the Next.js template, and a
+  test keeps the dashboard's showcase and the catalog from drifting apart again. The
+  template list also shows the Next.js and Laravel icons instead of the generic box.
 
 ## [1.2.1] - 2026-09-27
 

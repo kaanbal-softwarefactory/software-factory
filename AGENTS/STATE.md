@@ -18,6 +18,10 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
   API, 10 del puente, build de consola). Falta: publicar la release `v1.3.0` y validarlo
   en una célula real (ciclo de aprobación, rollback, reinicio). Detalle en
   `sessions/2026-10-04-mcp-administracion.md`.
+- **Plantilla Next.js full-stack y sus dos stacks (1.3.0)** — construida y probada fuera
+  del clúster (`npm run build`, servidor `standalone` respondiendo `/api/health`, alta y
+  lectura de notas en memoria). Falta: el ciclo `draft → validating → ready` en una célula
+  y una prueba con la base vinculada de verdad.
 
 ## Conocido y pendiente
 

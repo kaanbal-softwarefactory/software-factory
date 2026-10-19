@@ -1,6 +1,6 @@
 # Roadmap del MCP y la operación por agentes
 
-Actualizado: 2026-10-04 · Versión: 1.3.0
+Actualizado: 2026-10-19 · Versión: 1.3.0
 
 Qué se propuso, en qué estado está y qué falta para darlo por terminado. Es la lista
 que retoma la próxima sesión: mueve cada fila de estado en el mismo PR que la cambia.
@@ -71,6 +71,14 @@ que retoma la próxima sesión: mueve cada fila de estado en el mismo PR que la 
 | `set_app_group` / `set_display_name` | ✅ Desarrollado | `admin_tools.py` (REST ya existía) | — |
 | `delete_app` (plan, respaldo previo, aprobación) | ✅ Desarrollado | `admin_tools.py`, `routers/apps.py` | Probar con una app de prueba. |
 | Renombrar el nombre interno de una app | ❌ Descartado | — | Es la identidad en repo, clúster, DNS y Vault; `set_display_name` cubre el caso. |
+
+## Plantillas y stacks
+
+| Capacidad | Estado | Dónde | Falta |
+|---|---|---|---|
+| Plantilla Next.js full-stack (páginas y API en una app) | ✅ Desarrollado | `kaanbal-templates/templates/backend/nextjs-fullstack` | Pasar el ciclo `draft → validating → ready` en una célula. |
+| Stacks `nextjs-mongo` y `nextjs-postgres` | ✅ Desarrollado | `kaanbal-templates/catalog.json` | Lanzar uno por MCP y confirmar que la app arranca ya vinculada. |
+| Plantilla de worker/cola (trabajos en segundo plano) | 💡 Idea | — | Decidir el motor (BullMQ, Celery) y cómo se declara en el catálogo. |
 
 ## Experiencia del agente
 

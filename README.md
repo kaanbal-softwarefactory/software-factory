@@ -34,8 +34,8 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
   only the Python standard library, so nothing has to be `pip install`ed on the server.
 - **Web console.** Applications, templates, stacks, domains, links between services,
   sites, activity log, updates and access control.
-- **Templates.** Vue 3, React, FastAPI, Laravel + Inertia, MongoDB, PostgreSQL, n8n and EMQX out of the
-  box, plus a [documented spec](SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md) for community templates.
+- **Templates.** Vue 3, React, FastAPI, Next.js, Laravel + Inertia, MongoDB, PostgreSQL, n8n and EMQX
+  out of the box, plus a [documented spec](SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md) for community templates.
 - **Stacks.** Launch database, API and frontend together, already wired: the API is
   bound to its database and the frontend is built with the real URL of its API.
   A stack can take the root of a domain as its homepage.
