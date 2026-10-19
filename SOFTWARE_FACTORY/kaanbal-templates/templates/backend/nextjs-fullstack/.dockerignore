@@ -1,0 +1,10 @@
+.git
+.github
+.next
+k8s
+node_modules
+npm-debug.log*
+.env
+.env.local
+README.md
+AGENTS.md

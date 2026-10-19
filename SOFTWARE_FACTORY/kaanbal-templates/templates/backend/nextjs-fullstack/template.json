@@ -1,0 +1,11 @@
+{
+  "scaffold": {
+    "template_files": true
+  },
+  "pipeline_strategy": "dynamic",
+  "health_check_path": "/api/health",
+  "validation": {
+    "smoke_path": "/api/health",
+    "environments": ["dev"]
+  }
+}

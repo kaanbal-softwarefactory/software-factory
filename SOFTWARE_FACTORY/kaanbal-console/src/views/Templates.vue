@@ -641,6 +641,8 @@ const iconMap = {
   n8n: '🔄',
   mongodb: '🍃',
   nodejs: '🟢',
+  nextjs: '▲',
+  laravel: '🔥',
   react: '⚛️',
   cube: '📦',
   default: '📦'

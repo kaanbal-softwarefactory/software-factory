@@ -332,7 +332,7 @@ const techShowcase = [
   { name: 'MongoDB', icon: '🍃', color: '#47a248', tagline: 'NoSQL DB', templateId: 'mongodb' },
   { name: 'React', icon: '⚛️', color: '#61dafb', tagline: 'UI Library', templateId: 'react-spa' },
   { name: 'n8n', icon: '🔄', color: '#ea4b71', tagline: 'Workflows', templateId: 'n8n' },
-  { name: 'Next.js', icon: '▲', color: '#ffffff', tagline: 'Fullstack', templateId: 'next-app' }
+  { name: 'Next.js', icon: '▲', color: '#ffffff', tagline: 'Fullstack', templateId: 'nextjs-fullstack' }
 ]
 
 const howItWorks = [

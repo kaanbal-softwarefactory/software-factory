@@ -1,5 +1,5 @@
 {
-  "version": "4.1.0",
+  "version": "4.2.0",
   "categories": {
     "frontend": {
       "name": "Frontend",
@@ -111,6 +111,50 @@
       ],
       "secrets": [
         {"name": "APP_KEY", "auto_generate": true, "format": "laravel-key"}
+      ]
+    },
+    {
+      "id": "nextjs-fullstack",
+      "name": "Next.js full-stack",
+      "description": "Next.js 16 con App Router: páginas y API en la misma app, lista para vincular una base",
+      "icon": "nextjs",
+      "color": "#0ea5e9",
+      "category": "backend",
+      "stack": [
+        "node",
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "popular": true,
+      "status": "ready",
+      "port": 3000,
+      "service_type": "http",
+      "creation_modes": [
+        "scaffold",
+        "empty",
+        "upload"
+      ],
+      "health_check_path": "/api/health",
+      "consumes": [
+        {"kind": "database", "engine": "mongodb", "optional": true},
+        {"kind": "database", "engine": "postgres", "optional": true}
+      ],
+      "config_schema": {
+        "node_version": {
+          "type": "string",
+          "enum": ["22", "20"],
+          "default": "22",
+          "label": "Versión de Node.js"
+        }
+      },
+      "env_vars": [
+        {"name": "APP_NAME", "default": "{{APP_NAME}}"},
+        {"name": "APP_ENV", "default": "production"},
+        {"name": "NODE_ENV", "default": "production"}
+      ],
+      "secrets": [
+        {"name": "APP_SECRET", "auto_generate": true, "length": 32}
       ]
     },
     {
@@ -343,6 +387,30 @@
       "components": [
         {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
         {"role": "backend", "template": "laravel-inertia-react", "suffix": "", "exposure": "public", "binds": "database", "can_be_homepage": true}
+      ]
+    },
+    {
+      "id": "nextjs-mongo",
+      "name": "Next.js + MongoDB",
+      "description": "Una sola app Next.js —páginas y API juntas— con su MongoDB privada. El camino más corto a una demo que ya guarda datos.",
+      "icon": "▲",
+      "color": "#0ea5e9",
+      "popular": true,
+      "components": [
+        {"role": "database", "template": "mongodb", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "nextjs-fullstack", "suffix": "", "exposure": "public", "binds": "database", "can_be_homepage": true}
+      ]
+    },
+    {
+      "id": "nextjs-postgres",
+      "name": "Next.js + PostgreSQL",
+      "description": "La misma app Next.js con PostgreSQL: para datos relacionales, migraciones y reportes.",
+      "icon": "🐘",
+      "color": "#336791",
+      "popular": false,
+      "components": [
+        {"role": "database", "template": "postgres", "suffix": "-db", "exposure": "internal"},
+        {"role": "backend", "template": "nextjs-fullstack", "suffix": "", "exposure": "public", "binds": "database", "can_be_homepage": true}
       ]
     }
   ],
