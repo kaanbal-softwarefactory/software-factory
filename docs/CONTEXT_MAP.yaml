@@ -14,6 +14,8 @@ always_read:
 on_task_start:
   - path: AGENTS/STATE.md
     reason: qué está en curso y qué se sabe roto
+  - path: AGENTS/ROADMAP.md
+    reason: estado de cada capacidad propuesta (idea → en producción)
   - issue: descripción y criterios de aceptación del issue
 
 by_area:
@@ -66,7 +68,11 @@ by_area:
     globs: ["SOFTWARE_FACTORY/kaanbal-api/app/mcp/**", "SOFTWARE_FACTORY/kaanbal-api/app/routers/mcp.py",
             "SOFTWARE_FACTORY/kaanbal-api/app/services/diagnosis.py", "SOFTWARE_FACTORY/kaanbal-mcp/**",
             "SOFTWARE_FACTORY/kaanbal-api/app/services/plans.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/change_plans.py",
-            "SOFTWARE_FACTORY/kaanbal-api/app/services/app_blueprint.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/app_links.py"]
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/app_blueprint.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/app_links.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/approvals.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/agent_requests.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/app_operations.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/data_operations.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/services/platform_audit.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/url_probe.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/routers/operations.py"]
     read:
       - SOFTWARE_FACTORY/kaanbal-mcp/README.md
       - SOFTWARE_FACTORY/docs/MCP_AUTONOMY.md

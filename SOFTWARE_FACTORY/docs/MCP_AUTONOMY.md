@@ -1,7 +1,99 @@
-# Autonomía MCP — primera versión
+# Autonomía MCP
 
-Estado: implementación para revisión; no desplegada ni habilitada. Trabajo sin
-ticket por autorización del usuario. Rama: `codex/mcp-autonomy`.
+Estado: la primera versión (1.2.x) se integró en `main`. La 1.3.0 agrega la
+**aprobación humana**, la operación avanzada de apps (versiones, rollback,
+promoción, consumo, URLs), los **datos de las bases** (respaldos, restauración y
+consultas de solo lectura), la auditoría del inventario y la identidad del
+conector. Rama: `feat/mcp-admin-capabilities`.
+
+## Aprobación humana (1.3.0)
+
+Un token crítico prueba que alguien confirmó su contraseña al emitirlo, pero no que
+haya una persona mirando cuando el agente decide algo irreversible. Por eso estas
+acciones, cuando llegan con un token, esperan una aprobación:
+
+| Acción | Herramienta | Qué ve la persona |
+|---|---|---|
+| Ejecutar en una app | `execute_app_command` | El comando completo, la app y el ambiente |
+| Ejecutar como root en un nodo | `execute_node_command` | El comando completo y el nodo |
+| Integrar un PR | `merge_app_pr` | El PR, el SHA y la rama destino |
+| Actualizar el core | `platform_upgrade` | La referencia |
+| Restaurar una base | `restore_database` | El respaldo (fecha, tamaño) y la base |
+| Borrar una app | `delete_app` | La app, sus ambientes y qué se borra |
+
+Flujo: la API guarda la solicitud (`autonomy_approvals`) con una huella SHA-256 de
+la acción y sus argumentos y responde **428** con el `approval_id`. En **Acceso →
+Solicitudes** una persona con `autonomy.policy.manage` confirma su contraseña
+(`step_up.confirm`) y aprueba o rechaza. El agente repite la misma llamada con el
+`approval_id`; la API recalcula la huella, exige que coincida, que esté aprobada,
+sin usar y vigente (30 minutos), y la consume de forma atómica. La misma petición
+repetida reaprovecha la solicitud pendiente en vez de llenar la cola.
+
+Quien opera desde la consola con su sesión no pasa por la cola: ya es la persona.
+El owner puede apagarla con `approval_required: false` en la política; la consola
+avisa que eso es solo para laboratorio. Además, `platform_upgrade`, `delete_app`,
+`restore_database` y `query_database` exigen ahora **token crítico** cuando llegan
+con un token (antes, borrar y actualizar el core solo pedían el permiso).
+
+## Operación avanzada de apps (1.3.0)
+
+| Capacidad | Endpoint | Permiso | Cómo |
+|---|---|---|---|
+| Versiones que corrieron | `GET /apps/{app}/revisions` | `apps.apps.diagnose` | ReplicaSets del Deployment + `newTag` declarado en GitOps |
+| Reiniciar | `POST /apps/{app}/environments/{env}/restart` | `apps.apps.deploy` | Anotación `kubectl.kubernetes.io/restartedAt` (como `rollout restart`); requiere `patch` sobre deployments/statefulsets, agregado al rol base |
+| Rollback | `POST /apps/{app}/environments/{env}/rollback` (plan) | `apps.releases.manage` | Escribe en infra-gitops el tag de una versión que ya corrió; ArgoCD la despliega |
+| Promover | `POST /apps/{app}/promote` (plan) | `apps.releases.manage` | Copia el tag de un ambiente a otro; se rechaza para frontends (su build lleva las URLs del ambiente) |
+| Consumo | `GET /apps/{app}/metrics` | `apps.apps.diagnose` | metrics.k8s.io contra los límites del contenedor |
+| ¿Responde su URL? | `GET /apps/{app}/probe` | `apps.apps.view` | Solo las URLs asignadas a esa app: código, latencia y certificado |
+| Secretos pedidos | `POST /apps/{app}/secret-requests`, `/secret-requests/{id}/fulfill` | `apps.secrets.request` / `apps.variables.manage` | La persona pega el valor en la consola; se guarda como `set_app_variable` |
+
+Un rollback dura hasta el próximo push a la rama del ambiente: el pipeline vuelve a
+escribir su tag. No revierte cambios de esquema en la base.
+
+## Datos de las bases
+
+`backup_database`, `restore_database` y `query_database` operan las bases de las
+plantillas `postgres` y `mongodb` ejecutando sus propias herramientas
+(`pg_dump`/`pg_restore`/`psql`, `mongodump`/`mongorestore`/`mongosh`) dentro del
+pod de la base, con las credenciales que el pod ya tiene en su entorno: la API
+nunca las lee. Los respaldos salen en base64 por stdout (separado de stderr) y se
+guardan en GridFS de la base de la plataforma (`data_backups`), fuera del disco de
+la app: sobreviven a un `delete_app`. Se conservan los últimos 10 por app y ambiente.
+
+- **Restaurar** toma primero un respaldo de seguridad y se detiene si falla.
+- **Consultar**: Postgres con `default_transaction_read_only=on`, tiempo límite,
+  una sola sentencia de lectura y tope de filas; se rechazan funciones que tocan el
+  servidor (`pg_terminate_backend`, `pg_read_file`, `set_config`…). MongoDB solo
+  `collections`, `count` y `find`, sin `$where`, `$function`, `$accumulator`,
+  `$out` ni `$merge`. El SQL y los filtros viajan en base64: nunca se interpolan en
+  el shell del pod. La salida se enmascara y se limita a 64 KiB.
+- Los componentes de la plataforma (`kaanbal-*`, `vault`, `argocd`, `datastore`)
+  quedan fuera.
+
+**Requisito de infraestructura (decisión del owner).** Para esto la ServiceAccount
+`kaanbal-api` necesita `create` sobre `pods/exec` en los namespaces de las apps
+(`dev`, `staging`, `prod`). Ese permiso **no** está en el RBAC base, por la misma
+razón que el de `execute_app_command`: en un namespace permite ejecutar en
+cualquier pod, no solo en las bases. Sin él, estas tres herramientas responden
+"La API no tiene permiso pods/exec en '<env>'" y el resto funciona igual. Si lo
+concedes, hazlo por GitOps, acotado a esos namespaces, y revísalo como cualquier
+cambio de RBAC.
+
+## Auditoría e identidad (1.3.0)
+
+- `whoami`: instancia (URL con la que llegó el agente, dominios, versión), cuenta,
+  token y si es crítico, y la política que le aplica (`GET /autonomy/access`).
+- `platform_capabilities` ahora lo cubre todo: las herramientas de la plataforma y
+  las de autonomía, cada una con su tipo y lo que le falta a este token (permiso,
+  token crítico, interruptor de la política o concesión).
+- `invoke_platform_tool` existe de verdad: llama por nombre una capacidad
+  descubierta aunque el cliente haya cargado la lista antes de una actualización.
+- `audit_platform`: hallazgos del inventario con severidad y la herramienta que
+  los arregla (puro, en `app/services/platform_audit.py`).
+- `diagnose_app` explica los reinicios de una app sana (OOMKilled, SIGTERM,
+  SIGKILL o "Kubernetes no registró la causa") y devuelve los eventos Warning.
+- Recursos MCP del inventario: `kaanbal://inventario/apps` y, por plantilla,
+  `kaanbal://inventario/apps/{name}` y `.../{name}/contrato`.
 
 ## Qué incorpora
 
