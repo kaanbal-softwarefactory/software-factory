@@ -5,19 +5,68 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [1.3.0] - 2026-10-19
 
 ### Added
+- **Human approval for the irreversible.** From a token, running a command in an app or
+  as root on a node, merging a PR, upgrading the core, restoring a database and deleting
+  an app no longer run on request: the API answers 428 with an `approval_id`, a person
+  approves or rejects it in **Access → Requests** (password confirmation), and the agent
+  repeats the exact same call with it. Each approval matches a SHA-256 fingerprint of the
+  action and its arguments, is single-use and expires in 30 minutes. Console sessions are
+  the person and skip the queue; the owner can turn it off (`approval_required: false`).
+- **The MCP now administers the platform** (49 platform tools plus 19 autonomy capabilities):
+  - *Identity*: `whoami` says which instance a connector talks to (API URL, domains,
+    version), with which account and token, and whether it is critical.
+    `platform_capabilities` now covers every tool, platform and autonomy alike, with its
+    kind (read, plan, action, critical) and what this token is missing.
+    `invoke_platform_tool` (announced before, never implemented) now exists.
+  - *Understand*: `pipeline_logs` (failed CI steps with the end of their log, masked),
+    `app_metrics` (CPU and memory against limits), `list_revisions`, `check_urls`
+    (status, latency and TLS expiry of the app's own URLs), `wait_for_deploy`,
+    `audit_platform` (split groups, name typos, unused or unbacked databases, unhealthy
+    apps), `list_secret_requests`.
+  - *Operate*: `restart_app` (rollout restart, GitOps untouched), `rollback_app` and
+    `promote_app` (write the image tag in infra-gitops, with a plan), `request_secret`
+    (a person pastes a credential in the console; the agent never sees it).
+  - *Data*: `list_backups`, `backup_database`, `restore_database` (plan, critical token,
+    approval, safety backup first) and `query_database` (read-only SQL with a row limit,
+    or MongoDB find/count) for `postgres` and `mongodb` apps. Backups live in the
+    platform's GridFS, outside the app's disk; the last 10 per app and environment are kept.
+  - *Administer*: `set_app_group`, `set_display_name` and `delete_app` (plan showing who
+    depends on it; a database needs a backup from the last 24 h; critical token and approval).
+  - `GET /autonomy/access` and the `autonomy_access` / `get_approval` capabilities: an
+    agent knows its grants before trying.
+  - Workspaces start from the branch that deploys the environment (`develop`, `staging`,
+    `main`) or `base_branch`, and their PR targets it.
+  - Inventory as MCP resources (`kaanbal://inventario/apps`, `.../apps/{name}`,
+    `.../apps/{name}/contrato`) and four new guided flows: `auditar-plataforma`,
+    `volver-version`, `cuidar-datos`, `cambiar-codigo`.
+- `diagnose_app` explains restarts of a healthy app (OOMKilled, SIGTERM, SIGKILL or
+  "Kubernetes did not record the cause") and returns recent Warning events.
+- New permissions: `apps.releases.manage`, `apps.secrets.request`, `data.backups.view`,
+  `data.backups.create`, `data.backups.restore` (critical), `data.records.read` (critical).
+  The operator role gets releases and backups; the agent role gets `data.backups.view`
+  and `apps.secrets.request`.
 - Optional MCP autonomy under ACL, exact resource grants and time limits: app/node
   repair commands, source workspaces, GitHub PRs and core upgrade tools.
 - Critical tokens require a password confirmation, risk acknowledgement and expiry
   within 24 hours. Tokens support scheduled activation, visible revocation and an
   activity history. Normal tokens may have no expiry with an explicit warning.
-- The built-in HTTP MCP discovers new governed tools as the platform evolves;
-  existing MCP tools and guided flows remain available.
 
-This is disabled by default. Kubernetes permissions for app exec and privileged
-node operations require an owner-reviewed GitOps change before activation.
+### Changed
+- `platform_upgrade` is a critical capability, and `POST /core/upgrade` and
+  `DELETE /apps/{id}` require a critical token and approval when called with a token.
+- `kaanbal-api`'s ClusterRole may `patch` deployments and statefulsets (only used for the
+  restart annotation).
+
+### Upgrade notes
+- Autonomy stays disabled by default. Kubernetes permissions for app exec, privileged node
+  operations and database backups/queries (`pods/exec` in the app namespaces) require an
+  owner-reviewed GitOps change before activation; without them those tools say what is
+  missing and everything else works.
+- Existing critical tokens keep the permissions they captured: issue a new one to get
+  the new `data.*` and `apps.releases.manage` permissions.
 
 ## [1.2.1] - 2026-09-27
 
