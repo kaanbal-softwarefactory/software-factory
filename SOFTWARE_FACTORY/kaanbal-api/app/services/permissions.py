@@ -345,6 +345,10 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("DELETE", rf"{_V1}/security/tokens/{_SEG}", "security.tokens.self"),
     rule("GET", rf"{_V1}/security/tokens/all", "security.tokens.admin"),
 
+    # Cómo conectarse a esta célula: la URL real, dónde sacar el token y qué pegar
+    # en cada cliente. No devuelve ningún secreto, así que basta con la sesión.
+    rule("GET", rf"{_V1}/mcp/connection", None),
+
     # MCP remoto: basta con estar autenticado; cada herramienta exige su propio
     # permiso al pasar por la REST (y el router lo revisa antes, para explicarlo).
     rule("POST", MCP_PATH, None),

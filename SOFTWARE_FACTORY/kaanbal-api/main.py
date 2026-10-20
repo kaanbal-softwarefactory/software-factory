@@ -172,6 +172,7 @@ app.include_router(config.router, prefix="/api/v1/config", tags=["Config"])
 app.include_router(logs.router, prefix="/api/v1/logs", tags=["Activity Logs"])
 app.include_router(webhooks.router, prefix="/api/v1/webhooks", tags=["Webhooks"])
 app.include_router(mcp.router, tags=["MCP"])
+app.include_router(mcp.connection_router, prefix="/api/v1/mcp", tags=["MCP"])
 
 
 @app.get("/")

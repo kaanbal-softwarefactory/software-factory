@@ -17,9 +17,11 @@ plataforma como recursos.
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.db import get_db
 from app.mcp import catalog, guide, inventory, prompts, protocol, tools
 from app.routers import autonomy
 from app.mcp.loopback import LoopbackClient
+from app.services import mcp_connection as connection
 from app.version import VERSION
 
 router = APIRouter()
@@ -126,3 +128,18 @@ async def mcp_no_stream():
 @router.delete("/mcp")
 async def mcp_no_session():
     return Response(status_code=405, headers={"Allow": "POST"})
+
+
+# ── Cómo conectarse ──────────────────────────────────────────────────────
+# Vive bajo /api/v1 (no bajo /mcp) porque quien lo lee es la consola, y la
+# consola solo proxea /api/ hacia la API. Un agente ya conectado no lo
+# necesita: whoami le dice a qué instancia le está hablando.
+connection_router = APIRouter()
+
+
+@connection_router.get("/connection")
+async def mcp_connection(request: Request):
+    """La URL real de esta célula, dónde sacar el token y qué pegar en cada cliente."""
+    db = get_db()
+    config = await db.system_config.find_one({"_id": "main"}) or {}
+    return connection.info(config, _public_base(request))
