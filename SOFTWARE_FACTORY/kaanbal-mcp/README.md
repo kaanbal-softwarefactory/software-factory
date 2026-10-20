@@ -31,6 +31,10 @@ qué es ("MCP de <tu nombre>") y cópialo: se muestra una sola vez.
 
 ## Conectar el agente
 
+> La consola de tu célula ya trae esto resuelto en **Conectar**: la URL real de
+> tu instalación y estos mismos fragmentos listos para copiar. Las URLs de aquí
+> abajo son de ejemplo.
+
 **Claude Code:**
 
 ```bash

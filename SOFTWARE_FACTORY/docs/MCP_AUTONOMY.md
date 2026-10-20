@@ -6,6 +6,31 @@ promoción, consumo, URLs), los **datos de las bases** (respaldos, restauración
 consultas de solo lectura), la auditoría del inventario y la identidad del
 conector. Rama: `feat/mcp-admin-capabilities`.
 
+## Cómo conectarse a esta célula
+
+La consola lo enseña en **Conectar**: la URL del MCP de *esta* instalación, dónde
+sacar el token y el fragmento ya armado para Claude Code, Cursor, Codex o un
+cliente stdio. Nadie tiene que adivinar el dominio ni copiar una URL de ejemplo.
+
+La URL no se puede escribir en la documentación porque cambia con cada célula, y
+tampoco basta con mirar la petición: la consola proxea `/api/` con su propio
+Host y `/mcp` no pasa por ahí. `GET /api/v1/mcp/connection` la resuelve de la
+fuente más fiel a la realidad del clúster a la menos:
+
+| Orden | Fuente | Alcance |
+|---|---|---|
+| 1 | El Ingress `kaanbal-api` del clúster | Internet |
+| 2 | El nombre MagicDNS, si la API no es pública | Solo la VPN |
+| 3 | La convención `kaanbal-api.<dominio>` | Sin confirmar |
+| 4 | La dirección con la que llegó la petición | Sin confirmar |
+
+La respuesta dice de dónde salió y hasta dónde llega, para que la consola no
+prometa una URL pública que nadie puede abrir. No devuelve ningún secreto: el
+token lo crea una persona en **Acceso → Tokens** y nunca sale de ahí.
+
+La misma página enlaza la documentación de la API (Swagger UI, ReDoc y
+`openapi.json`), que FastAPI genera de la versión que está corriendo.
+
 ## Aprobación humana (1.3.0)
 
 Un token crítico prueba que alguien confirmó su contraseña al emitirlo, pero no que

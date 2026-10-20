@@ -86,4 +86,5 @@ que retoma la próxima sesión: mueve cada fila de estado en el mismo PR que la 
 |---|---|---|---|
 | Inventario como recursos MCP (`kaanbal://inventario/...`) | ✅ Desarrollado | `app/mcp/inventory.py` | — |
 | Flujos guiados nuevos: auditar, volver versión, cuidar datos, cambiar código | ✅ Desarrollado | `app/mcp/prompts.py` | — |
+| Página «Conectar»: URL real de la célula y fragmentos por cliente | ✅ Desarrollado | `app/services/mcp_connection.py`, `Connect.vue` | Abrirla en una célula y confirmar que el Ingress da la URL. |
 | Avisar al cliente que cambió la lista de herramientas (`listChanged`) | 💡 Idea | — | Requiere sesión/SSE en el MCP. |

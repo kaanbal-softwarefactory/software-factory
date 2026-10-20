@@ -5,6 +5,21 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+- **"Conectar" in the console**: the MCP URL of *this* installation, where to get a token and the
+  snippet ready to paste for Claude Code, Cursor, Codex or a stdio client, plus links to the API
+  documentation (Swagger UI, ReDoc, `openapi.json`) that FastAPI generates from the running
+  version. Nobody has to guess the domain or copy a URL from an example any more.
+- `GET /api/v1/mcp/connection` resolves that URL from the cluster itself and says where it came
+  from: the `kaanbal-api` Ingress first (what actually answers on the internet), then the MagicDNS
+  name when the API is not published, then the `kaanbal-api.<domain>` convention, and only as a
+  last resort the address the request arrived at — the console proxies `/api/` under its own Host,
+  so the request alone would point agents at a host where `/mcp` does not exist. The answer also
+  says whether that URL is reachable from the internet or only through the VPN, so the page does
+  not promise a URL nobody can open. It returns no secrets.
+
 ## [1.3.0] - 2026-10-19
 
 ### Added
