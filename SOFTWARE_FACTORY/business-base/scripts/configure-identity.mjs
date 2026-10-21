@@ -1,7 +1,7 @@
-// Idempotent local identity setup. A separate one-shot process owns this credential.
+// Idempotent identity assurance setup. Only the bootstrap process owns this credential.
 import { readFileSync } from "node:fs";
-if (process.env.LOCAL_DEVELOPMENT !== "true")
-  throw new Error("This provisioner is for the local trial only");
+if (process.env.LOCAL_DEVELOPMENT !== "true" && process.env.BUSINESS_PROFILE !== "demo")
+  throw new Error("An explicit local or Kaanbal demo profile is required");
 const base = process.env.IDENTITY_ADMIN_ORIGIN || "http://identity:8080";
 async function configure() {
   const login = await fetch(
@@ -11,8 +11,8 @@ async function configure() {
       body: new URLSearchParams({
         grant_type: "password",
         client_id: "admin-cli",
-        username: "local-admin",
-        password: readFileSync("/bootstrap/admin-password", "utf8").trim(),
+        username: process.env.BUSINESS_PROFILE === "demo" ? "business-bootstrap" : "local-admin",
+        password: process.env.IDENTITY_ADMIN_PASSWORD || readFileSync("/bootstrap/admin-password", "utf8").trim(),
       }),
     },
   );
@@ -76,7 +76,8 @@ async function configure() {
       protocolMapper: "oidc-amr-mapper",
       config: { "id.token.claim": "true", "access.token.claim": "true" },
     });
-  await api("", "PUT", { browserFlow: alias });
+  await api("", "PUT", { browserFlow: alias,
+    ...(process.env.BUSINESS_PROFILE === "demo" ? { registrationAllowed: true } : {}) });
   console.log(
     "Identity assurance configured: only completed password and OTP executions contribute MFA evidence.",
   );

@@ -99,6 +99,8 @@ def build(
     template_id = str(template.get("id") or "")
     if not template_id:
         raise BlueprintError("Falta la plantilla.")
+    if template.get("stack_only"):
+        raise BlueprintError(f"'{template_id}' necesita identidad y base aisladas: usa el stack business-base-demo.")
     status = str(template.get("status") or "ready")
     if status not in READY_STATUSES:
         raise BlueprintError(f"La plantilla '{template_id}' todavía no está disponible ({status}).")

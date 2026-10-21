@@ -14,6 +14,15 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Business Base stack candidato** — rama `codex/business-base-stack`: catálogo
+  `business-base-demo`, PostgreSQL/Keycloak/app con worker, credenciales Vault
+  fuera de Git, bootstrap idempotente y espera real de readiness. Pruebas:
+  API 577 (1 omitida), 13 contratos de credenciales/stack/Kustomize, consola build, 7 unitarias
+  de negocio, 33 GitOps y bootstrap con IdP en modo producción/PostgreSQL reales.
+  Pendiente publicar rama (GitHub conectado solo lectura), fusionar, actualizar
+  la célula y aceptar primera demo HTTPS. No está lanzada remotamente. Contrato:
+  `SOFTWARE_FACTORY/business-base/KAANBAL_STACK.md`.
+
 - **Business Base y Sistemas** — rama `codex/business-base-systems`: prototipo local
   Next.js/PostgreSQL/Keycloak con login OIDC, MFA verificado, aislamiento por organización,
   landing, catálogo, contacto/inbox, portal, citas, equipo y auditoría. La consola agrega

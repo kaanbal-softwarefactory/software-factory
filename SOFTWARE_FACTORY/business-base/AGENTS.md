@@ -21,6 +21,9 @@ es una base de referencia en evaluación: todavía no es una plantilla ready.
   Message-ID estable ayuda a correlacionar, no garantiza deduplicación externa.
 - El perfil compose es exclusivamente local, con puertos loopback y Keycloak
   start-dev. No publiques este perfil como instalación empresarial.
+- El candidato GitOps usa business-base-demo: lee KAANBAL_STACK.md. Los secretos
+  se materializan desde Vault fuera de Git. Mantén runtime/init separados.
+  compose.acceptance.yaml prueba el bootstrap con IdP producción sin puertos públicos.
 - No inspecciones ni imprimas valores secretos en el chat. local:access es una
   acción manual de la persona en su terminal. Las pruebas usan credenciales en
   memoria, sin registrarlas ni capturar pantallas de autenticación.

@@ -39,6 +39,11 @@ jobs:
       - run: npm run test:browser
       - run: npm run local:up -- --name business-barber-test --port 3200 --identity-port 8280 --mail-port 8225 --preset barber --title "Barbería Demo"
       - run: npm run test:copies
+      - name: Managed identity bootstrap acceptance
+        run: |
+          docker compose -p business-managed-acceptance -f compose.acceptance.yaml up -d --build acceptance
+          test "$(docker wait business-managed-acceptance-acceptance-1)" = 0
+          docker compose -p business-managed-acceptance -f compose.acceptance.yaml logs acceptance
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -48,6 +53,8 @@ jobs:
         run: npm run local:stop
       - if: always()
         run: npm run local:stop -- --name business-barber-test
+      - if: always()
+        run: docker compose -p business-managed-acceptance -f compose.acceptance.yaml stop
 
   api:
     name: API tests

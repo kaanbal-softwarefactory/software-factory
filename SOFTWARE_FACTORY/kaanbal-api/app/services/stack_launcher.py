@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional
 from app.services import db_env, domain_service
 
 # Orden de despliegue. Lo que consume va después de lo que provee.
-ROLE_ORDER = ("database", "backend", "frontend")
+ROLE_ORDER = ("database", "identity", "backend", "frontend")
 
 # Exposición por defecto de cada papel si el catálogo no dice otra cosa.
 DEFAULT_EXPOSURE = {"database": "internal", "backend": "public", "frontend": "public"}
@@ -84,6 +84,9 @@ def build_plan(
     servido en el dominio desnudo y su API y su base cuelgan del mismo grupo.
     """
     components = sort_components(list(stack.get("components") or []))
+    business_demo = stack.get("profile") == "business-demo"
+    if business_demo and environments != ["prod"]:
+        raise StackPlanError("Business Base demo usa solo prod; lanza otro nombre para una prueba aislada.")
     if not components:
         raise StackPlanError(f"El stack '{stack.get('id')}' no define componentes.")
 
@@ -109,7 +112,7 @@ def build_plan(
         if any(p["name"].lower() == name.lower() for p in planned):
             raise StackPlanError(f"Dos componentes del stack se llamarían '{name}'.")
 
-        is_root = bool(homepage and role == "frontend" and component.get("can_be_homepage"))
+        is_root = bool(homepage and role in ("frontend", "backend") and component.get("can_be_homepage"))
         mode = str(component.get("exposure") or DEFAULT_EXPOSURE.get(role, "internal"))
         if is_root:
             mode = "public"  # el homepage ES la URL pública del dominio
@@ -118,7 +121,7 @@ def build_plan(
             "role": role,
             "name": name,
             "template": component["template"],
-            "category": ROLE_CATEGORY.get(role, role),
+            "category": ROLE_CATEGORY.get(role, "backend"),
             "creation_mode": component.get("creation_mode") or ROLE_CREATION_MODE.get(role, "scaffold"),
             "environments": list(envs),
             "exposure": {"type": mode, "per_env": {env: mode for env in envs}},
@@ -172,6 +175,16 @@ def build_plan(
             # Igual que el Wizard: así el deployer sabe que va en la raíz.
             entry["template_config"] = {**entry["template_config"], "use_root_domain": True}
 
+        if business_demo:
+            if len(base) > 36 or not __import__("re").fullmatch(r"[a-z][a-z0-9-]{2,35}", base):
+                raise StackPlanError("Business Base requiere un nombre de 3 a 36 caracteres, iniciado por letra.")
+            entry["template_config"].update({
+                "BUSINESS_PROFILE": "demo", "BUSINESS_APP": base,
+                "BUSINESS_DB_APP": f"{base}-db", "BUSINESS_IDENTITY_APP": f"{base}-identity",
+                "BUSINESS_PRESET": "services", "BUSINESS_NAME": base, "node_version": "24.15.0",
+            })
+            entry["business_wait_ready"] = True
+
         planned.append(entry)
         by_role[role] = entry
 
@@ -201,6 +214,7 @@ def app_create_payload(component: dict, *, description: str = "") -> Dict[str, A
         "creation_mode": component["creation_mode"],
         "exposure": component["exposure"],
         "template_config": component["template_config"] or {},
+        "specs": {"replicas": 1, "port": {"business-postgres": 5432, "business-identity": 8080, "business-base": 3000}.get(component["template"], 80)},
     }
     if component.get("database_bindings"):
         payload["database_bindings"] = component["database_bindings"]

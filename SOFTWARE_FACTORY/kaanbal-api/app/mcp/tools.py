@@ -561,6 +561,9 @@ async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
         }
         if args.get("domain"):
             body["domain_id"] = await _domain_id(client, args["domain"])
+        for key in ("business_name", "business_preset"):
+            if args.get(key):
+                body[key] = str(args[key])
         applied, result = await _plan_or_apply(client, "POST", "/stacks", args, body)
         if not applied:
             return result

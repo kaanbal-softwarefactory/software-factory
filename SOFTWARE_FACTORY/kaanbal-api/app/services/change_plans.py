@@ -143,6 +143,10 @@ def stack_plan_view(plan: Mapping[str, Any]) -> Dict[str, Any]:
         "domain": plan["domain"],
         "environments": list(plan["environments"]),
         "homepage": bool(plan["homepage"]),
+        "source_sha": next((c.get("template_config", {}).get("BUSINESS_SOURCE_SHA") for c in plan["components"]
+                            if c.get("template_config", {}).get("BUSINESS_SOURCE_SHA")), None),
+        "business": next(({"name": c["template_config"].get("BUSINESS_NAME"), "preset": c["template_config"].get("BUSINESS_PRESET")}
+                          for c in plan["components"] if c.get("template_config", {}).get("BUSINESS_PROFILE")), None),
         "components": components,
         "steps": steps,
     }

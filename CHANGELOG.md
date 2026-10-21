@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Business Base demo candidate in Stacks: separate PostgreSQL/identity/app,
+  source copies pinned to the installed revision, Vault-backed secrets outside
+  Git, initialization, worker, captured email and readiness verification.
 - **Business Base prototype**: an independently runnable Next.js/PostgreSQL application
   with Keycloak OIDC, verified MFA for administration, organizations, resource permissions,
   landing, catalog, contact/inbox, customer portal, reservations, invitations, audit and mail

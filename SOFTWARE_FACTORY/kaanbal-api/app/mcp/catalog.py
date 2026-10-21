@@ -219,6 +219,8 @@ TOOLS: List[Dict[str, Any]] = [
           _schema({
               "stack": {"type": "string", "description": "Id del stack (list_stacks)."},
               "base_name": {"type": "string", "description": "Nombre base: las piezas se llaman <base>, <base>-api, <base>-db. Por defecto, el del dominio."},
+              "business_name": {"type": "string", "description": "Marca para business-base-demo (hasta 100 caracteres)."},
+              "business_preset": {"type": "string", "enum": ["services", "barber"], "description": "Preset de business-base-demo."},
               "domain": {"type": "string", "description": "Dominio (list_domains). Por defecto, el de la instalación."},
               "homepage": {"type": "boolean", "default": False},
               "environments": _ENVS,

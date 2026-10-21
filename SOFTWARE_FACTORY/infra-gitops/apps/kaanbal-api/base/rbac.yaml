@@ -140,3 +140,29 @@ subjects:
 - kind: ServiceAccount
   name: kaanbal-api
   namespace: prod
+---
+# Vault-backed Business Base delivery; values never enter GitOps literals.
+# Kept in this already registered static file so core upgrades deliver the Role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kaanbal-business-secrets
+  namespace: prod
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kaanbal-business-secrets
+  namespace: prod
+subjects:
+- kind: ServiceAccount
+  name: kaanbal-api
+  namespace: prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kaanbal-business-secrets

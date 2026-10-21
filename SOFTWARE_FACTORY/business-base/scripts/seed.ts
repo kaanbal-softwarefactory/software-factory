@@ -1,4 +1,4 @@
-// Explicit local fixtures. Never run as a production migration.
+// Explicit local/Kaanbal demo fixtures. Never implicit in HTTP.
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import { secret } from "../lib/config";
@@ -92,7 +92,7 @@ try {
   }
   await db.query("COMMIT");
   console.log(
-    "Local business fixture ready; existing business data preserved.",
+    "Business demo fixture ready; existing business data preserved.",
   );
 } catch (error) {
   await db.query("ROLLBACK");

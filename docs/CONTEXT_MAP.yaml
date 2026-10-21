@@ -26,6 +26,7 @@ by_area:
       - SOFTWARE_FACTORY/business-base/README.md
       - SOFTWARE_FACTORY/business-base/AGENTS.md
       - SOFTWARE_FACTORY/business-base/business.manifest.json
+      - SOFTWARE_FACTORY/business-base/KAANBAL_STACK.md
 
   installer:
     globs: ["SOFTWARE_FACTORY/installer/**", "install.sh", "SOFTWARE_FACTORY/install.sh"]

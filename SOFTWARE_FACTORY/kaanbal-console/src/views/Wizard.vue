@@ -1469,6 +1469,7 @@ const isFormValid = computed(() => {
 const filteredTemplates = computed(() => {
     if (!templates.value.length) return []
     return templates.value.filter(t => {
+        if (t.stack_only) return false
         if (!t.creation_modes) return true
         // Map 'config-only' to 'config-only' in template's creation_modes array
         return t.creation_modes.includes(form.creation_mode)

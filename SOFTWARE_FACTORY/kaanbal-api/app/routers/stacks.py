@@ -15,7 +15,7 @@ una app normal, se puede reintentar o borrar desde Applications).
 import asyncio
 import logging
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from bson import ObjectId
 from bson.errors import InvalidId
@@ -50,6 +50,8 @@ class StackLaunchRequest(BaseModel):
     homepage: bool = Field(default=False, description="El frontend ocupa la raíz del dominio")
     group: Optional[str] = Field(default=None, description="Grupo lógico; por defecto, el nombre base")
     description: str = ""
+    business_name: str = Field(default="", max_length=100)
+    business_preset: Literal["services", "barber"] = "services"
 
 
 def _run_view(run: dict | None) -> dict | None:
@@ -161,6 +163,17 @@ async def launch_stack(
     except stack_launcher.StackPlanError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+    if stack.get("profile") == "business-demo":
+        from app.services.core_release import read_provenance
+        import re
+        revision = (await read_provenance()).get("upstream_sha") or ""
+        if not re.fullmatch(r"[a-f0-9]{40}", revision):
+            raise HTTPException(status_code=409, detail="Business Base requiere una revisión instalada con procedencia conocida.")
+        for component in plan["components"]:
+            component["template_config"]["BUSINESS_SOURCE_SHA"] = revision
+            component["template_config"]["BUSINESS_NAME"] = request.business_name or plan["base"]
+            component["template_config"]["BUSINESS_PRESET"] = request.business_preset
+
     if plan["homepage"]:
         index = await domain_service.domains_index()
         for other in await db.apps.find({"is_root_domain": True}).to_list(100):
@@ -217,7 +230,7 @@ async def launch_stack(
     await db.app_groups.update_one(
         {"_id": plan["group"]},
         {"$setOnInsert": {"name": plan["group"], "description": request.description,
-                          "owner": current_user.username, "stage": "active",
+                          "owner": current_user.username, "stage": "prototype" if stack.get("profile") == "business-demo" else "active",
                           "created_at": datetime.utcnow()}},
         upsert=True,
     )
@@ -253,6 +266,10 @@ async def _run_stack(run_id: str, plan: dict, description: str, actor: str):
             app_doc = await db.apps.find_one({"_id": ObjectId(created["id"])}, {"status": 1, "error": 1, "url": 1})
             if (app_doc or {}).get("status") == "error":
                 raise RuntimeError((app_doc or {}).get("error") or "el despliegue falló")
+
+            if component.get("business_wait_ready"):
+                from app.services.business_deployer import wait_ready
+                await wait_ready(component["name"], component["template"])
 
             await db.stack_runs.update_one({"_id": run_oid}, {"$set": {
                 f"{field}.state": "ready",

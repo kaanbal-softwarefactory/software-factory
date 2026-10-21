@@ -5,6 +5,10 @@ catálogo, contacto/inbox, portal, reservas, equipo, auditoría y notificaciones
 La implementación vive aquí y se conserva aunque detengas una copia de prueba.
 Estado y alcance: `business.manifest.json`.
 
+El [contrato del stack](KAANBAL_STACK.md) describe el candidato `business-base-demo`
+para Kaanbal: PostgreSQL, identidad y app por GitOps. Requiere integrar y actualizar
+la versión del core que lo incorpora antes de aparecer en el catálogo.
+
 ## Probar la referencia
 
 Requisitos: Docker Desktop/Engine con Compose, Node.js 24 y npm. En esta carpeta:

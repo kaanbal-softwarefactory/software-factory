@@ -521,6 +521,13 @@ async def prepare_app_record(app_data: AppCreate) -> dict:
     if not domain:
         raise HTTPException(status_code=400, detail="Platform domain is not configured")
 
+    from app.services import business_stack
+    if app_data.template in business_stack.TEMPLATES:
+        try:
+            business_stack.validate_config(app_data.template, app_data.template_config or {}, app_data.environments)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
     use_root_domain = _is_root_domain_requested(app_data)
     normalized_name = _normalize_app_name(app_data.name)
 

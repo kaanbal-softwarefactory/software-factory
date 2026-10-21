@@ -1,0 +1,97 @@
+# Isolated acceptance of the Kaanbal bootstrap against a real production-mode IdP.
+# No external port is published. Stops preserve the test volumes.
+services:
+  bootstrap:
+    image: node:24.15.0-alpine
+    command:
+      - node
+      - --input-type=module
+      - -e
+      - |
+        await import('/scripts/bootstrap.mjs');
+        const fs = await import('node:fs');
+        for (const name of ['admin-password','client-secret','owner-password','customer-password','runtime-password','migration-password']) {
+          fs.copyFileSync('/bootstrap/'+name,'/acceptance-secrets/'+name);
+          fs.chmodSync('/acceptance-secrets/'+name,0o644);
+        }
+    volumes:
+      - ./scripts/bootstrap.mjs:/scripts/bootstrap.mjs:ro
+      - credentials:/bootstrap
+      - database-secrets:/database-secrets
+      - runtime-secrets:/runtime-secrets
+      - migration-secrets:/migration-secrets
+      - identity-secrets:/identity-secrets
+      - acceptance-secrets:/acceptance-secrets
+  database:
+    image: postgres:16.14-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /bootstrap/postgres-password
+    volumes:
+      - database-secrets:/bootstrap:ro
+      - data:/var/lib/postgresql/data
+      - ./scripts/init-database.sh:/docker-entrypoint-initdb.d/01-business.sh:ro
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 40
+  identity:
+    image: quay.io/keycloak/keycloak:26.6.3
+    entrypoint: ["bash", "-ec"]
+    command:
+      - |
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$$(cat /credentials/admin-password)"
+        export KC_DB_PASSWORD="$$(cat /credentials/identity-password)"
+        exec /opt/keycloak/bin/kc.sh start
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://database:5432/identity
+      KC_DB_USERNAME: business_identity
+      KC_BOOTSTRAP_ADMIN_USERNAME: business-bootstrap
+      KC_HOSTNAME: https://identity.example.com
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - identity-secrets:/credentials:ro
+    depends_on:
+      database: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3; grep -q 200 <&3'"]
+      interval: 5s
+      retries: 60
+  mail:
+    image: axllent/mailpit:v1.27.8
+  acceptance:
+    build: .
+    command: ["node", "tests/managed-bootstrap.mjs"]
+    environment:
+      PGHOST: database
+      PGDATABASE: business
+      PGUSER: business_runtime
+      PGPASSWORD_FILE: /credentials/runtime-password
+      MIGRATION_PGUSER: business_migrator
+      MIGRATION_PGPASSWORD_FILE: /credentials/migration-password
+      BUSINESS_PROFILE: demo
+      APP_ORIGIN: https://business.example.com
+      OIDC_ISSUER: https://identity.example.com/realms/business
+      BUSINESS_NAME: Acceptance Demo
+      BUSINESS_PRESET: barber
+      BUSINESS_INTERNAL_APP: business
+      IDENTITY_ADMIN_ORIGIN: http://identity:8080
+      SMTP_HOST: mail
+    volumes:
+      - acceptance-secrets:/credentials:ro
+    tmpfs:
+      - /bootstrap:mode=0700,uid=1000,gid=1000
+    depends_on:
+      identity: {condition: service_healthy}
+volumes:
+  credentials:
+  database-secrets:
+  runtime-secrets:
+  migration-secrets:
+  identity-secrets:
+  acceptance-secrets:
+  data:

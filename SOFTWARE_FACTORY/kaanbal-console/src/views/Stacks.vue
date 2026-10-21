@@ -106,7 +106,7 @@
           <div class="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
             <div class="p-6 border-b border-white/10">
               <h3 class="text-xl font-bold text-white">{{ modal.stack?.icon }} {{ modal.stack?.name }}</h3>
-              <p class="text-sm text-slate-400 mt-1">Tres apps, un grupo, un dominio.</p>
+              <p class="text-sm text-slate-400 mt-1">{{ modal.stack?.components?.length }} apps, un sistema y un responsable inicial: quien lo lanza.</p>
             </div>
 
             <div class="p-6 space-y-5">
@@ -117,7 +117,7 @@
                   placeholder="north-star-bay"
                   class="w-full bg-slate-800/80 border border-white/10 rounded-lg px-3 py-2 text-white text-sm"
                 />
-                <p class="text-[11px] text-slate-500 mt-1">De aquí salen los nombres de las tres apps y el del grupo.</p>
+                <p class="text-[11px] text-slate-500 mt-1">De aquí salen los nombres de las apps y el del grupo.</p>
               </div>
 
               <div>
@@ -139,7 +139,18 @@
                 </span>
               </label>
 
-              <label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <div v-if="modal.stack?.profile === 'business-demo'" class="space-y-3">
+                <p class="text-sm text-amber-200">Candidato de prueba: correo capturado dentro del sistema. No envía mensajes externos.</p>
+                <label class="block text-sm text-slate-300">Nombre del negocio
+                  <input v-model="form.business_name" maxlength="100" class="w-full mt-1 bg-slate-800 rounded-lg px-3 py-2" placeholder="Estudio Demo" />
+                </label>
+                <label class="block text-sm text-slate-300">Configuración inicial
+                  <select v-model="form.business_preset" class="w-full mt-1 bg-slate-800 rounded-lg px-3 py-2">
+                    <option value="services">Servicios</option><option value="barber">Barbería</option>
+                  </select>
+                </label>
+              </div>
+              <label v-if="modal.stack?.profile !== 'business-demo'" class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                 <input type="checkbox" v-model="form.withDev" />
                 <span>Crear también el ambiente <code>dev</code></span>
               </label>
@@ -187,8 +198,8 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import axios from 'axios'
 import { publicHost } from '@/services/sites'
 
-const ROLE_ICONS = { database: '🗄️', backend: '⚡', frontend: '🖥️' }
-const ROLE_ORDER = ['database', 'backend', 'frontend']
+const ROLE_ICONS = { database: '🗄️', identity: '🔐', backend: '⚡', frontend: '🖥️' }
+const ROLE_ORDER = ['database', 'identity', 'backend', 'frontend']
 const RUN_POLL_MS = 4000
 
 const loading = ref(false)
@@ -198,7 +209,7 @@ const domains = ref([])
 const run = ref(null)
 
 const modal = reactive({ show: false, stack: null, error: '' })
-const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false })
+const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false, business_name: '', business_preset: 'services' })
 const toast = reactive({ show: false, message: '', type: 'success' })
 
 const showToast = (message, type = 'success') => {
@@ -240,7 +251,7 @@ const preview = computed(() => {
     || (fqdn.split('.')[0] || 'sitio')
   return orderedComponents(stack || {}).map(component => {
     const name = `${base}${component.suffix || ''}`
-    const isRoot = !!(form.homepage && component.role === 'frontend' && component.can_be_homepage)
+    const isRoot = !!(form.homepage && component.can_be_homepage)
     const isPublic = component.exposure === 'public' || isRoot
     return {
       role: component.role,
@@ -278,6 +289,8 @@ const openLaunch = (stack) => {
   form.name = ''
   form.homepage = false
   form.withDev = false
+  form.business_name = ''
+  form.business_preset = 'services'
   if (!form.domain_id) form.domain_id = (domains.value.find(d => d.is_default) || domains.value[0])?._id || ''
 }
 
@@ -313,10 +326,12 @@ const launch = async () => {
       domain_id: form.domain_id,
       environments: form.withDev ? ['dev', 'prod'] : ['prod'],
       homepage: form.homepage,
+      business_name: form.business_name,
+      business_preset: form.business_preset,
     })
     run.value = data
     modal.show = false
-    showToast('Lanzando el stack: base, API y sitio, en ese orden')
+    showToast('Lanzando el sistema y verificando sus componentes')
     pollRun(data.run_id)
   } catch (e) {
     modal.error = e.response?.data?.detail || 'No se pudo lanzar el stack'

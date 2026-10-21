@@ -417,6 +417,12 @@ class AppDeployer:
         environments = getattr(app_data, 'environments', ['prod'])
         template_config = getattr(app_data, 'template_config', {}) or {}
 
+        from app.services import business_stack
+        if template_id in business_stack.TEMPLATES:
+            from app.services.business_deployer import deploy as deploy_business
+            os.makedirs(self.workspace, exist_ok=True)
+            return await deploy_business(self, app_data, emit)
+
         # Get template details (or build synthetic for custom docker images)
         custom_docker = getattr(app_data, 'custom_docker', None)
         if template_id == '__custom__' and custom_docker:
