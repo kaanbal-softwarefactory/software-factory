@@ -29,6 +29,27 @@
   },
   "templates": [
     {
+      "id": "business-postgres", "name": "Business Base · PostgreSQL", "category": "database",
+      "description": "Base privada del candidato Business Base, con roles runtime, migración e identidad separados.",
+      "icon": "postgres", "status": "beta", "port": 5432, "service_type": "tcp",
+      "creation_modes": ["config-only"], "needs_repo": false, "stack_only": true,
+      "health_check_path": "/", "business_profile": "demo"
+    },
+    {
+      "id": "business-identity", "name": "Business Base · Identidad", "category": "backend",
+      "description": "Keycloak por sistema, OIDC/PKCE, MFA y base persistente; administración solo interna.",
+      "icon": "shield", "status": "beta", "port": 8080, "service_type": "http",
+      "creation_modes": ["config-only"], "needs_repo": false, "stack_only": true,
+      "health_check_path": "/realms/master", "business_profile": "demo"
+    },
+    {
+      "id": "business-base", "name": "Business Base · App", "category": "backend",
+      "description": "Candidato de negocio: landing, portal, inbox, reservas, equipo, auditoría y worker. Lanzar desde Stacks.",
+      "icon": "nextjs", "status": "beta", "port": 3000, "service_type": "http", "stack_only": true,
+      "creation_modes": ["scaffold"], "needs_repo": true, "business_profile": "demo",
+      "health_check_path": "/api/ready", "stack": ["nextjs", "postgres", "oidc"]
+    },
+    {
       "id": "vue3-spa",
       "name": "Vue 3 SPA",
       "description": "Vue 3 + Vite static site served by nginx",
@@ -338,6 +359,17 @@
     }
   ],
   "stacks": [
+    {
+      "id": "business-base-demo", "name": "Business Base · Demo", "status": "beta",
+      "description": "Sistema de negocio independiente con PostgreSQL privado, identidad/MFA, app, worker y correo capturado. Candidato para pruebas, sin envío de correo externo.",
+      "icon": "🏢", "color": "#18745b", "popular": true, "profile": "business-demo",
+      "environments": ["prod"],
+      "components": [
+        {"role": "database", "template": "business-postgres", "suffix": "-db", "exposure": "internal", "creation_mode": "config-only"},
+        {"role": "identity", "template": "business-identity", "suffix": "-identity", "exposure": "public", "creation_mode": "config-only"},
+        {"role": "backend", "template": "business-base", "suffix": "", "exposure": "public", "can_be_homepage": true}
+      ]
+    },
     {
       "id": "vue-fastapi-mongo",
       "name": "Vue + FastAPI + MongoDB",
