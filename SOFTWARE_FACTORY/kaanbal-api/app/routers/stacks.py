@@ -213,6 +213,15 @@ async def launch_stack(
     result = await db.stack_runs.insert_one(run_doc)
     run_id = str(result.inserted_id)
 
+    # Accountability is metadata. Existing ownership and platform ACLs are preserved.
+    await db.app_groups.update_one(
+        {"_id": plan["group"]},
+        {"$setOnInsert": {"name": plan["group"], "description": request.description,
+                          "owner": current_user.username, "stage": "active",
+                          "created_at": datetime.utcnow()}},
+        upsert=True,
+    )
+
     await activity_log.log(
         "stack.launch.started", category=CATEGORY_APP, actor=current_user.username,
         target=plan["base"],

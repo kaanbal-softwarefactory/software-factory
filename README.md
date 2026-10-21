@@ -30,6 +30,9 @@ or **publicly through a Cloudflare Tunnel**, chosen per application and per envi
 
 ## Features
 
+- **Business Base prototype.** A reusable business application with OIDC identity,
+  organization permissions, inbox and bookings; [run independent local copies](SOFTWARE_FACTORY/business-base/README.md).
+  The console's Systems view organizes existing application groups by responsible person.
 - **One-command install.** A bootstrap script plus a web wizard. The installer uses
   only the Python standard library, so nothing has to be `pip install`ed on the server.
 - **Web console.** Applications, templates, stacks, domains, links between services,

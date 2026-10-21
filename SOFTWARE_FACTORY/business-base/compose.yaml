@@ -1,0 +1,148 @@
+# Loopback-only trial. Each Compose project gets its own DB, identity and secret volumes.
+services:
+  bootstrap:
+    image: node:24.15.0-alpine
+    user: "0"
+    command: ["node", "/scripts/bootstrap.mjs"]
+    environment:
+      APP_PORT: ${APP_PORT:-3100}
+      IDENTITY_PORT: ${IDENTITY_PORT:-8180}
+      BUSINESS_PRESET: ${BUSINESS_PRESET:-services}
+      BUSINESS_NAME: ${BUSINESS_NAME:-Estudio Demo}
+    volumes:
+      - ./scripts/bootstrap.mjs:/scripts/bootstrap.mjs:ro
+      - bootstrap:/bootstrap
+      - database-secrets:/database-secrets
+      - runtime-secrets:/runtime-secrets
+      - migration-secrets:/migration-secrets
+      - identity-secrets:/identity-secrets
+  database:
+    image: postgres:16.14-alpine
+    environment:
+      POSTGRES_PASSWORD_FILE: /bootstrap/postgres-password
+    volumes:
+      - database-secrets:/bootstrap:ro
+      - database:/var/lib/postgresql/data
+      - ./scripts/init-database.sh:/docker-entrypoint-initdb.d/01-business.sh:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+  identity:
+    image: quay.io/keycloak/keycloak:26.6.3
+    entrypoint: ["bash", "/scripts/identity.sh"]
+    environment:
+      IDENTITY_PORT: ${IDENTITY_PORT:-8180}
+    ports:
+      - "127.0.0.1:${IDENTITY_PORT:-8180}:8080"
+    volumes:
+      - identity-secrets:/bootstrap:ro
+      - ./scripts/identity.sh:/scripts/identity.sh:ro
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9000; printf \"GET /health/ready HTTP/1.0\\r\\n\\r\\n\" >&3; grep -q 200 <&3'",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+  configure-identity:
+    image: node:24.15.0-alpine
+    command: ["node", "/scripts/configure-identity.mjs"]
+    environment:
+      LOCAL_DEVELOPMENT: "true"
+      IDENTITY_ADMIN_ORIGIN: http://identity:8080
+    volumes:
+      - identity-secrets:/bootstrap:ro
+      - ./scripts/configure-identity.mjs:/scripts/configure-identity.mjs:ro
+    depends_on:
+      identity:
+        condition: service_healthy
+  migrate:
+    build: .
+    command: ["sh", "-c", "npm run migrate && npx tsx scripts/seed.ts"]
+    environment: &database_environment
+      PGHOST: database
+      PGDATABASE: business
+      PGUSER: business_runtime
+      PGPASSWORD_FILE: /bootstrap/runtime-password
+      MIGRATION_PGUSER: business_migrator
+      MIGRATION_PGPASSWORD_FILE: /bootstrap/migration-password
+    volumes:
+      - migration-secrets:/bootstrap:ro
+    depends_on:
+      database:
+        condition: service_healthy
+  app:
+    build: .
+    environment:
+      PGHOST: database
+      PGDATABASE: business
+      PGUSER: business_runtime
+      PGPASSWORD_FILE: /bootstrap/runtime-password
+      LOCAL_DEVELOPMENT: "true"
+      APP_ORIGIN: http://localhost:${APP_PORT:-3100}
+      OIDC_ISSUER: http://localhost:${IDENTITY_PORT:-8180}/realms/business
+      OIDC_INTERNAL_ORIGIN: http://identity:8080
+      OIDC_CLIENT_ID: business-base
+      OIDC_CLIENT_SECRET_FILE: /bootstrap/client-secret
+      PUBLIC_ORGANIZATION: demo
+      PUBLIC_REGISTRATION: "true"
+      CONTACT_NOTIFICATION_EMAIL: team@example.com
+    ports:
+      - "127.0.0.1:${APP_PORT:-3100}:3000"
+    volumes:
+      - runtime-secrets:/bootstrap:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      identity:
+        condition: service_healthy
+      configure-identity:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 8s
+      retries: 40
+  worker:
+    build: .
+    command: ["npm", "run", "worker"]
+    environment:
+      PGHOST: database
+      PGDATABASE: business
+      PGUSER: business_runtime
+      PGPASSWORD_FILE: /bootstrap/runtime-password
+      SMTP_HOST: mail
+      SMTP_PORT: "1025"
+      SMTP_FROM: notifications@example.com
+    volumes:
+      - runtime-secrets:/bootstrap:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+  mail:
+    image: axllent/mailpit:v1.27.8
+    ports:
+      - "127.0.0.1:${MAIL_PORT:-8125}:8025"
+volumes:
+  database:
+  bootstrap:
+  database-secrets:
+  runtime-secrets:
+  migration-secrets:
+  identity-secrets:

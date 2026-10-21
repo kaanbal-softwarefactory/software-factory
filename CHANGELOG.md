@@ -8,6 +8,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- **Business Base prototype**: an independently runnable Next.js/PostgreSQL application
+  with Keycloak OIDC, verified MFA for administration, organizations, resource permissions,
+  landing, catalog, contact/inbox, customer portal, reservations, invitations, audit and mail
+  outbox. Local named copies have separate data and identity; a source generator preserves
+  the reference. It remains a prototype until the template acceptance and GitOps integration
+  are validated. Includes database and real-browser acceptance tests.
+- **Systems in the console**: existing application groups gain a display name, accountable
+  platform user and lifecycle label. Filter by responsible person and inspect member apps.
+  Ownership does not change access control. Newly launched stacks default to their creator
+  without overwriting existing group ownership.
 - **"Conectar" in the console**: the MCP URL of *this* installation, where to get a token and the
   snippet ready to paste for Claude Code, Cursor, Codex or a stdio client, plus links to the API
   documentation (Swagger UI, ReDoc, `openapi.json`) that FastAPI generates from the running

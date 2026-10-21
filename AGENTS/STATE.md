@@ -14,6 +14,11 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Business Base y Sistemas** — rama `codex/business-base-systems`: prototipo local
+  Next.js/PostgreSQL/Keycloak con login OIDC, MFA verificado, aislamiento por organización,
+  landing, catálogo, contacto/inbox, portal, citas, equipo y auditoría. La consola agrega
+  responsables y etapas a los grupos existentes. Aún no es plantilla ready ni está
+  desplegado en una célula Kaanbal. Guía: `SOFTWARE_FACTORY/business-base/README.md`.
 - **MCP de administración (1.3.0)** — en `main`, con pruebas offline (524 pruebas de la
   API, 10 del puente, build de consola). Falta: publicar la release `v1.3.0` y validarlo
   en una célula real (ciclo de aprobación, rollback, reinicio). Detalle en

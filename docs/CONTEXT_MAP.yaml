@@ -19,6 +19,14 @@ on_task_start:
   - issue: descripción y criterios de aceptación del issue
 
 by_area:
+  business_base:
+    trigger: "base de negocio, app base, login OIDC, prototipo replicable, sistemas y responsables"
+    globs: ["SOFTWARE_FACTORY/business-base/**", "SOFTWARE_FACTORY/kaanbal-api/app/routers/groups.py", "SOFTWARE_FACTORY/kaanbal-console/src/views/Systems.vue"]
+    read:
+      - SOFTWARE_FACTORY/business-base/README.md
+      - SOFTWARE_FACTORY/business-base/AGENTS.md
+      - SOFTWARE_FACTORY/business-base/business.manifest.json
+
   installer:
     globs: ["SOFTWARE_FACTORY/installer/**", "install.sh", "SOFTWARE_FACTORY/install.sh"]
     read:

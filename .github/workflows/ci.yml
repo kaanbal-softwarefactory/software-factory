@@ -13,6 +13,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  business-base:
+    name: Business base acceptance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: SOFTWARE_FACTORY/business-base
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: SOFTWARE_FACTORY/business-base/package-lock.json
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - run: npm run local:up
+      - run: docker compose -p business-reference run --rm --no-deps migrate npm run test:integration
+      - run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: business-base-preview
+          path: SOFTWARE_FACTORY/business-base/coverage/browser/*.png
+      - if: always()
+        run: npm run local:stop
+
   api:
     name: API tests
     runs-on: ubuntu-24.04

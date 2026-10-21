@@ -1,0 +1,30 @@
+{
+  "id": "kaanbal-business-base",
+  "version": "0.1.0",
+  "stage": "prototype",
+  "template_ready": false,
+  "database": "postgresql",
+  "identity": { "protocol": "oidc", "default_provider": "keycloak" },
+  "modules": [
+    "identity",
+    "organizations",
+    "authorization",
+    "landing",
+    "catalog",
+    "inbox",
+    "customer-portal",
+    "appointments",
+    "notifications",
+    "audit"
+  ],
+  "presets": ["services", "barber"],
+  "health": "/api/health",
+  "readiness": "/api/ready",
+  "extensions": "Personaliza marca y reglas en una copia; devuelve correcciones comunes a la base mediante PR.",
+  "limitations": [
+    "local profile only",
+    "fixed pilot booking schedule",
+    "no external identity federation acceptance yet",
+    "not an enterprise availability certification"
+  ]
+}

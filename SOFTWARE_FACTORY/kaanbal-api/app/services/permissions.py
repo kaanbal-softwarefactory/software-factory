@@ -181,6 +181,9 @@ ACL_RULES: Tuple[AclRule, ...] = (
 
     # Aplicaciones
     rule("GET", rf"{_V1}/apps", "apps.apps.view"),
+    rule("GET", rf"{_V1}/groups", "apps.apps.view"),
+    rule("GET", rf"{_V1}/groups/owners", "apps.apps.expose"),
+    rule("PUT", rf"{_V1}/groups/{_SEG}", "apps.apps.expose"),
     rule("POST", rf"{_V1}/apps", "apps.apps.create"),
     rule("GET", rf"{_V1}/apps/argocd/all", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/maintenance/{_SEG}", "apps.maintenance.run"),

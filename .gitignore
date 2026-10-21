@@ -58,6 +58,7 @@ out/
 build/
 dist/
 coverage/
+*.tsbuildinfo
 
 # ── Editor y sistema ────────────────────────────────────────────────────────
 .vscode/

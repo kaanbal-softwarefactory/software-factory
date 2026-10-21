@@ -1,5 +1,9 @@
 <template>
   <div class="space-y-6">
+    <div v-if="route.query.group" class="glass-panel p-3 flex justify-between text-sm text-cyan-200">
+      <span>Sistema: {{ route.query.group === '__ungrouped' ? 'Sin grupo' : route.query.group }}</span>
+      <router-link to="/systems" class="hover:underline">Volver a Sistemas</router-link>
+    </div>
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
@@ -1650,7 +1654,7 @@
 
 <script setup>
 import { ref, reactive, watch, computed, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import axios from 'axios'
 import { getConfig } from '../config'
 import { HOMEPAGE_SUFFIX, allocateHomepageName, siteGroup, siteSlug } from '../services/sites'
@@ -1754,6 +1758,8 @@ const groupCollapseState = ref({})
 // frontend raíz, cuál la API y cuál la base, y de qué dominio es cada una.
 // Antes solo el dominio de instalación tenía tarjeta y el resto se perdía.
 const router = useRouter()
+const route = useRoute()
+watch(() => route.query.group, () => fetchApps())
 
 // Papel de una app dentro de un sitio. Las apps anteriores a guardar la categoría
 // se clasifican por su template, igual que el ícono de su tarjeta.
@@ -3072,7 +3078,8 @@ const fetchApps = async () => {
     loading.value = true
     const { data } = await axios.get('/api/v1/apps')
     
-    apps.value = data
+    const group = route.query.group
+    apps.value = data.filter(app => !group || (group === '__ungrouped' ? !app.app_group : app.app_group === group))
       .filter(app => !CORE_APP_NAMES.has(app.name))  // Core apps go to system section
       .map(app => {
       let icon = '📦', type = 'Application'
