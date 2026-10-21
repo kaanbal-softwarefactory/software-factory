@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Business Base launch-time module selection in console/MCP: contact/inbox, catalog,
+  appointments (including catalog), or core only. Availability is persisted per
+  organization and enforced in the API. Additive migration preserves old copies.
+  Team appointments include a weekly calendar in the business timezone with bounded
+  date queries and tenant/role isolation. Local copies preserve module selection.
 - Business Base Starter preset: a public landing, separate administration and
   customer dashboards, membership-based server entry, personal requests and shared
   inbox. Launch from console/MCP on a root domain or subdomain; plans show page

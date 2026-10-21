@@ -1,6 +1,7 @@
 import ContactForm from "../components/ContactForm";
 import { publicSite } from "../lib/business";
 import StarterLanding from "../components/StarterLanding";
+import { enabledModules } from "../lib/features";
 export const dynamic = "force-dynamic";
 export default async function Home({
   searchParams,
@@ -23,7 +24,8 @@ export default async function Home({
     );
   }
   const { organization, services } = site;
-  if (organization.experience === "starter") return <StarterLanding organization={organization} authFailed={params.auth === "failed"} />;
+  const modules = enabledModules(organization.experience, organization.enabled_modules);
+  if (organization.experience === "starter" || !modules.includes("catalog")) return <StarterLanding organization={organization} authFailed={params.auth === "failed"} />;
   const whatsapp = String(organization.whatsapp).replace(/[^0-9]/g, "");
   return (
     <div className="shell">
@@ -36,9 +38,9 @@ export default async function Home({
           <a href="#services" className="muted">
             Servicios
           </a>
-          <a href="#contact" className="muted">
+          {modules.includes("contact") && <a href="#contact" className="muted">
             Contacto
-          </a>
+          </a>}
           <a className="button secondary" href="/auth/login">
             Mi cuenta ↗
           </a>
@@ -63,7 +65,7 @@ export default async function Home({
             <a className="button" href="#services">
               Explorar servicios ↗
             </a>
-            <a href="#contact">Hablemos →</a>
+            {modules.includes("contact") && <a href="#contact">Hablemos →</a>}
           </div>
           <p>
             <small>Atención personal · Tu información en un solo lugar</small>
@@ -117,9 +119,9 @@ export default async function Home({
                       currency: "MXN",
                     }).format(service.price_cents / 100)}
                   </strong>
-                  <a style={{ marginLeft: "auto" }} href="/workspace">
+                  {modules.includes("appointments") && <a style={{ marginLeft: "auto" }} href="/workspace">
                     Reservar →
-                  </a>
+                  </a>}
                 </div>
               </article>
             ),
@@ -131,7 +133,7 @@ export default async function Home({
           </p>
         )}
       </section>
-      <section id="contact" className="section">
+      {modules.includes("contact") && <section id="contact" className="section">
         <div className="contact">
           <div>
             <span className="eyebrow">Una conversación lo cambia todo</span>
@@ -157,7 +159,7 @@ export default async function Home({
           </div>
           <ContactForm />
         </div>
-      </section>
+      </section>}
       <footer className="footer">
         <span>{organization.name}</span>
         <span>Construido con Kaanbal · Base de referencia</span>

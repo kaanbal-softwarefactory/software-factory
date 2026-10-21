@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { resolve, relative, sep, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { modulesOption } from "./modules.mjs";
 const source = realpathSync(fileURLToPath(new URL("..", import.meta.url))),
   args = process.argv.slice(2);
 const option = (key, fallback) => {
@@ -24,6 +25,7 @@ if (
 )
   throw new Error("Use --output PATH --name slug --preset starter|services|barber");
 const target = resolve(destination);
+const modules = modulesOption(option("--modules", undefined), undefined);
 if (
   existsSync(target) ||
   target.toLowerCase() === source.toLowerCase() ||
@@ -52,6 +54,7 @@ const config = {
   name,
   title: option("--title", "Mi negocio"),
   preset,
+  modules,
   port: Number(option("--port", "3200")),
   identityPort: Number(option("--identity-port", "8280")),
   mailPort: Number(option("--mail-port", "8225")),

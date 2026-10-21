@@ -3,6 +3,15 @@ import type { PoolClient } from "pg";
 import { inOrganization, pool } from "./db";
 import { authorize, ownOrManage, Problem } from "./policy";
 import { membership, digest, opaque, type Actor } from "./session";
+import { enabledModules, resourceModule, type BusinessModule } from "./features";
+
+async function requireModule(db: PoolClient, organization: string, module?: BusinessModule) {
+  if (!module) return;
+  const result = await db.query("SELECT experience,enabled_modules FROM organizations WHERE id=$1", [organization]);
+  const config = result.rows[0];
+  if (!config || !enabledModules(config.experience, config.enabled_modules).includes(module))
+    throw new Problem(404, "Módulo no disponible");
+}
 
 const uuid = z.uuid();
 const messageSchema = z.object({
@@ -32,7 +41,7 @@ async function audit(
 }
 async function publicOrganization() {
   const result = await pool.query(
-    "SELECT id,slug,name,description,whatsapp,timezone,experience FROM organizations WHERE slug=$1 AND public=true",
+    "SELECT id,slug,name,description,whatsapp,timezone,experience,enabled_modules FROM organizations WHERE slug=$1 AND public=true",
     [process.env.PUBLIC_ORGANIZATION || "demo"],
   );
   if (!result.rowCount) throw new Problem(404, "Sitio no configurado");
@@ -42,13 +51,13 @@ export async function publicSite() {
   const organization = await publicOrganization();
   return inOrganization(organization.id, async (db) => ({
     organization,
-    services: (
+    services: enabledModules(organization.experience, organization.enabled_modules).includes("catalog") ? (
       await db.query(
         "SELECT id,name,description,price_cents,duration_minutes FROM catalog WHERE active=true ORDER BY name",
       )
-    ).rows,
-    resources: (await db.query("SELECT id,name FROM resources ORDER BY name"))
-      .rows,
+    ).rows : [],
+    resources: enabledModules(organization.experience, organization.enabled_modules).includes("appointments") ? (await db.query("SELECT id,name FROM resources ORDER BY name"))
+      .rows : [],
   }));
 }
 export async function contact(input: unknown, user: Actor | null) {
@@ -56,6 +65,7 @@ export async function contact(input: unknown, user: Actor | null) {
     organization = await publicOrganization();
   if (body.website) return { accepted: true }; // Honeypot: same response, no mail or stored request.
   return inOrganization(organization.id, async (db) => {
+    await requireModule(db, organization.id, "contact");
     const limit = await db.query(
       `INSERT INTO public_limits(organization_id,count) VALUES($1,1)
       ON CONFLICT(organization_id) DO UPDATE SET count=CASE WHEN public_limits.window_start<now()-interval '1 minute' THEN 1 ELSE public_limits.count+1 END,
@@ -108,10 +118,12 @@ export async function listResource(
   user: Actor,
   organization: string,
   resource: string,
+  window?: { from: string; to: string },
 ) {
   uuid.parse(organization);
   const member = membership(user, organization);
   return inOrganization(organization, async (db) => {
+    await requireModule(db, organization, resourceModule(resource));
     switch (resource) {
       case "settings":
         authorize(member.role, "catalog.manage");
@@ -135,12 +147,20 @@ export async function listResource(
         return (await db.query("SELECT id,name FROM resources ORDER BY name"))
           .rows;
       case "appointments":
+        if (window) {
+          z.object({ from: z.iso.datetime({ offset: true }), to: z.iso.datetime({ offset: true }) }).parse(window);
+          const duration = Date.parse(window.to) - Date.parse(window.from);
+          if (duration <= 0 || duration > 32 * 86400000) throw new Problem(422, "Consulta un intervalo de hasta 32 días");
+        }
         return (
           await db.query(
             `SELECT a.id,a.person_id,a.starts_at,a.ends_at,a.state,c.name AS service,r.name AS resource
         FROM appointments a JOIN catalog c ON c.id=a.service_id JOIN resources r ON r.id=a.resource_id
-        WHERE ($1::boolean OR a.person_id=$2) ORDER BY a.starts_at DESC LIMIT 200`,
-            [member.role !== "customer", user.id],
+        WHERE ($1::boolean OR a.person_id=$2)
+        AND ($3::timestamptz IS NULL OR a.ends_at>$3)
+        AND ($4::timestamptz IS NULL OR a.starts_at<$4)
+        ORDER BY a.starts_at DESC LIMIT 1000`,
+            [member.role !== "customer", user.id, window?.from || null, window?.to || null],
           )
         ).rows;
       case "members":
@@ -180,6 +200,7 @@ export async function mutate(
   uuid.parse(organization);
   const member = membership(user, organization);
   return inOrganization(organization, async (db) => {
+    await requireModule(db, organization, resourceModule(resource));
     if (resource === "settings") {
       authorize(member.role, "catalog.manage");
       const body = z

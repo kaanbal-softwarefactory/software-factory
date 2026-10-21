@@ -4,6 +4,7 @@ This is an opt-in demo profile, not the local Compose/start-dev profile. Values
 never enter Git: the provisioning path persists them in Vault and Kubernetes.
 """
 import re
+import json
 from pathlib import Path
 
 TEMPLATES = {"business-postgres", "business-identity", "business-base"}
@@ -12,6 +13,18 @@ SECRET_KEYS = {
     "business-identity": ["KC_DB_PASSWORD", "KC_BOOTSTRAP_ADMIN_PASSWORD", "OIDC_CLIENT_SECRET", "OWNER_PASSWORD", "CUSTOMER_PASSWORD"],
     "business-base": ["PGPASSWORD", "MIGRATION_PGPASSWORD", "IDENTITY_ADMIN_PASSWORD", "OIDC_CLIENT_SECRET", "OWNER_PASSWORD", "CUSTOMER_PASSWORD"],
 }
+
+
+def normalize_modules(preset, selected=None):
+    available = ["contact", "catalog", "appointments"]
+    if selected is None:
+        selected = ["contact"] if preset == "starter" else available
+    if not isinstance(selected, list) or any(module not in available for module in selected):
+        raise ValueError("Módulos Business Base desconocidos.")
+    chosen = set(selected)
+    if "appointments" in chosen:
+        chosen.add("catalog")
+    return [module for module in available if module in chosen]
 
 
 def validate_config(template, config, environments):
@@ -26,6 +39,7 @@ def validate_config(template, config, environments):
             raise ValueError(f"Falta un nombre válido en {key}.")
     if config.get("BUSINESS_PRESET", "services") not in ("starter", "services", "barber"):
         raise ValueError("Preset Business Base desconocido.")
+    normalize_modules(config.get("BUSINESS_PRESET", "services"), config.get("BUSINESS_MODULES"))
     base = config["BUSINESS_APP"]
     if config["BUSINESS_DB_APP"] != f"{base}-db" or config["BUSINESS_IDENTITY_APP"] != f"{base}-identity":
         raise ValueError("Las dependencias de Business Base deben pertenecer al mismo sistema.")
@@ -127,6 +141,7 @@ SQL
         migration = {**common, "BUSINESS_PROFILE": "demo", "MIGRATION_PGUSER": "business_migrator", "APP_ORIGIN": app_origin,
                      "OIDC_ISSUER": issuer, "BUSINESS_NAME": config.get("BUSINESS_NAME") or web,
                      "BUSINESS_PRESET": config.get("BUSINESS_PRESET", "services"),
+                     "BUSINESS_MODULES": json.dumps(normalize_modules(config.get("BUSINESS_PRESET", "services"), config.get("BUSINESS_MODULES"))),
                      "IDENTITY_ADMIN_ORIGIN": f"http://{identity}:8080", "BUSINESS_INTERNAL_APP": web, "SMTP_HOST": f"{web}-mail"}
         initialize = _container("initialize", image, _env(migration, secret, ["MIGRATION_PGPASSWORD", "IDENTITY_ADMIN_PASSWORD", "OIDC_CLIENT_SECRET", "OWNER_PASSWORD", "CUSTOMER_PASSWORD"]),
                                 command=["sh", "-c", "npm run migrate && node scripts/provision-identity.mjs && npx tsx scripts/seed.ts"])

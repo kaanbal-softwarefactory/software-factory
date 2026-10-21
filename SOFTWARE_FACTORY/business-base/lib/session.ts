@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { pool } from "./db";
 import { Problem, type Role } from "./policy";
 import { origin } from "./config";
+import type { BusinessModule } from "./features";
 
 export const digest = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -34,6 +35,8 @@ export type Actor = {
     name: string;
     role: Role;
     experience?: string;
+    enabled_modules?: BusinessModule[] | null;
+    timezone?: string;
   }[];
 };
 export async function actor(request: NextRequest): Promise<Actor> {
@@ -50,7 +53,7 @@ export async function actorForToken(token: string | undefined): Promise<Actor> {
   const user = result.rows[0];
   user.memberships = (
     await pool.query(
-      `SELECT m.organization_id, m.role, o.slug, o.name, o.experience FROM memberships m
+      `SELECT m.organization_id, m.role, o.slug, o.name, o.experience, o.enabled_modules, o.timezone FROM memberships m
     JOIN organizations o ON o.id=m.organization_id WHERE m.person_id=$1 AND m.active=true ORDER BY o.name`,
       [user.id],
     )

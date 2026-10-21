@@ -588,6 +588,8 @@ async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
         for key in ("business_name", "business_preset"):
             if args.get(key):
                 body[key] = str(args[key])
+        if "business_modules" in args and args["business_modules"] is not None:
+            body["business_modules"] = args["business_modules"]
         applied, result = await _plan_or_apply(client, "POST", "/stacks", args, body)
         if not applied:
             return result

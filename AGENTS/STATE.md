@@ -14,6 +14,15 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Business Base módulos y calendario** — rama `codex/business-base-modules-calendar`:
+  selector consola/MCP para contacto, catálogo y citas; citas incluye catálogo.
+  Selección persistida por organización y aplicada en API; `[]` deja solo la base.
+  Calendario semanal del equipo con zona horaria del negocio, límites y aislamiento.
+  Migración aditiva 004 conserva defaults de copias anteriores; bootstrap no
+  reconfigura organizaciones existentes. Nueva demo remota del Starter publicado
+  quedó ready; esta mejora todavía requiere publicación/integración/actualización.
+  GitHub conectado solo permite lectura del core; CLI sin autenticación.
+
 - **Business Base Starter** — rama `codex/business-base-starter`, incluye el contrato
   MCP pendiente de la rama anterior. Agrega preset starter con landing en `/`,
   panel del equipo `/admin` y portal `/client`, selección consola/MCP y URLs en

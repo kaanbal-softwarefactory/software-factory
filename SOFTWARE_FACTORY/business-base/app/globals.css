@@ -1,4 +1,14 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
+.calendar { margin: 2rem 0; }
+.calendar-scroll { overflow-x: auto; }
+.calendar-week { display: grid; grid-template-columns: repeat(7, minmax(125px, 1fr)); gap: .5rem; min-width: 910px; }
+.calendar-day { padding: .7rem; border: 1px solid var(--line); border-radius: 12px; min-height: 180px; }
+.calendar-day h3 { font-size: .85rem; margin: 0 0 1rem; }
+.calendar-day.is-today { border-color: var(--accent); background: #f4f8ec; }
+.calendar-day > p { font-size: .8rem; }
+.calendar-event { display: grid; gap: .4rem; background: #e2eee6; color: #173f33; border-left: 3px solid #155e49; border-radius: 6px; padding: .6rem; margin-bottom: .5rem; overflow-wrap: anywhere; }
+.calendar-event time, .calendar-event small { font-size: .72rem; }
+.calendar-event strong { font-size: .85rem; }
 :root {
   --bg: #f5f5f0;
   --ink: #172b27;

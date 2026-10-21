@@ -17,6 +17,8 @@ test("a new application copies source and provenance, never runtime data or depe
       "business-example",
       "--preset",
       "barber",
+      "--modules",
+      "none",
     ],
     { encoding: "utf8" },
   );
@@ -24,6 +26,7 @@ test("a new application copies source and provenance, never runtime data or depe
   assert.equal(existsSync(join(target, "app/page.tsx")), true);
   assert.equal(existsSync(join(target, "node_modules")), false);
   assert.equal(existsSync(join(target, ".next")), false);
+  assert.deepEqual(JSON.parse(readFileSync(join(target, "business.config.json"), "utf8")).modules, []);
   assert.equal(
     JSON.parse(readFileSync(join(target, "business.config.json"), "utf8"))
       .preset,

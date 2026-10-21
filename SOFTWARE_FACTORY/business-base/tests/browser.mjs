@@ -24,6 +24,7 @@ if (
   throw new Error("Use a local disposable business-* project");
 const directory = resolve(option("--screenshots", "coverage/browser"));
 const starter = args.includes("--starter");
+const calendar = args.includes("--calendar");
 mkdirSync(directory, { recursive: true });
 const compose = ["compose", "--project-name", project];
 function credential(name) {
@@ -183,7 +184,7 @@ try {
   await customer.goto(base);
   await customer.getByRole("heading", { name: starter ? /Lo que sigue/ : "Nuestros servicios" }).waitFor();
   if (starter) {
-    assert.equal((await customer.request.get(`${base}/api/business/public`).then(r => r.json())).services.length, 0);
+    if (!calendar) assert.equal((await customer.request.get(`${base}/api/business/public`).then(r => r.json())).services.length, 0);
     await customer.setViewportSize({ width: 390, height: 844 });
     assert.equal(await customer.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     await customer.screenshot({ path: resolve(directory, "landing-mobile.png"), fullPage: true });
@@ -202,7 +203,7 @@ try {
     .getByRole("heading", { name: "Resumen", exact: true })
     .waitFor({ timeout: 30000 });
   assert.equal(new URL(customer.url()).pathname, "/client");
-  if (starter) assert.equal(await customer.getByRole("button", { name: "Mis citas", exact: true }).count(), 0);
+  if (starter && !calendar) assert.equal(await customer.getByRole("button", { name: "Mis citas", exact: true }).count(), 0);
   stage = "customer cannot enter admin";
   await customer.goto(`${base}/admin`);
   await customer.getByRole("heading", { name: "Este espacio necesita otro acceso." }).waitFor();
@@ -284,7 +285,7 @@ try {
   const assurance = await owner.request.get(`${base}/api/business/me`);
   assert.equal((await assurance.json()).mfa, true);
   assert.equal(new URL(owner.url()).pathname, "/admin");
-  if (starter) assert.equal(await owner.getByRole("button", { name: "Citas", exact: true }).count(), 0);
+  if (starter && !calendar) assert.equal(await owner.getByRole("button", { name: "Citas", exact: true }).count(), 0);
   await owner.screenshot({ path: resolve(directory, "admin-overview.png"), fullPage: true });
   stage = "inbox management";
   await owner.getByRole("button", { name: "Solicitudes", exact: true }).click();
@@ -296,6 +297,37 @@ try {
     path: resolve(directory, "admin-inbox.png"),
     fullPage: true,
   });
+  if (calendar) {
+    stage = "customer booking and administrative calendar";
+    await customer.getByRole("button", { name: "Mis citas", exact: true }).click();
+    const start = new Date(); start.setDate(start.getDate() + 3); start.setHours(16, 0, 0, 0);
+    while ([0, 6].includes(start.getDay())) start.setDate(start.getDate() + 1);
+    const booking = await customer.request.post(`${base}/api/business/${organization}/appointments`, {
+      headers: { origin: base }, data: {
+        service_id: (await customer.request.get(`${base}/api/business/${organization}/catalog`).then(r => r.json()))[0].id,
+        resource_id: (await customer.request.get(`${base}/api/business/${organization}/resources`).then(r => r.json()))[0].id,
+        starts_at: start.toISOString(),
+      },
+    });
+    assert.equal(booking.status(), 200);
+    const appointmentId = (await booking.json()).id;
+    await owner.getByRole("button", { name: "Citas", exact: true }).click();
+    const calendarView = owner.getByRole("region", { name: "Calendario de citas" });
+    await calendarView.getByRole("heading", { name: "Tu semana, a la vista." }).waitFor();
+    await calendarView.getByRole("status").waitFor({ state: "hidden" });
+    // Search the next weeks; the calendar uses the business timezone, not the browser clock.
+    for (let week = 0; week < 3 && !(await calendarView.locator(".calendar-event").count()); week++) {
+      await calendarView.getByRole("button", { name: "Semana siguiente" }).click();
+      await calendarView.getByRole("status").waitFor({ state: "hidden" });
+    }
+    await calendarView.locator(".calendar-event").first().waitFor();
+    await owner.screenshot({ path: resolve(directory, "admin-calendar.png"), fullPage: true });
+    await owner.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await owner.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await owner.screenshot({ path: resolve(directory, "calendar-mobile.png"), fullPage: true });
+    assert.equal((await customer.request.post(`${base}/api/business/${organization}/cancel-appointment`, { headers: { origin: base }, data: { id: appointmentId } })).status(), 200);
+    console.log("PASS: Starter with selectable appointments, real customer booking, weekly calendar and mobile overflow isolation.");
+  }
   stage = "responsive portal";
   await owner.setViewportSize({ width: 390, height: 844 });
   await owner.screenshot({

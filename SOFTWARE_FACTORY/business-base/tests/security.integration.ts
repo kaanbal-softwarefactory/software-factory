@@ -268,6 +268,46 @@ test("audit records cannot be altered using the runtime database role", async ()
     /permission denied/,
   );
 });
+
+test("disabled modules reject direct API reads and writes without removing existing data", async () => {
+  await admin.query("UPDATE organizations SET enabled_modules='{}' WHERE id=$1", [ids.a]);
+  try {
+    for (const resource of ["requests", "catalog", "appointments", "resources"])
+      assert.equal((await request(`${ids.a}/${resource}`)).status, 404);
+    assert.equal((await request(`${ids.a}/appointments`, "customer", {})).status, 404);
+    assert.equal((await request(`${ids.a}/catalog`, "owner", {})).status, 404);
+    assert.equal((await request(`${ids.a}/settings`)).status, 200);
+    assert.equal((await request(`${ids.a}/members`)).status, 200);
+  } finally {
+    await admin.query("UPDATE organizations SET enabled_modules=NULL WHERE id=$1", [ids.a]);
+  }
+  assert.equal((await (await request(`${ids.a}/catalog`)).json()).length, 1);
+});
+
+test("calendar windows preserve tenant/role isolation and validate their bounds", async () => {
+  const from = new Date(Date.now() - 86400000).toISOString();
+  const to = new Date(Date.now() + 10 * 86400000).toISOString();
+  const query = new URLSearchParams({ from, to });
+  const customerRows = await (await request(`${ids.a}/appointments?${query}`, "customer")).json();
+  assert.ok(customerRows.every((row: { person_id: string }) => row.person_id === ids.customer));
+  assert.equal((await request(`${ids.b}/appointments?${query}`, "customer")).status, 403);
+  assert.equal((await request(`${ids.a}/appointments?from=${encodeURIComponent(from)}`)).status, 422);
+  assert.equal((await request(`${ids.a}/appointments?${new URLSearchParams({ from: to, to: from })}`)).status, 422);
+  assert.equal((await request(`${ids.a}/appointments?${new URLSearchParams({ from, to: new Date(Date.now() + 90 * 86400000).toISOString() })}`)).status, 422);
+});
+
+test("disabling public modules hides their data and rejects contact submissions", async () => {
+  const original = (await admin.query("SELECT id,enabled_modules FROM organizations WHERE slug='demo'")).rows[0];
+  await admin.query("UPDATE organizations SET enabled_modules='{}' WHERE id=$1", [original.id]);
+  try {
+    const site = await (await request("public")).json();
+    assert.deepEqual(site.services, []);
+    assert.deepEqual(site.resources, []);
+    assert.equal((await request("contact", "customer", { name: "Example Visitor", email: "visitor@example.com", message: "Should not be stored" })).status, 404);
+  } finally {
+    await admin.query("UPDATE organizations SET enabled_modules=$1 WHERE id=$2", [original.enabled_modules, original.id]);
+  }
+});
 test("public contact is persisted in the configured site and honeypot does not create records", async () => {
   const payload = {
     name: "Example Visitor",

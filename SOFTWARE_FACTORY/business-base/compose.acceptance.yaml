@@ -16,6 +16,7 @@ services:
         }
     volumes:
       - ./scripts/bootstrap.mjs:/scripts/bootstrap.mjs:ro
+      - ./scripts/modules.mjs:/scripts/modules.mjs:ro
       - credentials:/bootstrap
       - database-secrets:/database-secrets
       - runtime-secrets:/runtime-secrets

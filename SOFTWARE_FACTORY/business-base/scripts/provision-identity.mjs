@@ -1,6 +1,7 @@
 // Explicit Kaanbal DEMO bootstrap. Never runs from HTTP or the worker.
 import { writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { parseModules } from "./modules.mjs";
 if (process.env.BUSINESS_PROFILE !== "demo") throw new Error("Demo profile required");
 const base = new URL(process.env.IDENTITY_ADMIN_ORIGIN || "");
 const app = new URL(process.env.APP_ORIGIN || "");
@@ -53,7 +54,7 @@ async function provision() {
     users[username] = (await api(`/business/users?username=${username}&exact=true`))[0].id;
   }
   writeFileSync("/bootstrap/instance.json", JSON.stringify({name:process.env.BUSINESS_NAME || "Business Demo",preset:process.env.BUSINESS_PRESET || "services",
-    issuer:issuer.href,ownerSubject:users.owner,customerSubject:users.customer}), {mode:0o600});
+    modules:parseModules(process.env.BUSINESS_MODULES),issuer:issuer.href,ownerSubject:users.owner,customerSubject:users.customer}), {mode:0o600});
 }
 try {
   let done = false;

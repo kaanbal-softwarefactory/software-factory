@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const schema = await pool.query(
-      "SELECT 1 FROM schema_migrations WHERE version='003_starter_experience.sql'",
+      "SELECT 1 FROM schema_migrations WHERE version='004_optional_modules.sql'",
     );
     if (!schema.rowCount) throw new Error("Migration missing");
     const role = (

@@ -2,6 +2,7 @@
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import { secret } from "../lib/config";
+import { enabledModules } from "../lib/features";
 const config = JSON.parse(readFileSync("/bootstrap/instance.json", "utf8"));
 const db = new pg.Client({
   host: process.env.PGHOST,
@@ -14,11 +15,12 @@ try {
   await db.query("BEGIN");
   const org = (
     await db.query(
-      `INSERT INTO organizations(slug,name,description,public,timezone,experience) VALUES('demo',$1,$2,true,'America/Mexico_City',$3) ON CONFLICT(slug) DO UPDATE SET slug=excluded.slug RETURNING id,experience`,
+      `INSERT INTO organizations(slug,name,description,public,timezone,experience,enabled_modules) VALUES('demo',$1,$2,true,'America/Mexico_City',$3,$4) ON CONFLICT(slug) DO UPDATE SET slug=excluded.slug RETURNING id,experience,enabled_modules`,
       [
         config.name,
         "Servicios pensados para ti, atención cercana y un equipo que te acompaña de principio a fin.",
         config.preset || "services",
+        enabledModules(config.preset || "services", config.modules),
       ],
     )
   ).rows[0];
@@ -45,7 +47,7 @@ try {
       [organizationId, person, role],
     );
   }
-  if (preset !== "starter" && !(await db.query("SELECT 1 FROM catalog LIMIT 1")).rowCount) {
+  if (enabledModules(preset, org.enabled_modules).includes("catalog") && !(await db.query("SELECT 1 FROM catalog LIMIT 1")).rowCount) {
     const services =
       config.preset === "barber"
         ? [
@@ -88,6 +90,8 @@ try {
         "INSERT INTO catalog(organization_id,name,description,price_cents,duration_minutes) VALUES($1,$2,$3,$4,$5)",
         [organizationId, name, description, price, duration],
       );
+  }
+  if (enabledModules(preset, org.enabled_modules).includes("appointments") && !(await db.query("SELECT 1 FROM resources LIMIT 1")).rowCount) {
     await db.query(
       "INSERT INTO resources(organization_id,name) VALUES($1,'Equipo de atención')",
       [organizationId],

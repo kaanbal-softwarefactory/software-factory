@@ -1,6 +1,7 @@
 // Secrets are generated inside a named Docker volume, never in the repository or logs.
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { parseModules } from "./modules.mjs";
 const root = "/bootstrap";
 function value(name) {
   const path = `${root}/${name}`;
@@ -24,6 +25,7 @@ const appPort = Number(process.env.APP_PORT || 3100),
 const settings = {
   name: process.env.BUSINESS_NAME || "Estudio Demo",
   preset: process.env.BUSINESS_PRESET || "services",
+  modules: parseModules(process.env.BUSINESS_MODULES),
   appPort,
   identityPort,
   issuer: `http://localhost:${identityPort}/realms/business`,

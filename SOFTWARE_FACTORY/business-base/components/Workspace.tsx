@@ -3,6 +3,8 @@ import { useEffect, useState, useCallback } from "react";
 import { allows, type Role } from "../lib/policy";
 import { dashboardMembers, type DashboardMode } from "../lib/dashboard";
 import ContactForm from "./ContactForm";
+import { enabledModules, type BusinessModule } from "../lib/features";
+import AppointmentCalendar from "./AppointmentCalendar";
 
 type Member = {
   organization_id: string;
@@ -10,6 +12,8 @@ type Member = {
   slug: string;
   role: Role;
   experience?: string;
+  enabled_modules?: BusinessModule[] | null;
+  timezone?: string;
 };
 type User = {
   id: string;
@@ -60,14 +64,15 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
   const [publicOrg, setPublicOrg] = useState("");
   const member = user?.memberships.find((m) => m.organization_id === org);
   const role = member?.role || "customer";
-  const simple = member?.experience === "starter";
+  const modules = enabledModules(member?.experience, member?.enabled_modules);
+  const hasContact = modules.includes("contact"), hasAppointments = modules.includes("appointments"), hasCatalog = modules.includes("catalog");
   const reload = useCallback(async () => {
     if (!org) return;
     setBusy(true);
     setError("");
     try {
       const resource = tab === "overview" ? "requests" : tab;
-      setRows(await api(`${org}/${resource}`));
+      setRows(tab === "overview" && !hasContact ? [] : await api(`${org}/${resource}`));
       if (tab === "appointments") {
         setCatalog(await api(`${org}/catalog`));
         setResources(await api(`${org}/resources`));
@@ -77,7 +82,7 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
     } finally {
       setBusy(false);
     }
-  }, [org, tab]);
+  }, [org, tab, hasContact]);
   async function loadMe() {
     const me = (await api("me")) as User;
     me.memberships = dashboardMembers({ ...me, email_verified: true }, mode);
@@ -121,14 +126,15 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
   }, [reload]);
   const links = [
     { id: "overview", name: "Resumen" },
-    {
+    ...(hasContact ? [{
       id: "requests",
       name: allows(role, "inbox.read") ? "Solicitudes" : "Mis solicitudes",
-    },
-    ...(!simple ? [{
+    }] : []),
+    ...(hasAppointments ? [{
       id: "appointments",
       name: allows(role, "appointments.manage") ? "Citas" : "Mis citas",
-    }, { id: "catalog", name: "Catálogo" }] : []),
+    }] : []),
+    ...(hasCatalog ? [{ id: "catalog", name: "Catálogo" }] : []),
     ...(allows(role, "members.manage")
       ? [{ id: "members", name: "Equipo y accesos" }]
       : []),
@@ -314,7 +320,7 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
         )}
         {org && tab === "overview" && (
           <>
-            <div className="metrics">
+            {hasContact && <div className="metrics">
               <div className="card metric">
                 <small>Solicitudes visibles</small>
                 <strong>{rows.length}</strong>
@@ -329,18 +335,18 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
                 <small>Tu acceso</small>
                 <strong style={{ fontSize: "1.5rem" }}>{roleNames[role]}</strong>
               </div>
-            </div>
+            </div>}
             <section className="card">
               <span className="eyebrow">El siguiente paso</span>
-              <h2>{mode === "admin" ? "Dale seguimiento a cada conversación." : "Estamos para acompañarte."}</h2>
+              <h2>{hasContact ? (mode === "admin" ? "Dale seguimiento a cada conversación." : "Estamos para acompañarte.") : "Tu espacio está listo para crecer."}</h2>
               <p className="muted">
-                {mode === "admin" ? "Consulta las solicitudes del equipo y mantén la atención al día." : "Envía una solicitud desde tu cuenta y consulta aquí su avance."}
+                {hasContact ? (mode === "admin" ? "Consulta las solicitudes del equipo y mantén la atención al día." : "Envía una solicitud desde tu cuenta y consulta aquí su avance.") : "Accede a las funciones disponibles desde el menú de tu cuenta."}
               </p>
               <div className="row">
-                <button onClick={() => setTab("requests")}>
+                {hasContact && <button onClick={() => setTab("requests")}>
                   Ver solicitudes →
-                </button>
-                {!simple && <button
+                </button>}
+                {hasAppointments && <button
                   className="secondary"
                   onClick={() => setTab("appointments")}
                 >
@@ -348,15 +354,15 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
                 </button>}
               </div>
             </section>
-            <section className="recent-panel">
+            {hasContact && <section className="recent-panel">
               <div className="section-head"><h2>Actividad reciente</h2><button className="secondary small" onClick={() => setTab("requests")}>Ver solicitudes →</button></div>
               {busy ? <p role="status">Cargando actividad…</p> : rows.length ? rows.slice(0, 4).map((row) => (
                 <article className="activity-row" key={String(row.id)}><span className="activity-dot" /><div><strong>{row.name}</strong><p>{String(row.message).slice(0, 100)}</p></div><span className="tag">{requestState(row.state)}</span></article>
               )) : <p className="empty">Todavía no hay solicitudes. Las nuevas conversaciones aparecerán aquí.</p>}
-            </section>
+            </section>}
           </>
         )}
-        {org && tab === "requests" && (
+        {org && hasContact && tab === "requests" && (
           <div className="list">
             {mode === "client" && org === publicOrg && <section className="card"><h2>Crear una solicitud</h2><p className="muted">Tu mensaje quedará vinculado a esta cuenta.</p><ContactForm onSent={() => void reload()} /></section>}
             {rows.map((row) => (
@@ -399,7 +405,7 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
             ))}
           </div>
         )}
-        {org && tab === "catalog" && (
+        {org && hasCatalog && tab === "catalog" && (
           <div className="two-col">
             <div className="list">
               {rows.map((row) => (
@@ -466,7 +472,10 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
             )}
           </div>
         )}
-        {org && tab === "appointments" && (
+        {org && hasAppointments && tab === "appointments" && (
+          <>
+          {allows(role, "appointments.manage") && <AppointmentCalendar key={org} organization={org} timezone={member?.timezone || "UTC"} revision={rows} />}
+          {rows.length >= 1000 && <p className="status">La lista muestra hasta 1,000 citas. Consulta el calendario para buscar por semana.</p>}
           <div className="two-col">
             <div className="list">
               {rows.map((row) => (
@@ -542,6 +551,7 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
               </button>
             </form>
           </div>
+          </>
         )}
         {org && tab === "members" && (
           <div className="two-col">
@@ -646,7 +656,7 @@ export default function Workspace({ mode }: { mode: DashboardMode }) {
           >
             <h3>Información de tu negocio</h3>
             <p className="muted">
-              Los cambios aparecen en tu sitio público. {simple ? "Personaliza la presentación de tu marca." : "La zona horaria define el horario de las reservas."}
+              Los cambios aparecen en tu sitio público. {hasAppointments ? "La zona horaria define el horario de las reservas." : "Personaliza la presentación de tu marca."}
             </p>
             <label>
               Nombre

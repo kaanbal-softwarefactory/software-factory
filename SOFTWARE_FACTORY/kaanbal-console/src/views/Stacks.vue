@@ -150,10 +150,18 @@
                     <option value="services">Servicios · Catálogo y citas</option><option value="barber">Barbería · Catálogo y citas</option>
                   </select>
                 </label>
+                <fieldset class="space-y-2 text-sm text-slate-300">
+                  <legend class="font-semibold mb-2">Elige los módulos de esta copia</legend>
+                  <p class="text-xs text-slate-400">Siempre incluidos: login, recuperación, MFA para administradores, equipo, auditoría y paneles por rol.</p>
+                  <label class="flex items-center gap-2"><input type="checkbox" v-model="form.business_modules" value="contact" /> Contacto y solicitudes</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" v-model="form.business_modules" value="catalog" :disabled="form.business_modules.includes('appointments')" /> Catálogo de servicios</label>
+                  <label class="flex items-center gap-2"><input type="checkbox" v-model="form.business_modules" value="appointments" /> Citas y calendario del equipo</label>
+                  <p class="text-xs text-slate-400">Citas necesita catálogo. Solo se crean datos de ejemplo para los módulos elegidos. Esta elección configura una copia nueva.</p>
+                </fieldset>
                 <div class="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs text-slate-300 space-y-2">
                   <p class="font-semibold text-emerald-200">Tres espacios, una sola aplicación</p>
                   <p><code>/</code> Sitio público · <code>/admin</code> Equipo · <code>/client</code> Clientes</p>
-                  <p>{{ form.business_preset === 'starter' ? 'Una base limpia con contacto, solicitudes, equipo y auditoría. Sin catálogo ni citas de ejemplo.' : 'Incluye servicios de ejemplo y agenda, además de los tres espacios.' }}</p>
+                  <p>La presentación inicial y los módulos se eligen por separado. Puedes empezar con una landing y añadir agenda desde el lanzamiento.</p>
                   <p>Las rutas usan el dominio raíz o subdominio que elijas. Acceso por rol; administradores con MFA.</p>
                 </div>
               </div>
@@ -216,7 +224,11 @@ const domains = ref([])
 const run = ref(null)
 
 const modal = reactive({ show: false, stack: null, error: '' })
-const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false, business_name: '', business_preset: 'starter' })
+const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false, business_name: '', business_preset: 'starter', business_modules: ['contact'] })
+watch(() => form.business_preset, (preset) => { form.business_modules = preset === 'starter' ? ['contact'] : ['contact', 'catalog', 'appointments'] })
+watch(() => [...form.business_modules], (modules) => {
+  if (modules.includes('appointments') && !modules.includes('catalog')) form.business_modules.push('catalog')
+})
 const toast = reactive({ show: false, message: '', type: 'success' })
 
 const showToast = (message, type = 'success') => {
@@ -298,6 +310,7 @@ const openLaunch = (stack) => {
   form.withDev = false
   form.business_name = ''
   form.business_preset = 'starter'
+  form.business_modules = ['contact']
   if (!form.domain_id) form.domain_id = (domains.value.find(d => d.is_default) || domains.value[0])?._id || ''
 }
 
@@ -335,6 +348,7 @@ const launch = async () => {
       homepage: form.homepage,
       business_name: form.business_name,
       business_preset: form.business_preset,
+      business_modules: form.business_modules,
     })
     run.value = data
     modal.show = false

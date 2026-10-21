@@ -8,9 +8,11 @@ services:
       APP_PORT: ${APP_PORT:-3100}
       IDENTITY_PORT: ${IDENTITY_PORT:-8180}
       BUSINESS_PRESET: ${BUSINESS_PRESET:-services}
+      BUSINESS_MODULES: '${BUSINESS_MODULES:-null}'
       BUSINESS_NAME: ${BUSINESS_NAME:-Estudio Demo}
     volumes:
       - ./scripts/bootstrap.mjs:/scripts/bootstrap.mjs:ro
+      - ./scripts/modules.mjs:/scripts/modules.mjs:ro
       - bootstrap:/bootstrap
       - database-secrets:/database-secrets
       - runtime-secrets:/runtime-secrets
@@ -70,6 +72,7 @@ services:
     build: .
     command: ["sh", "-c", "npm run migrate && npx tsx scripts/seed.ts"]
     environment: &database_environment
+      APP_ORIGIN: http://localhost:${APP_PORT:-3100}
       PGHOST: database
       PGDATABASE: business
       PGUSER: business_runtime

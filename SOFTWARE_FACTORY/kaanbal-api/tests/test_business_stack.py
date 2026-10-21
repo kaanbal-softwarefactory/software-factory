@@ -24,6 +24,17 @@ def documents(component):
 
 
 class BusinessStackTests(unittest.TestCase):
+    def test_explicit_modules_survive_rendering_including_empty_selection(self):
+        for selected, expected in (([], []), (["appointments"], ["catalog", "appointments"]), (None, ["contact"])):
+            web = plan()["components"][-1]
+            web["template_config"].update(BUSINESS_PRESET="starter", BUSINESS_MODULES=selected)
+            generated = documents(web)
+            bootstrap = generated[0]["spec"]["template"]["spec"]["initContainers"][0]
+            values = {e["name"]: e.get("value") for e in bootstrap["env"]}
+            self.assertEqual(json.loads(values["BUSINESS_MODULES"]), expected)
+        with self.assertRaises(ValueError):
+            bs.normalize_modules("starter", ["payments"])
+
     def test_starter_pages_and_identity_callbacks_use_the_chosen_host(self):
         for homepage in (False, True):
             p = plan(homepage=homepage)

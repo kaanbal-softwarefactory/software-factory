@@ -24,7 +24,9 @@ async function handle(
       const user = await actor(request);
       if (path.length === 1 && path[0] === "me") return NextResponse.json(user);
       if (path.length !== 2) throw new Problem(404, "No encontrado");
-      return NextResponse.json(await listResource(user, path[0], path[1]));
+      const from = request.nextUrl.searchParams.get("from"), to = request.nextUrl.searchParams.get("to");
+      if ((from === null) !== (to === null)) throw new Problem(422, "Indica inicio y fin del intervalo");
+      return NextResponse.json(await listResource(user, path[0], path[1], from !== null && to !== null ? { from, to } : undefined));
     }
     sameOrigin(request);
     // Check actual bytes as well as Content-Length; chunked bodies cannot bypass the limit.

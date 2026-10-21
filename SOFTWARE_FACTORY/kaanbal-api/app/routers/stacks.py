@@ -32,6 +32,7 @@ from app.services import change_plans, domain_service, plans, stack_launcher
 # AttributeError justo después de registrar el lanzamiento como "running".
 from app.services.activity_log import CATEGORY_APP, activity_log
 from app.services.template_service import TemplateService
+from app.services.business_stack import normalize_modules
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,7 @@ class StackLaunchRequest(BaseModel):
     description: str = ""
     business_name: str = Field(default="", max_length=100)
     business_preset: Literal["starter", "services", "barber"] = "services"
+    business_modules: Optional[List[Literal["contact", "catalog", "appointments"]]] = Field(default=None, max_length=3)
 
 
 def _run_view(run: dict | None) -> dict | None:
@@ -173,6 +175,7 @@ async def launch_stack(
             component["template_config"]["BUSINESS_SOURCE_SHA"] = revision
             component["template_config"]["BUSINESS_NAME"] = request.business_name or plan["base"]
             component["template_config"]["BUSINESS_PRESET"] = request.business_preset
+            component["template_config"]["BUSINESS_MODULES"] = normalize_modules(request.business_preset, request.business_modules)
 
     if plan["homepage"]:
         index = await domain_service.domains_index()

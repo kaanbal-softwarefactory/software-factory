@@ -40,8 +40,9 @@ Stacks porque necesitan su contrato completo; no reemplazan esas plantillas.
 Por MCP: `launch_stack(stack="business-base-demo", base_name="business-demo",
 business_name="Estudio Demo", business_preset="services")`. Primero devuelve
 plan, URLs y SHA de origen; se aplica con el `plan_id` aprobado y se sigue con
-`stack_status`. Un cliente con esquema antiguo puede usar `invoke_platform_tool`
-para los argumentos añadidos después de conectarse.
+`stack_status`. Un cliente con esquema antiguo debe recargar las herramientas o
+reconectar el MCP. `invoke_platform_tool` no reenvía herramientas estáticas como
+`launch_stack`; solo capacidades de autonomía descubiertas por la plataforma.
 
 `business_preset="starter"` ofrece landing `/`, administración `/admin` y clientes
 `/client`, sin catálogo ni agenda de ejemplo. Las rutas usan el mismo origen de

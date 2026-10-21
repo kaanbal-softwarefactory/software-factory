@@ -79,9 +79,35 @@ configura el autenticador; customer sirve para probar el portal.
 Nombre y presentación del sitio se editan en **Mi negocio** con permisos. Cambiar
 `business.config.json` no reescribe una organización ya inicializada. El preset
 se elige al crearla; repetir bootstrap conserva datos y experiencia existente.
-Starter no siembra catálogo ni profesionales, y oculta su navegación. Los módulos
-de servicios siguen disponibles en el código para futuras extensiones; no es una
-restricción adicional de seguridad ni un botón para borrar módulos/datos.
+Starter incluye contacto por defecto. Al lanzar puedes elegir contacto y solicitudes,
+catálogo, y citas con calendario semanal del equipo. Citas activa catálogo porque
+necesita servicios con duración. Los módulos desactivados se ocultan en la interfaz
+y sus operaciones API devuelven 404; no se borra ningún registro. El selector es
+para copias nuevas: cambiar el archivo local no reconfigura un negocio existente.
+
+Por MCP añade `business_modules: ["contact", "appointments"]`; el plan mostrará
+también `catalog` como dependencia. `business_modules: []` inicia solo la base
+de acceso, paneles, equipo, ajustes y auditoría. Omitirlo conserva los valores del
+preset (Starter: contacto; Servicios/Barbería: los tres). Esta elección no cambia
+roles ni permisos. Pagos, archivos y reportes aún no son módulos disponibles.
+
+En local, desde el primer arranque:
+
+```sh
+npm run local:up -- --name business-agenda --preset starter --modules contact,appointments --port 3400 --identity-port 8480 --mail-port 8425
+```
+
+`--modules none` deja solo la base. El generador `npm run copy -- ...` admite la
+misma opción y guarda la selección en `business.config.json`. Cada copia tiene
+su repositorio: Agustín trabaja en pantallas, reglas y migraciones de esa app.
+Las mejoras comunes vuelven a la plantilla mediante PR; no se sobreescriben
+automáticamente las cuatro aplicaciones.
+
+La agenda es un calendario semanal de citas confirmadas, con navegación y zona
+horaria del negocio. Consulta el intervalo al servidor manteniendo RLS y permisos;
+advierte si llega al límite de 1,000 resultados. En móviles se desplaza dentro
+del calendario. Conserva el horario piloto lunes-viernes 09–18 y recursos de
+capacidad uno: no incluye aún disponibilidad configurable, recurrencias ni pagos.
 
 Antes del PR: `npm test` y `npm run build`. Integrar `main` ejecuta el CI de esa
 app y actualiza su despliegue. No actualiza otras copias ni el código base.

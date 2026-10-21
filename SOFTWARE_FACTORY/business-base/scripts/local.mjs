@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { modulesOption } from "./modules.mjs";
 const config = existsSync("business.config.json")
   ? JSON.parse(readFileSync("business.config.json", "utf8"))
   : {};
@@ -26,6 +27,7 @@ const env = {
   IDENTITY_PORT: String(identity),
   MAIL_PORT: String(mail),
   BUSINESS_PRESET: option("--preset", config.preset || "services"),
+  BUSINESS_MODULES: JSON.stringify(modulesOption(option("--modules", undefined), config.modules)),
   BUSINESS_NAME: option("--title", config.title || "Estudio Demo"),
 };
 if (!["starter", "services", "barber"].includes(env.BUSINESS_PRESET)) throw new Error("Preset must be starter, services or barber");

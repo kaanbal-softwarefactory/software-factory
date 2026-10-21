@@ -222,6 +222,7 @@ TOOLS: List[Dict[str, Any]] = [
               "stack": {"type": "string", "description": "Id del stack (list_stacks)."},
               "base_name": {"type": "string", "description": "Nombre base: las piezas se llaman <base>, <base>-api, <base>-db. Por defecto, el del dominio."},
               "business_name": {"type": "string", "description": "Marca para business-base-demo (hasta 100 caracteres)."},
+              "business_modules": {"type": "array", "maxItems": 3, "items": {"type": "string", "enum": ["contact", "catalog", "appointments"]}, "description": "Módulos opcionales. [] deja solo la base de acceso, equipo, auditoría y paneles. appointments activa catalog. Omitir conserva los valores del preset. No incluye pagos, archivos ni reportes."},
               "business_preset": {"type": "string", "enum": ["starter", "services", "barber"], "description": "starter: landing en /, administración en /admin y clientes en /client, sin catálogo/citas iniciales. services y barber incluyen agenda y servicios de ejemplo."},
               "domain": {"type": "string", "description": "Dominio (list_domains). Por defecto, el de la instalación."},
               "homepage": {"type": "boolean", "default": False},

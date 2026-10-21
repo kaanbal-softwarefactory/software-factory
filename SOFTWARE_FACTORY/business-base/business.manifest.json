@@ -18,6 +18,7 @@
     "audit"
   ],
   "presets": ["starter", "services", "barber"],
+  "optional_modules": { "available": ["contact", "catalog", "appointments"], "dependencies": { "appointments": ["catalog"] }, "selection_at": "new organization initialization" },
   "routes": { "landing": "/", "admin": "/admin", "customer": "/client", "automatic": "/workspace" },
   "health": "/api/health",
   "readiness": "/api/ready",

@@ -146,6 +146,7 @@ def stack_plan_view(plan: Mapping[str, Any]) -> Dict[str, Any]:
         "source_sha": next((c.get("template_config", {}).get("BUSINESS_SOURCE_SHA") for c in plan["components"]
                             if c.get("template_config", {}).get("BUSINESS_SOURCE_SHA")), None),
         "business": next(({"name": c["template_config"].get("BUSINESS_NAME"), "preset": c["template_config"].get("BUSINESS_PRESET"),
+                           "modules": c["template_config"].get("BUSINESS_MODULES"),
                            "pages": {"landing": f"https://{c['public_host']}/", "admin": f"https://{c['public_host']}/admin", "client": f"https://{c['public_host']}/client"}}
                           for c in plan["components"] if c.get("template") == "business-base"), None),
         "components": components,

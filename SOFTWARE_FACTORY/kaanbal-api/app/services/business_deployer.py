@@ -145,7 +145,7 @@ def scaffold_source(destination, config):
         # Persist non-secret launch choices so cloning this app reproduces its preset locally.
         (Path(destination) / "business.config.json").write_text(json.dumps({
             "name": f"{config['BUSINESS_APP'][:39]}-local", "title": config.get("BUSINESS_NAME", config["BUSINESS_APP"]),
-            "preset": config.get("BUSINESS_PRESET", "services"), "port": 3100, "identityPort": 8180, "mailPort": 8125,
+            "preset": config.get("BUSINESS_PRESET", "services"), "modules": config.get("BUSINESS_MODULES"), "port": 3100, "identityPort": 8180, "mailPort": 8125,
         }, indent=2) + "\n", encoding="utf-8")
 
 

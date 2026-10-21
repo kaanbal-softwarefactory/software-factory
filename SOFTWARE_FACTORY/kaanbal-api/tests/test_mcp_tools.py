@@ -360,6 +360,12 @@ class PlanFirstTests(unittest.TestCase):
         self.assertEqual(client.calls[0][3], {"to_app": "tienda-db", "alias": "PRINCIPAL"})
         self.assertEqual(client.calls[1][:3], ("DELETE", "/apps/tienda-api/links/tienda-db", {"dry_run": "true"}))
 
+    def test_business_core_only_selection_is_not_lost_by_mcp(self):
+        client = self.create_client()
+        run(tools.call_tool(client, "launch_stack", {"stack": "business-base-demo", "base_name": "business-example",
+                                                     "business_preset": "starter", "business_modules": []}))
+        self.assertEqual(client.calls[-1][3]["business_modules"], [])
+
     def test_exposure_modes_are_checked_before_asking(self):
         client = self.create_client()
         with self.assertRaises(ToolError):

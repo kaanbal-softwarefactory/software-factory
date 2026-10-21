@@ -10,7 +10,7 @@ WEB = DATABASE + ["APP_ORIGIN", "OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SE
                   "PUBLIC_ORGANIZATION", "PUBLIC_REGISTRATION", "CONTACT_NOTIFICATION_EMAIL"]
 WORKER = DATABASE + ["SMTP_HOST", "SMTP_PORT", "SMTP_FROM"]
 BOOTSTRAP = ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "MIGRATION_PGUSER", "MIGRATION_PGPASSWORD",
-             "BUSINESS_PROFILE", "APP_ORIGIN", "OIDC_ISSUER", "BUSINESS_NAME", "BUSINESS_PRESET",
+             "BUSINESS_PROFILE", "APP_ORIGIN", "OIDC_ISSUER", "BUSINESS_NAME", "BUSINESS_PRESET", "BUSINESS_MODULES",
              "BUSINESS_INTERNAL_APP", "IDENTITY_ADMIN_ORIGIN", "IDENTITY_ADMIN_PASSWORD",
              "OIDC_CLIENT_SECRET", "OWNER_PASSWORD", "CUSTOMER_PASSWORD", "SMTP_HOST"]
 IDENTITY = ["KC_DB", "KC_DB_URL", "KC_DB_USERNAME", "KC_DB_PASSWORD", "KC_HOSTNAME",
@@ -35,6 +35,9 @@ def describe(template, name):
         "runtime_inventory_verified": False,
         "presets": {"starter": "Landing /, panel /admin y clientes /client, sin agenda/catálogo iniciales", "services": "Catálogo y citas de servicios", "barber": "Catálogo y citas de barbería"},
         "pages": {"landing": "/", "admin": "/admin", "client": "/client", "automatic": "/workspace"},
+        "optional_modules": {"available": ["contact", "catalog", "appointments"], "dependencies": {"appointments": ["catalog"]},
+                             "selection": "business_modules al lanzar; [] = solo base. Se persiste al crear la organización; bootstrap no reescribe copias existentes.",
+                             "enforcement": "Navegación y API; desactivar no elimina datos.", "always_included": ["identity", "team", "audit", "role_dashboards"]},
         "environment_by_process": {p: sorted(names) for p, names in processes.items()},
         "primary_process": process,
         "components": {"app": base, "database": f"{base}-db", "identity": f"{base}-identity",
