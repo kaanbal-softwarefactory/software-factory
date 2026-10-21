@@ -215,7 +215,9 @@ TOOLS: List[Dict[str, Any]] = [
           }, ["name", "template"]), PUBLIC_ACTION, plan_first=True),
     _tool("launch_stack", "Lanzar un stack", "crear", "stacks.stacks.launch",
           "ACCIÓN: lanza un sistema completo de una vez, en orden y ya cableado: base → API vinculada a la "
-          "base → frontend que apunta a la API. Con homepage=true el frontend ocupa la raíz del dominio.",
+          "base → frontend que apunta a la API. Para una base de negocio con login/MFA, usa business-base-demo "
+          "(PostgreSQL → Keycloak → Next.js con worker). El responsable de un grupo nuevo es el usuario del token MCP; "
+          "se conserva el de un grupo existente. Con homepage=true la app principal ocupa la raíz del dominio.",
           _schema({
               "stack": {"type": "string", "description": "Id del stack (list_stacks)."},
               "base_name": {"type": "string", "description": "Nombre base: las piezas se llaman <base>, <base>-api, <base>-db. Por defecto, el del dominio."},

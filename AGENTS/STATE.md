@@ -1,6 +1,6 @@
 # Estado operativo
 
-Actualizado: 2026-10-19 · Versión: 1.3.0
+Actualizado: 2026-10-21 · Versión: 1.3.0
 
 ## Resumen
 
@@ -19,15 +19,21 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
   fuera de Git, bootstrap idempotente y espera real de readiness. Pruebas:
   API 577 (1 omitida), 13 contratos de credenciales/stack/Kustomize, consola build, 7 unitarias
   de negocio, 33 GitOps y bootstrap con IdP en modo producción/PostgreSQL reales.
-  Pendiente publicar rama (GitHub conectado solo lectura), fusionar, actualizar
-  la célula y aceptar primera demo HTTPS. No está lanzada remotamente. Contrato:
+  Integrado e instalado en célula dev-234ac49; primera demo remota con tres
+  componentes ready y lanzamiento succeeded. HTTPS, health, ready y redirección
+  OIDC comprobados; aceptación remota autenticada/MFA aún pendiente. Correo
+  capturado, sin entrega externa. Contrato:
   `SOFTWARE_FACTORY/business-base/KAANBAL_STACK.md`.
 
 - **Business Base y Sistemas** — rama `codex/business-base-systems`: prototipo local
   Next.js/PostgreSQL/Keycloak con login OIDC, MFA verificado, aislamiento por organización,
   landing, catálogo, contacto/inbox, portal, citas, equipo y auditoría. La consola agrega
-  responsables y etapas a los grupos existentes. Aún no es plantilla ready ni está
-  desplegado en una célula Kaanbal. Guía: `SOFTWARE_FACTORY/business-base/README.md`.
+  responsables y etapas a los grupos existentes. Integrado con stack beta, aún
+  candidato sin aceptación empresarial. Guía: `SOFTWARE_FACTORY/business-base/README.md`.
+- **Contrato MCP Business Base** — rama `codex/business-base-mcp-contract`:
+  corrige receta genérica, declara conexiones por proceso y muestra responsable
+  del grupo en el plan. SMTP por cliente documentado como propuesta en
+  `SOFTWARE_FACTORY/business-base/EMAIL_PROFILES.md`, aún sin panel ni integración.
 - **MCP de administración (1.3.0)** — en `main`, con pruebas offline (524 pruebas de la
   API, 10 del puente, build de consola). Falta: publicar la release `v1.3.0` y validarlo
   en una célula real (ciclo de aprobación, rollback, reinicio). Detalle en

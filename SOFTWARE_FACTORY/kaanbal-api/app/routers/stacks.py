@@ -187,6 +187,8 @@ async def launch_stack(
                 )
 
     view = change_plans.stack_plan_view(plan)
+    group_metadata = await db.app_groups.find_one({"_id": plan["group"]})
+    view["group_owner"] = group_metadata.get("owner") if group_metadata else current_user.username
     running = await db.stack_runs.find_one({"state": "running"})
     busy = None
     if running and _run_view(running)["state"] == "running":
@@ -205,6 +207,7 @@ async def launch_stack(
         "stack_name": plan["stack_name"],
         "base": plan["base"],
         "group": plan["group"],
+        "group_owner": view["group_owner"],
         "domain": fqdn,
         "domain_id": domain_id,
         "environments": plan["environments"],

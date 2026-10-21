@@ -321,7 +321,7 @@ async def _app_contract(client: ApiClient, app: str, env: str) -> Dict[str, Any]
             template = {}
     category = str(doc.get("category") or template.get("category") or "")
     port = template.get("port") or (doc.get("specs") or {}).get("port")
-    health = "/health" if "fastapi" in template_id else ("/" if category == "frontend" else None)
+    health = template.get("health_check_path") or ("/health" if "fastapi" in template_id else ("/" if category == "frontend" else None))
 
     link_names: Dict[str, List[str]] = {}
     links: List[Dict[str, Any]] = []
@@ -344,7 +344,7 @@ async def _app_contract(client: ApiClient, app: str, env: str) -> Dict[str, Any]
     has_repo = bool(doc.get("repo_url"))
     environments = list(doc.get("environments") or ["prod"])
     domain = doc.get("domain") or {}
-    return {
+    result = {
         "app": app,
         "template": template_id,
         "category": category,
@@ -366,6 +366,30 @@ async def _app_contract(client: ApiClient, app: str, env: str) -> Dict[str, Any]
         "rules": _contract_rules(category, port, health),
         "more": "platform_guide(topic='desarrollo-local') y platform_guide(topic='desplegar').",
     }
+    from app.mcp import business_contract
+    managed = business_contract.describe(template_id, app)
+    if managed:
+        result["managed_stack"] = managed
+        result["variables"] = {
+            "env": env, "source": "declared_contract", "runtime_inventory_verified": False,
+            "platform": managed["environment_by_process"][managed["primary_process"]], "links": [], "own": [],
+            "local_env_example": "# El Compose local genera secretos aislados. No requiere .env ni credenciales de producción.",
+        }
+        if template_id == "business-base":
+            result["runtime"]["health_path"] = "/api/ready"
+            result["runtime"]["liveness_path"] = "/api/health"
+        result["local_steps"] = business_contract.local_steps(template_id, app)
+        result["rules"].extend(managed["rules"])
+        group = doc.get("app_group")
+        result["group"] = {"name": group, "owner": None}
+        if group:
+            try:
+                inventory = await client.get("/groups")
+                metadata = next((g for g in inventory.get("groups", []) if g.get("id") == group or g.get("slug") == group), {})
+                result["group"]["owner"] = metadata.get("owner")
+            except ToolError:
+                pass
+    return result
 
 
 # ── Despacho ─────────────────────────────────────────────────────────────

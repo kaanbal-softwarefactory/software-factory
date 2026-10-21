@@ -32,7 +32,9 @@ Stacks porque necesitan su contrato completo; no reemplazan esas plantillas.
    Servicios/Barbería y opcionalmente nombre comercial/homepage.
 3. Confirmar el plan. Se prepara base → identidad → app y se espera readiness
    real, incluyendo inicialización, worker y build inicial.
-4. En **Sistemas**, asignar responsable. Es organización del trabajo; no cambia
+4. En **Sistemas**, comprobar responsable: un grupo nuevo toma el usuario autenticado
+   que lo lanzó (también por token MCP); uno existente conserva su responsable.
+   Es organización del trabajo; no cambia
    permisos de Kaanbal ni cuentas del negocio.
 
 Por MCP: `launch_stack(stack="business-base-demo", base_name="business-demo",
@@ -40,6 +42,37 @@ business_name="Estudio Demo", business_preset="services")`. Primero devuelve
 plan, URLs y SHA de origen; se aplica con el `plan_id` aprobado y se sigue con
 `stack_status`. Un cliente con esquema antiguo puede usar `invoke_platform_tool`
 para los argumentos añadidos después de conectarse.
+
+## Trabajo de otra persona mediante MCP
+
+Cada persona conecta su propio token y comprueba `whoami` y
+`platform_capabilities`. Compartir el token de otra persona atribuye el lanzamiento
+a esa otra cuenta. El nombre del token no es la identidad del responsable.
+El plan muestra `group_owner`; cambiar el responsable después de preparar el plan
+invalida ese plan. La asignación no concede acceso al repositorio ni crea una
+cuenta administradora en Keycloak.
+
+Un pedido posible es: «Prepara Business Base para Taller Ejemplo, preset Servicios,
+nombre taller-ejemplo. Muéstrame el grupo, responsable y URLs antes de lanzarlo».
+El agente consulta `platform_guide`, prepara `launch_stack` y aplica el plan
+aprobado. Si vence la conexión, consulta los lanzamientos existentes antes de repetir.
+
+Después usa `app_contract` sobre la app. El contrato declara conexiones, variables
+por proceso, probes y reglas de seguridad; no afirma haber inspeccionado valores
+del runtime. No se deben reemplazar esas conexiones con `link_apps`, reparaciones
+genéricas de bindings o variables manuales.
+
+El desarrollador clona **el repositorio generado de su app**, instala Node.js 24 y
+Docker con Compose, ejecuta `npm ci` y `npm run local:up -- --name taller-local`.
+La receta crea base, identidad y correo locales. Otras copias necesitan nombres y
+puertos diferentes desde su primer arranque. `local:access` se consulta solamente
+en su terminal. Modifica pantallas en `app/` y `components/`, reglas en `lib/` y
+agrega migraciones en `migrations/`. Comprueba `npm test` y `npm run build`,
+reconstruye con los mismos argumentos de `local:up` y publica una rama/PR.
+El CI de `main` actualiza únicamente esa copia. Acceso a GitHub y roles del negocio
+se conceden aparte del owner del grupo.
+
+El diseño de entrega real de correo está en [EMAIL_PROFILES.md](EMAIL_PROFILES.md).
 
 Las cuentas ficticias iniciales son `owner` y `customer`. Las contraseñas
 aleatorias se consultan privadamente en Vault: `secret/prod/<nombre>`, claves

@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Business Base MCP contract with declared connections and environment names per
+  process, local development instructions and explicit captured-email limits.
+  Stack plans expose the authenticated creator's group ownership and invalidate
+  if that owner changes before application. Existing group ownership is preserved.
+  Includes a proposed per-client SMTP profile design, not yet implemented.
 - Business Base demo candidate in Stacks: separate PostgreSQL/identity/app,
   source copies pinned to the installed revision, Vault-backed secrets outside
   Git, initialization, worker, captured email and readiness verification.

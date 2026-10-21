@@ -124,6 +124,13 @@ class FakeCollection:
                 for key, value in update.get("$set", {}).items():
                     _set(doc, key, copy.deepcopy(value))
                 return SimpleNamespace(matched_count=1, modified_count=1)
+        if upsert:
+            stored = copy.deepcopy(query)
+            stored.update(copy.deepcopy(update.get("$setOnInsert", {})))
+            stored.update(copy.deepcopy(update.get("$set", {})))
+            stored.setdefault("_id", ObjectId())
+            self.docs.append(stored)
+            return SimpleNamespace(matched_count=0, modified_count=0, upserted_id=stored["_id"])
         return SimpleNamespace(matched_count=0, modified_count=0)
 
     async def delete_many(self, query):
@@ -380,6 +387,33 @@ class PlanEndpointTests(unittest.TestCase):
         self.assertIn("otro", answer["notices"][0])
         response = self.client.post(f"/api/v1/stacks?plan_id={answer['plan_id']}", json=self.STACK_BODY)
         self.assertEqual(response.status_code, 409)
+
+    def test_group_owner_comes_from_authenticated_user_not_request_fields(self):
+        self.client.app.dependency_overrides[get_current_active_user] = lambda: User(username="developer-a")
+        body = {**self.STACK_BODY, "owner": "someone-else", "group_owner": "someone-else"}
+        answer = self.client.post("/api/v1/stacks?dry_run=true", json=body).json()
+        self.assertEqual(answer["plan"]["group_owner"], "developer-a")
+        self.assertEqual(self.db.app_groups.docs, [])
+        response = self.client.post(f"/api/v1/stacks?plan_id={answer['plan_id']}", json=body)
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(self.db.app_groups.docs[0]["owner"], "developer-a")
+        self.assertEqual(self.db.stack_runs.docs[0]["actor"], "developer-a")
+
+    def test_launch_preserves_existing_group_owner_and_shows_it_in_plan(self):
+        self.db.app_groups.docs.append({"_id": "orbita", "owner": "developer-b", "name": "Shared system"})
+        answer = self.client.post("/api/v1/stacks?dry_run=true", json=self.STACK_BODY).json()
+        self.assertEqual(answer["plan"]["group_owner"], "developer-b")
+        response = self.client.post(f"/api/v1/stacks?plan_id={answer['plan_id']}", json=self.STACK_BODY)
+        self.assertEqual(response.status_code, 202, response.text)
+        self.assertEqual(self.db.app_groups.docs[0]["owner"], "developer-b")
+
+    def test_changed_group_owner_invalidates_an_approved_plan(self):
+        self.db.app_groups.docs.append({"_id": "orbita", "owner": "developer-b"})
+        answer = self.client.post("/api/v1/stacks?dry_run=true", json=self.STACK_BODY).json()
+        self.db.app_groups.docs[0]["owner"] = "developer-c"
+        response = self.client.post(f"/api/v1/stacks?plan_id={answer['plan_id']}", json=self.STACK_BODY)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.db.stack_runs.docs, [])
 
 
 if __name__ == "__main__":

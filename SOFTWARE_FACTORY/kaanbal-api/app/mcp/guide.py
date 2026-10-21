@@ -324,6 +324,53 @@ con la evidencia (sin secretos) y la acción que lo arregla.
     },
 }
 
+_BUSINESS_BASE = """\
+
+## Business Base: un repo de negocio con conexiones gestionadas
+
+Para una app de negocio con login, MFA, portal, inbox y reservas, elige
+`business-base-demo` en `list_stacks`; las plantillas Next.js genéricas son otro
+punto de partida y no incluyen este contrato.
+
+1. `whoami` identifica instancia y usuario; `platform_capabilities` comprueba
+   permisos. Cada persona debe usar su token personal.
+2. Pide `launch_stack(stack='business-base-demo', base_name='sistema-demo',
+   business_name='Estudio Demo', business_preset='services', environments=['prod'])`.
+3. Muestra el plan y `group_owner`. Tras aprobarlo aplica con `plan_id`; consulta
+   `stack_status` hasta ready y verifica `check_urls` y `diagnose_app`.
+4. Si la petición inicial da timeout, consulta `list_stacks` para recuperar el
+   run_id; no repitas el lanzamiento sin verificar si ya creó recursos.
+5. Consulta `app_contract(name='sistema-demo')` antes de desarrollar. Contiene
+   repo, rutas de salud, conexiones y variables declaradas separadas por proceso.
+
+La plataforma genera PostgreSQL privado → Keycloak producción → Next.js y worker.
+Cada copia recibe código, base e identidad propios. El responsable inicial del
+grupo es el usuario autenticado, no un owner enviado por el cliente ni el nombre
+del token. El responsable existente se conserva. Es metadato de organización:
+no concede acceso a GitHub ni crea al administrador del negocio. Las cuentas
+owner/customer son fixtures de demo, distintas de las cuentas de Kaanbal.
+
+Solo clonas el repo Next.js del negocio. Su Compose local incluye PostgreSQL,
+Keycloak y correo capturado: `npm ci` y `npm run local:up -- --name sistema-local`.
+Lee AGENTS.md y KAANBAL_STACK.md. Para varias copias, elige nombre y puertos
+distintos desde el principio; reconstruye con los mismos argumentos al modificar.
+
+No conectes manualmente esta app mediante link_apps/repair_db_bindings ni
+reemplaces sus credenciales con variables genéricas. El runtime usa un rol
+PostgreSQL limitado; el init container aplica migraciones con otro rol y configura
+OIDC/PKCE. Las referencias a secretos se gestionan en Vault, fuera de Git.
+
+El correo actual se captura en Mailpit privado. Keycloak envía verificación y
+recuperación; el worker, mensajes de negocio. SMTP externo requiere configurar
+ambos con un perfil de correo del cliente, remitente autorizado y credenciales
+separadas. Ese panel y ese perfil real aún no están implementados; no prometas
+envío externo ni pidas claves en el chat. La entrega SMTP no equivale a bandeja
+de entrada de personas. El candidato sigue siendo beta, con solo prod: otra
+prueba es otro nombre. Cambiar main despliega esa copia; no actualiza las demás.
+"""
+for _topic in ("plataforma", "desarrollo-local", "conectar"):
+    TOPICS[_topic]["text"] += _BUSINESS_BASE
+
 DEFAULT_TOPIC = "plataforma"
 
 
