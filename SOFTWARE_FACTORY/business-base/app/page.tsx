@@ -1,5 +1,6 @@
 import ContactForm from "../components/ContactForm";
 import { publicSite } from "../lib/business";
+import StarterLanding from "../components/StarterLanding";
 export const dynamic = "force-dynamic";
 export default async function Home({
   searchParams,
@@ -22,6 +23,7 @@ export default async function Home({
     );
   }
   const { organization, services } = site;
+  if (organization.experience === "starter") return <StarterLanding organization={organization} authFailed={params.auth === "failed"} />;
   const whatsapp = String(organization.whatsapp).replace(/[^0-9]/g, "");
   return (
     <div className="shell">

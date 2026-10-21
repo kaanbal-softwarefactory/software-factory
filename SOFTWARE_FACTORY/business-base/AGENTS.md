@@ -2,6 +2,9 @@
 
 Lee README.md y business.manifest.json antes de cambiar el sistema. Esta aplicación
 es una base de referencia en evaluación: todavía no es una plantilla ready.
+Para la experiencia landing/admin/clientes, lee STARTER.md. El preset starter se
+selecciona al crear la organización; no reescribas su preset ni borres datos en bootstrap.
+La copia generada conserva business.config.json y .gitignore para desarrollo local.
 
 - Identidad: OIDC con openid-client. No implementes otro almacén de contraseñas.
 - Autorización: lib/policy.ts y lib/session.ts. Una organización viene de una

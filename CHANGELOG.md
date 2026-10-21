@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Business Base Starter preset: a public landing, separate administration and
+  customer dashboards, membership-based server entry, personal requests and shared
+  inbox. Launch from console/MCP on a root domain or subdomain; plans show page
+  URLs and generated repositories preserve the preset for local development.
+  Existing presets and data remain intact with an additive experience migration.
 - Business Base MCP contract with declared connections and environment names per
   process, local development instructions and explicit captured-email limits.
   Stack plans expose the authenticated creator's group ownership and invalidate

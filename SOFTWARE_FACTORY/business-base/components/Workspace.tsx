@@ -1,12 +1,15 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { allows, type Role } from "../lib/policy";
+import { dashboardMembers, type DashboardMode } from "../lib/dashboard";
+import ContactForm from "./ContactForm";
 
 type Member = {
   organization_id: string;
   name: string;
   slug: string;
   role: Role;
+  experience?: string;
 };
 type User = {
   id: string;
@@ -16,6 +19,9 @@ type User = {
   memberships: Member[];
 };
 type RecordRow = Record<string, string | number | boolean | null>;
+const roleNames: Record<Role, string> = { owner: "Propietario", admin: "Administrador", staff: "Colaborador", customer: "Cliente" };
+const requestStates: Record<string, string> = { new: "Nueva", assigned: "En atención", closed: "Cerrada" };
+const requestState = (state: RecordRow[string]) => requestStates[String(state)] || String(state);
 async function api(path: string, body?: unknown) {
   const result = await fetch(`/api/business/${path}`, {
     method: body === undefined ? "GET" : "POST",
@@ -35,7 +41,7 @@ async function api(path: string, body?: unknown) {
   return data;
 }
 
-export default function Workspace() {
+export default function Workspace({ mode }: { mode: DashboardMode }) {
   const [user, setUser] = useState<User | null>(null),
     [org, setOrg] = useState(""),
     [tab, setTab] = useState("overview");
@@ -51,8 +57,10 @@ export default function Workspace() {
     token: string;
     organization: string;
   } | null>(null);
+  const [publicOrg, setPublicOrg] = useState("");
   const member = user?.memberships.find((m) => m.organization_id === org);
   const role = member?.role || "customer";
+  const simple = member?.experience === "starter";
   const reload = useCallback(async () => {
     if (!org) return;
     setBusy(true);
@@ -72,6 +80,8 @@ export default function Workspace() {
   }, [org, tab]);
   async function loadMe() {
     const me = (await api("me")) as User;
+    me.memberships = dashboardMembers({ ...me, email_verified: true }, mode);
+    if (mode === "client") setPublicOrg((await api("public")).organization.id);
     setUser(me);
     setOrg((current) =>
       me.memberships.some((m) => m.organization_id === current)
@@ -115,11 +125,10 @@ export default function Workspace() {
       id: "requests",
       name: allows(role, "inbox.read") ? "Solicitudes" : "Mis solicitudes",
     },
-    {
+    ...(!simple ? [{
       id: "appointments",
       name: allows(role, "appointments.manage") ? "Citas" : "Mis citas",
-    },
-    { id: "catalog", name: "Catálogo" },
+    }, { id: "catalog", name: "Catálogo" }] : []),
     ...(allows(role, "members.manage")
       ? [{ id: "members", name: "Equipo y accesos" }]
       : []),
@@ -167,13 +176,13 @@ export default function Workspace() {
       </main>
     );
   return (
-    <div className="app-shell">
+    <div className={`app-shell dashboard-${mode}`}>
       <aside className="sidebar">
         <a className="brand" href="/">
-          <span className="brand-mark">k</span>Business Base
+          <span className="brand-mark">{member?.name?.slice(0, 1) || "k"}</span>{member?.name || "Mi espacio"}
         </a>
         <div>
-          <span className="eyebrow">Tu espacio</span>
+          <span className="eyebrow">{mode === "admin" ? "Administración" : "Portal de clientes"}</span>
           <nav>
             {links.map((link) => (
               <button
@@ -192,7 +201,7 @@ export default function Workspace() {
             <br />
             espacio para crecer.
           </p>
-          <span className="tag">Referencia · v0.1.0</span>
+          <a href="/">Ver sitio público ↗</a>
         </div>
       </aside>
       <main className="workspace">
@@ -201,7 +210,7 @@ export default function Workspace() {
             <small>Hola, {user.name}</small>
             <div className="row">
               <strong>{member?.name || "Sin organización"}</strong>
-              <span className="tag">{role}</span>
+              <span className="tag">{roleNames[role]}</span>
             </div>
           </div>
           <div className="row">
@@ -239,12 +248,12 @@ export default function Workspace() {
             </button>
           </div>
         </header>
-        <span className="eyebrow">Todo en su lugar</span>
+        <span className="eyebrow">{mode === "admin" ? "Panel administrativo" : "Mi espacio de cliente"}</span>
         <h1>{links.find((l) => l.id === tab)?.name}</h1>
         <p className="muted">
           {tab === "overview"
-            ? "Una vista clara de lo que está pasando en tu negocio."
-            : "Gestiona la información de tu organización."}
+            ? (mode === "admin" ? "Tu operación, en perspectiva. Lo importante empieza aquí." : "Tus solicitudes y novedades, en un solo lugar.")
+            : (mode === "admin" ? "Gestiona la información de tu organización." : "Consulta el seguimiento de tu cuenta.")}
         </p>
         {!user.mfa && ["owner", "admin"].includes(role) && (
           <section className="status">
@@ -318,37 +327,43 @@ export default function Workspace() {
               </div>
               <div className="card metric">
                 <small>Tu acceso</small>
-                <strong style={{ fontSize: "1.5rem" }}>{role}</strong>
+                <strong style={{ fontSize: "1.5rem" }}>{roleNames[role]}</strong>
               </div>
             </div>
             <section className="card">
               <span className="eyebrow">El siguiente paso</span>
-              <h2>Todo empieza con una conexión.</h2>
+              <h2>{mode === "admin" ? "Dale seguimiento a cada conversación." : "Estamos para acompañarte."}</h2>
               <p className="muted">
-                Revisa tus solicitudes, reserva un servicio o consulta el
-                catálogo de tu organización.
+                {mode === "admin" ? "Consulta las solicitudes del equipo y mantén la atención al día." : "Envía una solicitud desde tu cuenta y consulta aquí su avance."}
               </p>
               <div className="row">
                 <button onClick={() => setTab("requests")}>
                   Ver solicitudes →
                 </button>
-                <button
+                {!simple && <button
                   className="secondary"
                   onClick={() => setTab("appointments")}
                 >
                   Consultar citas
-                </button>
+                </button>}
               </div>
+            </section>
+            <section className="recent-panel">
+              <div className="section-head"><h2>Actividad reciente</h2><button className="secondary small" onClick={() => setTab("requests")}>Ver solicitudes →</button></div>
+              {busy ? <p role="status">Cargando actividad…</p> : rows.length ? rows.slice(0, 4).map((row) => (
+                <article className="activity-row" key={String(row.id)}><span className="activity-dot" /><div><strong>{row.name}</strong><p>{String(row.message).slice(0, 100)}</p></div><span className="tag">{requestState(row.state)}</span></article>
+              )) : <p className="empty">Todavía no hay solicitudes. Las nuevas conversaciones aparecerán aquí.</p>}
             </section>
           </>
         )}
         {org && tab === "requests" && (
           <div className="list">
+            {mode === "client" && org === publicOrg && <section className="card"><h2>Crear una solicitud</h2><p className="muted">Tu mensaje quedará vinculado a esta cuenta.</p><ContactForm onSent={() => void reload()} /></section>}
             {rows.map((row) => (
               <article className="item" key={String(row.id)}>
                 <div className="item-head">
                   <strong>{row.name}</strong>
-                  <span className="tag">{row.state}</span>
+                  <span className="tag">{requestState(row.state)}</span>
                 </div>
                 <small>
                   {row.email} ·{" "}
@@ -631,8 +646,7 @@ export default function Workspace() {
           >
             <h3>Información de tu negocio</h3>
             <p className="muted">
-              Los cambios aparecen en tu sitio público. La zona horaria define
-              el horario de las reservas.
+              Los cambios aparecen en tu sitio público. {simple ? "Personaliza la presentación de tu marca." : "La zona horaria define el horario de las reservas."}
             </p>
             <label>
               Nombre

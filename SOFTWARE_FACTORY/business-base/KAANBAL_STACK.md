@@ -29,7 +29,7 @@ Stacks porque necesitan su contrato completo; no reemplazan esas plantillas.
 
 1. Integrar el PR y actualizar Kaanbal: API, consola, catálogo y Role de secretos.
 2. En **Stacks → Business Base · Demo**, elegir nombre, dominio, preset
-   Servicios/Barbería y opcionalmente nombre comercial/homepage.
+   Starter/Servicios/Barbería y opcionalmente nombre comercial/homepage.
 3. Confirmar el plan. Se prepara base → identidad → app y se espera readiness
    real, incluyendo inicialización, worker y build inicial.
 4. En **Sistemas**, comprobar responsable: un grupo nuevo toma el usuario autenticado
@@ -42,6 +42,11 @@ business_name="Estudio Demo", business_preset="services")`. Primero devuelve
 plan, URLs y SHA de origen; se aplica con el `plan_id` aprobado y se sigue con
 `stack_status`. Un cliente con esquema antiguo puede usar `invoke_platform_tool`
 para los argumentos añadidos después de conectarse.
+
+`business_preset="starter"` ofrece landing `/`, administración `/admin` y clientes
+`/client`, sin catálogo ni agenda de ejemplo. Las rutas usan el mismo origen de
+la app, con o sin homepage. El plan muestra sus URLs. El repo conserva la elección
+para el desarrollo local. Recorrido de personalización: [STARTER.md](STARTER.md).
 
 ## Trabajo de otra persona mediante MCP
 

@@ -399,6 +399,25 @@ class PlanEndpointTests(unittest.TestCase):
         self.assertEqual(self.db.app_groups.docs[0]["owner"], "developer-a")
         self.assertEqual(self.db.stack_runs.docs[0]["actor"], "developer-a")
 
+    def test_business_starter_request_reaches_plan_and_approved_run(self):
+        import json
+        from pathlib import Path
+        from app.services import core_release
+        catalog = json.loads((Path(__file__).resolve().parents[2] / "kaanbal-templates" / "catalog.json").read_text(encoding="utf-8"))
+        stack = next(s for s in catalog["stacks"] if s["id"] == "business-base-demo")
+        body = {**self.STACK_BODY, "stack": stack["id"], "name": "starter-example", "business_preset": "starter", "business_name": "Estudio Ejemplo"}
+        with mock.patch.object(stacks_router.template_service, "get_stack_details", mock.AsyncMock(return_value=stack)), mock.patch.object(core_release, "read_provenance", mock.AsyncMock(return_value={"upstream_sha": "a" * 40})), mock.patch.object(stacks_router, "_run_stack", mock.AsyncMock()) as run:
+            for homepage in (False, True):
+                candidate = {**body, "homepage": homepage}
+                response = self.client.post("/api/v1/stacks?dry_run=true", json=candidate)
+                self.assertEqual(response.status_code, 200, response.text)
+                answer = response.json()
+                self.assertEqual(answer["plan"]["business"]["preset"], "starter")
+                self.assertTrue(answer["plan"]["business"]["pages"]["admin"].endswith("/admin"))
+            applied = self.client.post(f"/api/v1/stacks?plan_id={answer['plan_id']}", json=candidate)
+            self.assertEqual(applied.status_code, 202, applied.text)
+            self.assertTrue(all(c["template_config"]["BUSINESS_PRESET"] == "starter" for c in run.await_args.args[1]["components"]))
+
     def test_launch_preserves_existing_group_owner_and_shows_it_in_plan(self):
         self.db.app_groups.docs.append({"_id": "orbita", "owner": "developer-b", "name": "Shared system"})
         answer = self.client.post("/api/v1/stacks?dry_run=true", json=self.STACK_BODY).json()

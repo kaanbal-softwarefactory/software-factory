@@ -28,6 +28,7 @@ const env = {
   BUSINESS_PRESET: option("--preset", config.preset || "services"),
   BUSINESS_NAME: option("--title", config.title || "Estudio Demo"),
 };
+if (!["starter", "services", "barber"].includes(env.BUSINESS_PRESET)) throw new Error("Preset must be starter, services or barber");
 const base = ["compose", "--project-name", name];
 let command;
 if (action === "up")

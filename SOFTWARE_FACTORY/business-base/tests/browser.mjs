@@ -23,6 +23,7 @@ if (
 )
   throw new Error("Use a local disposable business-* project");
 const directory = resolve(option("--screenshots", "coverage/browser"));
+const starter = args.includes("--starter");
 mkdirSync(directory, { recursive: true });
 const compose = ["compose", "--project-name", project];
 function credential(name) {
@@ -180,7 +181,14 @@ try {
   debugPage = customer;
   stage = "landing";
   await customer.goto(base);
-  await customer.getByRole("heading", { name: "Nuestros servicios" }).waitFor();
+  await customer.getByRole("heading", { name: starter ? /Lo que sigue/ : "Nuestros servicios" }).waitFor();
+  if (starter) {
+    assert.equal((await customer.request.get(`${base}/api/business/public`).then(r => r.json())).services.length, 0);
+    await customer.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await customer.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await customer.screenshot({ path: resolve(directory, "landing-mobile.png"), fullPage: true });
+    await customer.setViewportSize({ width: 1440, height: 1000 });
+  }
   await customer.screenshot({
     path: resolve(directory, "landing.png"),
     fullPage: true,
@@ -193,6 +201,15 @@ try {
   await customer
     .getByRole("heading", { name: "Resumen", exact: true })
     .waitFor({ timeout: 30000 });
+  assert.equal(new URL(customer.url()).pathname, "/client");
+  if (starter) assert.equal(await customer.getByRole("button", { name: "Mis citas", exact: true }).count(), 0);
+  stage = "customer cannot enter admin";
+  await customer.goto(`${base}/admin`);
+  await customer.getByRole("heading", { name: "Este espacio necesita otro acceso." }).waitFor();
+  await customer.goto(`${base}/client`);
+  const customerMe = await customer.request.get(`${base}/api/business/me`).then(r => r.json());
+  const organization = customerMe.memberships[0].organization_id;
+  assert.equal((await customer.request.get(`${base}/api/business/${organization}/members`)).status(), 403);
   assert.equal(
     await customer
       .getByRole("button", { name: "Equipo y accesos", exact: true })
@@ -200,7 +217,8 @@ try {
     0,
   );
   stage = "customer request";
-  await customer.goto(`${base}/#contact`);
+  if (starter) await customer.getByRole("button", { name: "Mis solicitudes", exact: true }).click();
+  else await customer.goto(`${base}/#contact`);
   await customer.locator("input[name=name]").fill("Cliente de prueba");
   await customer.locator("input[name=email]").fill("customer@example.com");
   const message = `Solicitud de navegador ${subject.slice(0, 8)}`;
@@ -265,12 +283,15 @@ try {
     .waitFor({ timeout: 30000 });
   const assurance = await owner.request.get(`${base}/api/business/me`);
   assert.equal((await assurance.json()).mfa, true);
+  assert.equal(new URL(owner.url()).pathname, "/admin");
+  if (starter) assert.equal(await owner.getByRole("button", { name: "Citas", exact: true }).count(), 0);
+  await owner.screenshot({ path: resolve(directory, "admin-overview.png"), fullPage: true });
   stage = "inbox management";
   await owner.getByRole("button", { name: "Solicitudes", exact: true }).click();
   await owner.getByText(message, { exact: true }).waitFor();
   const item = owner.locator("article").filter({ hasText: message });
   await item.getByRole("button", { name: "Asignarme" }).click();
-  await item.getByText("assigned", { exact: true }).waitFor();
+  await item.getByText("En atención", { exact: true }).waitFor();
   await owner.screenshot({
     path: resolve(directory, "admin-inbox.png"),
     fullPage: true,

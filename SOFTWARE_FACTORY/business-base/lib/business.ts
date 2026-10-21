@@ -32,7 +32,7 @@ async function audit(
 }
 async function publicOrganization() {
   const result = await pool.query(
-    "SELECT id,slug,name,description,whatsapp,timezone FROM organizations WHERE slug=$1 AND public=true",
+    "SELECT id,slug,name,description,whatsapp,timezone,experience FROM organizations WHERE slug=$1 AND public=true",
     [process.env.PUBLIC_ORGANIZATION || "demo"],
   );
   if (!result.rowCount) throw new Problem(404, "Sitio no configurado");

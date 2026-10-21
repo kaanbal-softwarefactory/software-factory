@@ -14,14 +14,17 @@ try {
   await db.query("BEGIN");
   const org = (
     await db.query(
-      `INSERT INTO organizations(slug,name,description,public,timezone) VALUES('demo',$1,$2,true,'America/Mexico_City') ON CONFLICT(slug) DO UPDATE SET slug=excluded.slug RETURNING id`,
+      `INSERT INTO organizations(slug,name,description,public,timezone,experience) VALUES('demo',$1,$2,true,'America/Mexico_City',$3) ON CONFLICT(slug) DO UPDATE SET slug=excluded.slug RETURNING id,experience`,
       [
         config.name,
         "Servicios pensados para ti, atención cercana y un equipo que te acompaña de principio a fin.",
+        config.preset || "services",
       ],
     )
-  ).rows[0].id;
-  await db.query("SELECT set_config('app.organization_id',$1,true)", [org]);
+  ).rows[0];
+  const preset = org.experience;
+  const organizationId = org.id;
+  await db.query("SELECT set_config('app.organization_id',$1,true)", [organizationId]);
   for (const [subject, email, name, role] of [
     [config.ownerSubject, "owner@example.com", "Owner Demo", "owner"],
     [
@@ -39,10 +42,10 @@ try {
     ).rows[0].id;
     await db.query(
       "INSERT INTO memberships(organization_id,person_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-      [org, person, role],
+      [organizationId, person, role],
     );
   }
-  if (!(await db.query("SELECT 1 FROM catalog LIMIT 1")).rowCount) {
+  if (preset !== "starter" && !(await db.query("SELECT 1 FROM catalog LIMIT 1")).rowCount) {
     const services =
       config.preset === "barber"
         ? [
@@ -83,11 +86,11 @@ try {
     for (const [name, description, price, duration] of services)
       await db.query(
         "INSERT INTO catalog(organization_id,name,description,price_cents,duration_minutes) VALUES($1,$2,$3,$4,$5)",
-        [org, name, description, price, duration],
+        [organizationId, name, description, price, duration],
       );
     await db.query(
       "INSERT INTO resources(organization_id,name) VALUES($1,'Equipo de atención')",
-      [org],
+      [organizationId],
     );
   }
   await db.query("COMMIT");

@@ -5,6 +5,11 @@ catálogo, contacto/inbox, portal, reservas, equipo, auditoría y notificaciones
 La implementación vive aquí y se conserva aunque detengas una copia de prueba.
 Estado y alcance: `business.manifest.json`.
 
+**Starter: landing + administración + clientes.** Elige `starter` para una base
+sin catálogo ni agenda de ejemplo. Sitio en `/`, equipo en `/admin`, clientes en
+`/client`, en el dominio raíz o subdominio del lanzamiento. Sigue [STARTER.md](STARTER.md)
+para lanzar, desarrollar y probar tu copia. Servicios y Barbería siguen disponibles.
+
 El [contrato del stack](KAANBAL_STACK.md) describe el candidato `business-base-demo`
 para Kaanbal: PostgreSQL, identidad y app por GitOps. Requiere integrar y actualizar
 la versión del core que lo incorpora antes de aparecer en el catálogo.

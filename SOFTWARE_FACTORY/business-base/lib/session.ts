@@ -33,10 +33,13 @@ export type Actor = {
     slug: string;
     name: string;
     role: Role;
+    experience?: string;
   }[];
 };
 export async function actor(request: NextRequest): Promise<Actor> {
-  const token = request.cookies.get(sessionCookie)?.value;
+  return actorForToken(request.cookies.get(sessionCookie)?.value);
+}
+export async function actorForToken(token: string | undefined): Promise<Actor> {
   if (!token) throw new Problem(401, "Inicia sesión para continuar");
   const result = await pool.query(
     `SELECT u.id, u.name, u.email, u.email_verified, s.mfa FROM sessions s
@@ -47,7 +50,7 @@ export async function actor(request: NextRequest): Promise<Actor> {
   const user = result.rows[0];
   user.memberships = (
     await pool.query(
-      `SELECT m.organization_id, m.role, o.slug, o.name FROM memberships m
+      `SELECT m.organization_id, m.role, o.slug, o.name, o.experience FROM memberships m
     JOIN organizations o ON o.id=m.organization_id WHERE m.person_id=$1 AND m.active=true ORDER BY o.name`,
       [user.id],
     )

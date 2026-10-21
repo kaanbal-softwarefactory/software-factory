@@ -1,4 +1,5 @@
-import Workspace from "../../components/Workspace";
+import Dashboard from "../../components/Dashboard";
+export const dynamic = "force-dynamic";
 export default function Page() {
-  return <Workspace />;
+  return <Dashboard />;
 }

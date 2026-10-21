@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-export default function ContactForm() {
+export default function ContactForm({ onSent }: { onSent?: () => void } = {}) {
   const [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
     [failed, setFailed] = useState(false);
@@ -19,6 +19,7 @@ export default function ContactForm() {
           });
           const data = await result.json();
           setFailed(!result.ok);
+          if (result.ok) onSent?.();
           setMessage(
             result.ok
               ? "Recibimos tu solicitud. Nuestro equipo le dará seguimiento."

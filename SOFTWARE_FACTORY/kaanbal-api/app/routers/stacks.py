@@ -51,7 +51,7 @@ class StackLaunchRequest(BaseModel):
     group: Optional[str] = Field(default=None, description="Grupo lógico; por defecto, el nombre base")
     description: str = ""
     business_name: str = Field(default="", max_length=100)
-    business_preset: Literal["services", "barber"] = "services"
+    business_preset: Literal["starter", "services", "barber"] = "services"
 
 
 def _run_view(run: dict | None) -> dict | None:

@@ -142,6 +142,11 @@ def scaffold_source(destination, config):
         provenance = json.loads(manifest.read_text(encoding="utf-8"))
         provenance["source_sha"] = revision
         manifest.write_text(json.dumps(provenance, indent=2) + "\n", encoding="utf-8")
+        # Persist non-secret launch choices so cloning this app reproduces its preset locally.
+        (Path(destination) / "business.config.json").write_text(json.dumps({
+            "name": f"{config['BUSINESS_APP'][:39]}-local", "title": config.get("BUSINESS_NAME", config["BUSINESS_APP"]),
+            "preset": config.get("BUSINESS_PRESET", "services"), "port": 3100, "identityPort": 8180, "mailPort": 8125,
+        }, indent=2) + "\n", encoding="utf-8")
 
 
 async def deploy(deployer, app_data, emit):

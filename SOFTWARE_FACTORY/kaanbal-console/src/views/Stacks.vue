@@ -146,9 +146,16 @@
                 </label>
                 <label class="block text-sm text-slate-300">Configuración inicial
                   <select v-model="form.business_preset" class="w-full mt-1 bg-slate-800 rounded-lg px-3 py-2">
-                    <option value="services">Servicios</option><option value="barber">Barbería</option>
+                    <option value="starter">Starter · Landing + Admin + Clientes</option>
+                    <option value="services">Servicios · Catálogo y citas</option><option value="barber">Barbería · Catálogo y citas</option>
                   </select>
                 </label>
+                <div class="rounded-xl border border-emerald-400/20 bg-emerald-400/5 p-3 text-xs text-slate-300 space-y-2">
+                  <p class="font-semibold text-emerald-200">Tres espacios, una sola aplicación</p>
+                  <p><code>/</code> Sitio público · <code>/admin</code> Equipo · <code>/client</code> Clientes</p>
+                  <p>{{ form.business_preset === 'starter' ? 'Una base limpia con contacto, solicitudes, equipo y auditoría. Sin catálogo ni citas de ejemplo.' : 'Incluye servicios de ejemplo y agenda, además de los tres espacios.' }}</p>
+                  <p>Las rutas usan el dominio raíz o subdominio que elijas. Acceso por rol; administradores con MFA.</p>
+                </div>
               </div>
               <label v-if="modal.stack?.profile !== 'business-demo'" class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
                 <input type="checkbox" v-model="form.withDev" />
@@ -209,7 +216,7 @@ const domains = ref([])
 const run = ref(null)
 
 const modal = reactive({ show: false, stack: null, error: '' })
-const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false, business_name: '', business_preset: 'services' })
+const form = reactive({ name: '', domain_id: '', homepage: false, withDev: false, business_name: '', business_preset: 'starter' })
 const toast = reactive({ show: false, message: '', type: 'success' })
 
 const showToast = (message, type = 'success') => {
@@ -290,7 +297,7 @@ const openLaunch = (stack) => {
   form.homepage = false
   form.withDev = false
   form.business_name = ''
-  form.business_preset = 'services'
+  form.business_preset = 'starter'
   if (!form.domain_id) form.domain_id = (domains.value.find(d => d.is_default) || domains.value[0])?._id || ''
 }
 

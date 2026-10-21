@@ -1,0 +1,16 @@
+# This directory is also copied into independent application repositories.
+node_modules/
+.next/
+coverage/
+dist/
+*.tsbuildinfo
+*.log
+*.tmp
+.env*
+!.env.example
+*.pem
+*.key
+*.secret
+_private/
+.DS_Store
+Thumbs.db

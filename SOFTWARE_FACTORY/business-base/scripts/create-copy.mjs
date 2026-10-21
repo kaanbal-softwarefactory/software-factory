@@ -20,9 +20,9 @@ const name = option("--name", "business-copy"),
 if (
   !destination ||
   !/^[a-z][a-z0-9-]{2,45}$/.test(name) ||
-  !["services", "barber"].includes(preset)
+  !["starter", "services", "barber"].includes(preset)
 )
-  throw new Error("Use --output PATH --name slug --preset services|barber");
+  throw new Error("Use --output PATH --name slug --preset starter|services|barber");
 const target = resolve(destination);
 if (
   existsSync(target) ||

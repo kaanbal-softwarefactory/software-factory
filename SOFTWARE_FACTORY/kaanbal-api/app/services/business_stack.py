@@ -24,7 +24,7 @@ def validate_config(template, config, environments):
     for key in ("BUSINESS_DB_APP", "BUSINESS_IDENTITY_APP", "BUSINESS_APP"):
         if not re.fullmatch(r"[a-z][a-z0-9-]{2,45}", str(config.get(key, ""))):
             raise ValueError(f"Falta un nombre válido en {key}.")
-    if config.get("BUSINESS_PRESET", "services") not in ("services", "barber"):
+    if config.get("BUSINESS_PRESET", "services") not in ("starter", "services", "barber"):
         raise ValueError("Preset Business Base desconocido.")
     base = config["BUSINESS_APP"]
     if config["BUSINESS_DB_APP"] != f"{base}-db" or config["BUSINESS_IDENTITY_APP"] != f"{base}-identity":

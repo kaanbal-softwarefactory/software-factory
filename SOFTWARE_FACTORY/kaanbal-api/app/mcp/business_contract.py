@@ -33,6 +33,8 @@ def describe(template, name):
     return {
         "profile": "business-base-demo", "stage": "beta", "environment_names_source": "declared_contract",
         "runtime_inventory_verified": False,
+        "presets": {"starter": "Landing /, panel /admin y clientes /client, sin agenda/catálogo iniciales", "services": "Catálogo y citas de servicios", "barber": "Catálogo y citas de barbería"},
+        "pages": {"landing": "/", "admin": "/admin", "client": "/client", "automatic": "/workspace"},
         "environment_by_process": {p: sorted(names) for p, names in processes.items()},
         "primary_process": process,
         "components": {"app": base, "database": f"{base}-db", "identity": f"{base}-identity",

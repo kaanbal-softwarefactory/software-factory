@@ -14,6 +14,15 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Business Base Starter** — rama `codex/business-base-starter`, incluye el contrato
+  MCP pendiente de la rama anterior. Agrega preset starter con landing en `/`,
+  panel del equipo `/admin` y portal `/client`, selección consola/MCP y URLs en
+  plan para homepage/subdominio. Migración aditiva conserva la experiencia al
+  reiniciar; repos generados guardan preset/marca para local:up. Guía STARTER.md.
+  Probado en copia local aislada con Keycloak/PostgreSQL y navegador real; pendiente
+  publicar/integrar/actualizar célula, GitHub conectado sin push. La demo remota
+  existente no recibe estos cambios automáticamente.
+
 - **Business Base stack candidato** — rama `codex/business-base-stack`: catálogo
   `business-base-demo`, PostgreSQL/Keycloak/app con worker, credenciales Vault
   fuera de Git, bootstrap idempotente y espera real de readiness. Pruebas:

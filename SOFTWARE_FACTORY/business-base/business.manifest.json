@@ -17,7 +17,8 @@
     "notifications",
     "audit"
   ],
-  "presets": ["services", "barber"],
+  "presets": ["starter", "services", "barber"],
+  "routes": { "landing": "/", "admin": "/admin", "customer": "/client", "automatic": "/workspace" },
   "health": "/api/health",
   "readiness": "/api/ready",
   "extensions": "Personaliza marca y reglas en una copia; devuelve correcciones comunes a la base mediante PR.",

@@ -354,6 +354,12 @@ Solo clonas el repo Next.js del negocio. Su Compose local incluye PostgreSQL,
 Keycloak y correo capturado: `npm ci` y `npm run local:up -- --name sistema-local`.
 Lee AGENTS.md y KAANBAL_STACK.md. Para varias copias, elige nombre y puertos
 distintos desde el principio; reconstruye con los mismos argumentos al modificar.
+El preset starter ofrece landing en /, administración en /admin y clientes en
+/client, sin servicios ni citas de ejemplo. Se elige con business_preset='starter'.
+Las tres rutas usan el host elegido: homepage en el dominio raíz o subdominio.
+/workspace dirige al panel permitido por la membresía; los permisos siguen
+comprobándose en servidor. El repo generado guarda preset y nombre comercial
+en business.config.json para que local:up reproduzca la configuración inicial.
 
 No conectes manualmente esta app mediante link_apps/repair_db_bindings ni
 reemplaces sus credenciales con variables genéricas. El runtime usa un rol

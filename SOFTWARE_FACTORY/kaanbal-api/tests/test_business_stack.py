@@ -24,6 +24,21 @@ def documents(component):
 
 
 class BusinessStackTests(unittest.TestCase):
+    def test_starter_pages_and_identity_callbacks_use_the_chosen_host(self):
+        for homepage in (False, True):
+            p = plan(homepage=homepage)
+            for component in p["components"]:
+                component["template_config"]["BUSINESS_PRESET"] = "starter"
+            web = p["components"][-1]
+            generated = documents(web)
+            bootstrap = generated[0]["spec"]["template"]["spec"]["initContainers"][0]
+            values = {e["name"]: e.get("value") for e in bootstrap["env"]}
+            host = "example.com" if homepage else "business-example.example.com"
+            self.assertEqual(values["APP_ORIGIN"], f"https://{host}")
+            self.assertEqual(values["BUSINESS_PRESET"], "starter")
+            pages = change_plans.stack_plan_view(p)["business"]["pages"]
+            self.assertEqual(pages, {"landing": f"https://{host}/", "admin": f"https://{host}/admin", "client": f"https://{host}/client"})
+
     def test_order_and_private_database_with_real_ports(self):
         components = plan()["components"]
         self.assertEqual([c["role"] for c in components], ["database", "identity", "backend"])
