@@ -16,7 +16,8 @@
     "local:stop": "node scripts/local.mjs stop",
     "local:access": "node scripts/local.mjs access",
     "copy": "node scripts/create-copy.mjs",
-    "test:browser": "node tests/browser.mjs"
+    "test:browser": "node tests/browser.mjs",
+    "test:copies": "node tests/copies.mjs"
   },
   "dependencies": {
     "jose": "6.1.3",

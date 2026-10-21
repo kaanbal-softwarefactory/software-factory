@@ -37,6 +37,8 @@ jobs:
       - run: npm run local:up
       - run: docker compose -p business-reference run --rm --no-deps migrate npm run test:integration
       - run: npm run test:browser
+      - run: npm run local:up -- --name business-barber-test --port 3200 --identity-port 8280 --mail-port 8225 --preset barber --title "Barbería Demo"
+      - run: npm run test:copies
       - uses: actions/upload-artifact@v4
         if: success()
         with:
@@ -44,6 +46,8 @@ jobs:
           path: SOFTWARE_FACTORY/business-base/coverage/browser/*.png
       - if: always()
         run: npm run local:stop
+      - if: always()
+        run: npm run local:stop -- --name business-barber-test
 
   api:
     name: API tests

@@ -22,7 +22,8 @@ En **tu propia terminal**, `npm run local:access` muestra las credenciales
 generadas para `owner`, `customer` y `local-admin`. No las pegues en chats.
 El owner configura su autenticador al primer acceso. Después usa «Verificar MFA»
 para iniciar una sesión con contraseña y OTP verificados si el alta inicial no
-incluyó ese factor en el token. El cliente accede sin permisos administrativos.
+incluyó ese factor en el token. Espera a que el autenticador cambie de código para
+evitar reutilizar el código de alta. El cliente accede sin permisos administrativos.
 
 Los secretos son aleatorios y viven en volúmenes Docker separados. La aplicación
 no recibe las credenciales de PostgreSQL administrador, migraciones o administración
@@ -108,6 +109,11 @@ docker compose -p business-reference run --rm --no-deps migrate npm run test:int
 npx playwright install chromium
 npm run test:browser
 ```
+
+Después de lanzar también `business-barber-test` con el comando anterior, ejecuta
+`npm run test:copies`: verifica identidades, organizaciones y catálogos separados,
+incluyendo sesiones simultáneas en un mismo navegador. Las cookies de las apps
+se nombran por instancia porque los navegadores no separan cookies por puerto.
 
 Las pruebas de integración crean datos ficticios en la instancia de prueba.
 Las de navegador crean su propia cuenta administrativa para probar MFA y no

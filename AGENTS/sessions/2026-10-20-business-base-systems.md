@@ -35,6 +35,11 @@ los grupos actuales por responsable sin cambiar su visibilidad.
 
 ## Validación y pendientes
 
+Validación local: API 564 pruebas (1 omitida), puente MCP 10, Business Base 7
+unitarias y 12 de integración, builds de base y consola, npm audit de producción
+sin vulnerabilidades, aceptación en navegador con login OIDC y MFA reales, e
+identidades/catálogos/organizaciones/sesiones simultáneas separadas en dos copias.
+Las instancias locales permanecen disponibles para la prueba de la persona.
 La evidencia consolidada se registra en la descripción de PR preparada y en el chat.
 Pruebas de navegador con cuentas y datos ficticios, sin capturar pantallas de contraseña
 o MFA. No se modificaron aplicaciones existentes ni datos de una célula.
@@ -45,6 +50,7 @@ dependencias explícitas y Jobs de migración por GitOps, restauración y valida
 en una célula. Las migraciones de aplicaciones existentes serán graduales, con
 identidad verificada, copia de staging, respaldo y ensayo de corte/rollback.
 
-GitHub: el conector rechazó crear el issue con HTTP 403; gh no tiene sesión activa.
-La rama se prepara localmente sin modificar main. No se considera fusionado ni
+GitHub: el conector rechazó crear el issue con HTTP 403 y confirma permiso push=false;
+gh no tiene sesión activa y git push falla por ausencia de credenciales. El código
+queda guardado en commits locales de la rama, sin modificar main. No se considera fusionado ni
 desplegado hasta confirmar las operaciones correspondientes.
