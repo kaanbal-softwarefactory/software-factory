@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Fixed
+- Agent Hub, second pilot iteration: read state is kept per agent (a returning agent no longer gets
+  already-read messages or its own broadcasts back); any agent action counts as a heartbeat; `pr_url`
+  only accepts a created pull request; MCP validation errors read as one sentence per field and the tool
+  schemas announce field limits; when an objective is met the Hub tells people once what to merge (and the
+  console shows it); the agent start prompt carries the agent name and asks to check repository and PR
+  access first.
 - Agent Hub, found in the first pilot with Codex (cloud) and Claude: leaving a session now also
   releases its blocked tasks (they stay blocked, without owner), and a new session can take back a
   task whose session already left instead of getting a misleading "another agent took it". Claiming

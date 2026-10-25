@@ -100,6 +100,10 @@ async def _own_session(request: Request, session_id: str) -> Dict[str, Any]:
         raise HTTPException(403, "Esa sesión es de otra persona: abre la tuya con hub_join.")
     if session.get("left_at"):
         raise HTTPException(409, "Esa sesión ya se cerró con hub_leave. Abre otra con hub_join.")
+    # Cualquier acción del agente cuenta como latido: en tareas largas se olvida hub_sync y aparecía inactivo.
+    now = _now()
+    await get_db()[SESSIONS].update_one({"_id": session_id}, {"$set": {"last_seen": now}})
+    session["last_seen"] = now
     return session
 
 
@@ -333,12 +337,16 @@ async def heartbeat(session_id: str, body: SyncBody, request: Request):
     await db[SESSIONS].update_one({"_id": session_id}, {"$set": updates})
     if body.status:
         await _event(session["group"], "progress", body.status.strip(), session=session, task_ref=session.get("task"))
-    inbox_query = {"group": session["group"], "from_session": {"$ne": session_id}, "read_by": {"$ne": session_id},
+    # Leído por agente, no por sesión: al volver con otra sesión no se reentrega lo ya visto ni lo que envió él mismo.
+    inbox_query = {"group": session["group"], "from_session": {"$ne": session_id},
+                   "from_agent": {"$ne": session["agent"]}, "read_by": {"$ne": session_id},
+                   "read_by_agents": {"$ne": session["agent"]},
                    "to": {"$in": ["all", session_id, session["agent"]]},
                    "created_at": {"$gte": session["started_at"] - timedelta(hours=24)}}
     inbox = await db[MESSAGES].find(inbox_query).sort("created_at", 1).limit(50).to_list(50)
     if inbox:
-        await db[MESSAGES].update_many({"_id": {"$in": [m["_id"] for m in inbox]}}, {"$addToSet": {"read_by": session_id}})
+        await db[MESSAGES].update_many({"_id": {"$in": [m["_id"] for m in inbox]}},
+                                       {"$addToSet": {"read_by": session_id, "read_by_agents": session["agent"]}})
     async def page(collection, field, name, limit, extra=None):
         checkpoint = session.get(name) or {"at": cursor, "id": ""}
         query = {"group": session["group"], **(extra or {}), "$or": [
@@ -591,6 +599,9 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         value = getattr(body, field)
         if value is not None:
             values[field] = (value.strip() or None) if field in ("branch", "pr_url") else value.strip()
+    if values.get("pr_url") and not hub.valid_pr_url(values["pr_url"]):
+        raise HTTPException(422, "pr_url debe ser un pull request ya creado (…/pull/123 o …/merge_requests/123). "
+                                 "Un enlace de compare no es un PR: déjalo en la nota y avisa a una persona.")
     if body.status:
         values["status"] = body.status
         if body.status in ("todo", "proposed", "dropped"):
@@ -629,7 +640,30 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
     summary = f"{hub.task_label(task)}: " + (", ".join(parts) or "editada")
     await _event(task["group"], "task", summary, session=session, person=_principal(request).username,
                  task_ref=task.get("key") or task_id, agent=actor)
+    if body.status == "done":
+        await _announce_objective(task["group"])
     return hub.public_task(updated)
+
+
+async def _announce_objective(group: str) -> None:
+    """Al cumplirse el objetivo, avisa a las personas qué fusionar: los agentes se detienen y nadie más lo diría."""
+    project = await _project(group)
+    settings = hub.work_settings(project.get("settings"))
+    objective = hub.objective_progress(await _group_tasks(group), settings)
+    if not objective["complete"]:
+        return
+    signature = f"{settings['objective']}|{','.join(settings['scope_phases'] + settings['scope_tasks'])}"
+    if project.get("objective_announced") == signature:
+        return
+    await _touch_project(group, objective_announced=signature)
+    lines = [f"- {d['task']}: " + (d["pr_url"] or f"rama {d['branch']}") for d in objective["deliveries"]]
+    text = (f"Objetivo cumplido ({objective['done']}/{objective['total']}): {settings['objective'] or 'alcance actual'}. "
+            "Los agentes se detienen. Para seguir: revisa y fusiona lo entregado y elige el siguiente objetivo en "
+            "'Cambiar modo'." + ("\n" + "\n".join(lines) if lines else ""))
+    await get_db()[MESSAGES].insert_one({"_id": _new_id(), "group": group, "to": "people", "text": text[:4000],
+                                         "task_ref": None, "from_session": None, "from_agent": "kaanbal",
+                                         "person": None, "created_at": _now(), "read_by": []})
+    await _event(group, "board", text[:4000], agent="kaanbal")
 
 
 # ── Mensajes ─────────────────────────────────────────────────────────────
@@ -1011,9 +1045,13 @@ async def digest(group: str, body: DigestBody, request: Request):
 
 # ── Guías ────────────────────────────────────────────────────────────────
 @router.get("/guides")
-async def hub_guides(group: str = "", harness: str = "", specialty: str = ""):
+async def hub_guides(group: str = "", harness: str = "", specialty: str = "", agent: str = ""):
     """Textos para arrancar: prompt de fases para ChatGPT, mensaje inicial de un agente y bloque para AGENTS.md."""
     slug = group if hub.valid_group(group) else "<grupo>"
+    try:
+        name = hub.agent_name(agent) if agent.strip() else ""
+    except hub.HubError:
+        name = ""
     return {"chatgpt_phases": guides.CHATGPT_PHASES_PROMPT, "agent_start": guides.agent_start_prompt(
-        slug, harness[:30], specialty[:120]), "repo_snippet": guides.REPO_SNIPPET, "protocol": hub.PROTOCOL,
+        slug, harness[:30], specialty[:120], name), "repo_snippet": guides.REPO_SNIPPET, "protocol": hub.PROTOCOL,
         "plan_file": hub.PLAN_FILE}

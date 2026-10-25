@@ -196,6 +196,14 @@ def public_session(session: Mapping[str, Any], now: datetime) -> Dict[str, Any]:
 
 
 # ── Tareas ───────────────────────────────────────────────────────────────
+_PR_URL = re.compile(r"^https://[^\s/]+/[^\s]+/(pull|pull-requests|merge_requests)/\d+/?$")
+
+
+def valid_pr_url(value: str) -> bool:
+    """Un pull/merge request ya creado; un enlace de compare o de rama no lo es."""
+    return bool(_PR_URL.match((value or "").strip()))
+
+
 def task_label(task: Mapping[str, Any]) -> str:
     return f"{task.get('key') or task['_id']} · {task.get('title')}"
 
@@ -378,6 +386,9 @@ def objective_progress(tasks: List[Mapping[str, Any]], settings: Mapping[str, An
             "review": sum(t.get("status") == "review" for t in scoped),
             "external_dependencies": list(external.values()),
             "remaining": [task_label(t) for t in scoped if t.get("status") != "done"][:20],
+            # Lo que una persona debe fusionar cuando se cumpla el objetivo.
+            "deliveries": [{"task": t.get("key") or t["_id"], "branch": t.get("branch"), "pr_url": t.get("pr_url")}
+                           for t in scoped if t.get("status") == "done" and (t.get("branch") or t.get("pr_url"))],
             "complete": bool(scoped) and done == len(scoped)}
 
 
@@ -458,6 +469,7 @@ def compact_task(task: Mapping[str, Any]) -> Dict[str, Any]:
 PROTOCOL = [
     "Preséntate con hub_join y guarda tu session_id: es tu identidad en este proyecto.",
     "Lee el tablero y los últimos relevos antes de tocar código; no leas todo el histórico.",
+    "Antes de tomar código, comprueba que puedes leer el repositorio y abrir un PR; si no, hub_log kind=blocker.",
     "Toma una tarea con hub_claim_task antes de editar. Si depende de algo sin terminar, el Hub te dice quién lo "
     "tiene: pídeselo con hub_message o toma otra tarea disponible.",
     f"Llama a hub_sync cada ~{HEARTBEAT_HINT_SECONDS // 60} minutos o después de cada paso importante: deja latido, "
@@ -465,8 +477,9 @@ PROTOCOL = [
     "Registra decisiones, bloqueos y preguntas con hub_log (cortos, con archivos o PR si los hay).",
     "Respeta el ownership del área: no edites archivos de otra tarea en curso; si cruzas, pide contrato o PR.",
     "Los archivos de fuente/ son de las personas (solo lectura). Lo tuyo va en live/ con hub_write_note.",
-    "Al terminar una tarea sigue la regla de cierre de este proyecto (arriba) y deja rama/PR; al irte usa "
-    "hub_leave con un relevo que sirva al siguiente agente.",
+    "Al terminar una tarea sigue la regla de cierre de este proyecto (arriba) y deja la rama; pr_url solo para un "
+    "PR ya creado (un compare va en la nota). Al irte usa hub_leave con un relevo que sirva al siguiente agente.",
+    "Si objective.complete es true, el Hub ya avisó a las personas qué fusionar: no tomes tareas fuera del objetivo.",
     "Si aprendiste algo útil para otros proyectos, déjalo con hub_add_lesson (scope platform).",
 ]
 

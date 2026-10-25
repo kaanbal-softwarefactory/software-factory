@@ -77,6 +77,27 @@ Cada proyecto elige en la consola (botón **Cambiar modo**, permiso `hub.project
 - **Aceptar propuestas solas**: lo que propone un agente dentro del objetivo queda listo para tomarse.
 - En cualquier modo, **fusionar a `main` y desplegar sigue siendo de personas**.
 
+### Al cumplirse el objetivo
+
+Cuando la última tarea del alcance pasa a *done*, el Hub manda **un** mensaje a `people` y deja un evento con
+lo que hay que fusionar (rama o PR de cada tarea); la consola lo muestra en la franja del modo. Los agentes se
+detienen; una persona fusiona y elige el siguiente objetivo. `pr_url` solo acepta un PR ya creado
+(`…/pull/N`, `…/merge_requests/N`): un enlace de compare va en la nota.
+
+## Lo aprendido en el primer piloto (Claude + Codex, W1 de un proyecto real)
+
+| Qué pasó | Qué cambió |
+|---|---|
+| La revisión cruzada encontró 4 errores reales que el autor no vio (2 en un contrato, 2 en el Hub) | `done_by=peer` es la opción recomendada para contratos y núcleo |
+| Un agente en la nube no tenía acceso al repo (403) y ninguno pudo abrir PR | El protocolo y el prompt de arranque piden comprobar repo y PR antes de tomar código |
+| Una tarea bloqueada quedó a nombre de una sesión cerrada | `hub_leave` suelta las bloqueadas y una sesión nueva puede retomarlas |
+| Al volver, un agente recibió otra vez 27 mensajes ya leídos y los suyos | Lo leído se guarda por agente y nadie recibe sus propios mensajes |
+| En tareas largas un agente no dio latido y quedó «inactivo» | Cualquier acción del agente en el Hub cuenta como latido |
+| Un compare se registró como PR | `pr_url` valida que sea un PR creado |
+| Un estado de más de 300 caracteres devolvió el error crudo de validación | El MCP anuncia los límites y explica el error por campo |
+| Al terminar W1 ambos agentes se fueron y nadie avisó que tocaba fusionar | Aviso automático a las personas con lo que hay que fusionar |
+| En Windows, los `.sh` con CRLF impidieron levantar el stack local | Lección de plataforma: `.gitattributes` con `eol=lf` en repos con scripts |
+
 ## Fases y plan (`kaanbal.hub.json`)
 
 El ZIP de fases puede traer un plan que el Hub importa como tareas (idempotente por `key`, no toca

@@ -243,7 +243,7 @@ class HubFlowTests(HubCase):
         with self.assertRaises(HTTPException):
             await routes.update_task("T03", routes.TaskUpdate(session_id=claude, status="done"), self.beto)
 
-        await routes.update_task("T03", routes.TaskUpdate(session_id=astra, status="done", pr_url="https://example.com/pr/7"),
+        await routes.update_task("T03", routes.TaskUpdate(session_id=astra, status="done", pr_url="https://github.com/example/app/pull/7"),
                                  self.ana)
         await routes.update_task("T01", routes.TaskUpdate(session_id=claude, status="done"), self.beto)
         await routes.claim_task("T02", routes.ClaimBody(session_id=claude), self.beto)

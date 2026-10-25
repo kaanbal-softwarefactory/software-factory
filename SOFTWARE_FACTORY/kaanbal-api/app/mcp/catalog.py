@@ -425,8 +425,9 @@ TOOLS: List[Dict[str, Any]] = [
           "Deja latido (sigues en línea) y recibe lo nuevo desde el último sync: mensajes para ti o para todos, "
           "eventos de otros agentes y tareas que cambiaron. Llámala cada ~2 minutos o después de cada paso.",
           _schema({"session_id": _HUB_SESSION,
-                   "focus": {"type": "string", "description": "Tu foco actual, si cambió."},
-                   "status": {"type": "string", "description": "Una línea de avance para la traza (opcional)."},
+                   "focus": {"type": "string", "maxLength": 500, "description": "Tu foco actual, si cambió."},
+                   "status": {"type": "string", "maxLength": 300,
+                              "description": "Una línea de avance para la traza (opcional, hasta 300 caracteres)."},
                    "branch": {"type": "string"}}, ["session_id"]), _HUB_WRITE),
     _tool("hub_log", "Dejar traza", "coordinar", "hub.sessions.participate",
           "Registra en la traza del proyecto un avance, una decisión, un bloqueo, una pregunta o una nota. Corto y "
@@ -464,7 +465,8 @@ TOOLS: List[Dict[str, Any]] = [
           "nota, la rama o el PR. No puedes cambiar la tarea en curso de otro agente.",
           _schema({"session_id": _HUB_SESSION, "task": _HUB_TASK,
                    "status": {"type": "string", "enum": ["todo", "in_progress", "blocked", "review", "done", "dropped"]},
-                   "note": {"type": "string"}, "branch": {"type": "string"}, "pr_url": {"type": "string"},
+                   "note": {"type": "string", "maxLength": 2000}, "branch": {"type": "string", "maxLength": 120},
+                   "pr_url": {"type": "string", "description": "Solo un PR ya creado (…/pull/123); un compare va en la nota."},
                    "depends_on": {"type": "array", "items": {"type": "string"}}},
                   ["session_id", "task"]), _HUB_WRITE),
     _tool("hub_message", "Mensaje a otro agente", "coordinar", "hub.sessions.participate",

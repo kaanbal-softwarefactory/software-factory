@@ -5,6 +5,7 @@
       <p class="text-sm text-slate-400">Conecta el MCP de Kaanbal en Codex, Claude Code o Cursor (ver <router-link to="/connect" class="text-cyan-300">Conectar</router-link>) con un token que tenga <code>hub.sessions.participate</code>. Después pega este mensaje para empezar.</p>
       <div class="flex flex-wrap gap-3">
         <select v-model="harness" class="field" aria-label="Harness"><option value="codex">Codex</option><option value="claude">Claude Code</option><option value="cursor">Cursor</option><option value="chatgpt">ChatGPT</option></select>
+        <input v-model="agent" class="field min-w-44" placeholder="Nombre del agente (astra-ana)" aria-label="Nombre del agente" />
         <input v-model="specialty" class="field flex-1 min-w-56" placeholder="Especialidad (diseño, APIs, seguridad…)" aria-label="Especialidad" />
         <button class="glass-button" @click="load">Generar</button>
       </div>
@@ -36,7 +37,7 @@ import api from '../../services/api'
 
 const props = defineProps({ group: { type: String, required: true } })
 const guides = ref({ agent_start: '', chatgpt_phases: '', repo_snippet: '', protocol: [], plan_file: 'kaanbal.hub.json' })
-const harness = ref('claude'), specialty = ref('')
+const harness = ref('claude'), specialty = ref(''), agent = ref('')
 
 const Copyable = defineComponent({
   props: { text: String, tall: Boolean },
@@ -51,7 +52,7 @@ const Copyable = defineComponent({
 })
 
 async function load() {
-  guides.value = (await api.get('/hub/guides', { params: { group: props.group, harness: harness.value, specialty: specialty.value } })).data
+  guides.value = (await api.get('/hub/guides', { params: { group: props.group, harness: harness.value, specialty: specialty.value, agent: agent.value } })).data
 }
 onMounted(load)
 </script>

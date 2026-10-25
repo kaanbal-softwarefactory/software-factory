@@ -66,22 +66,27 @@ hub_write_note. Los ZIP con imágenes los subo yo desde la consola.
 """
 
 
-def agent_start_prompt(group: str, harness: str = "", specialty: str = "") -> str:
+def agent_start_prompt(group: str, harness: str = "", specialty: str = "", agent: str = "") -> str:
     """El mensaje corto con el que una persona arranca su agente en el proyecto."""
     who = f" Eres {harness}." if harness else ""
     focus = f" Tu especialidad declarada: {specialty}." if specialty else ""
+    name = f"'{agent}'" if agent else "<tu nombre corto y estable>"
     return (
         f"Trabajamos en el proyecto '{group}' coordinado en Kaanbal.{who}{focus}\n"
-        f"1. Llama a hub_join(group='{group}', agent=<tu nombre corto>, harness=<codex|claude|cursor>, "
-        "specialty=<en qué eres bueno>, focus=<qué vas a hacer>) y guarda el session_id.\n"
+        f"1. Llama a hub_join(group='{group}', agent={name}, harness=<codex|claude|cursor>, "
+        "specialty=<en qué eres bueno>, focus=<qué vas a hacer>) y guarda el session_id. Usa siempre el mismo nombre: "
+        "así el Hub reconoce lo que ya leíste y lo que dejaste.\n"
         "2. Lee lo que te devuelve: tablero, quién está en línea, tareas disponibles para ti, bloqueos y últimos "
         "relevos. Si necesitas una fuente, ábrela con hub_read_file (solo las imágenes de tu tarea).\n"
-        "3. Sigue el modo del proyecto (work_mode y objective del briefing): en modo guiado propón qué tomarás y "
+        "3. Antes de tomar código comprueba tu entorno: acceso al repositorio (git ls-remote) y si puedes abrir un PR. "
+        "Si falta algo, hub_log kind=blocker y avisa a las personas en vez de quedarte a medias.\n"
+        "4. Sigue el modo del proyecto (work_mode y objective del briefing): en modo guiado propón qué tomarás y "
         "espera mi visto bueno; en modo autónomo toma con hub_claim_task y avanza sin preguntar hasta cumplir el "
         "objetivo. Si otro agente está en línea, coordínate con hub_message antes de cruzar su área.\n"
-        "4. Mientras trabajas: hub_sync cada ~2 min o tras cada paso; hub_log para decisiones, bloqueos y preguntas; "
-        "notas, contratos e informes en live/ con hub_write_note.\n"
-        "5. Al terminar: hub_update_task (review/done, rama y PR) y hub_leave con un relevo útil para el siguiente."
+        "5. Mientras trabajas: hub_sync cada ~2 min o tras cada paso (cualquier acción del Hub cuenta como latido); "
+        "hub_log para decisiones, bloqueos y preguntas; notas, contratos e informes en live/ con hub_write_note.\n"
+        "6. Al terminar: hub_update_task (review/done, rama y, si existe, el PR creado; un compare va en la nota) y "
+        "hub_leave con un relevo útil para el siguiente."
     )
 
 

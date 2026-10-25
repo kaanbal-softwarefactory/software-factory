@@ -14,6 +14,13 @@
       </div>
       <p class="text-xs text-slate-400 mt-2">Alcance: {{ scopeLabel }} · {{ objective.ready || 0 }} listas · {{ objective.review || 0 }} por revisar</p>
       <p v-if="objective.external_dependencies?.length" class="text-xs text-amber-200 mt-2">Hay requisitos pendientes fuera del objetivo: {{ objective.external_dependencies.map(d => d.ref).join(', ') }}. Amplía el alcance o resuélvelos antes de continuar.</p>
+      <div v-if="objective.complete" role="status" class="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/10 p-3 text-sm text-emerald-100">
+        <p class="font-medium">Objetivo cumplido: los agentes se detuvieron.</p>
+        <p class="text-xs mt-1">Revisa y fusiona lo entregado; después elige el siguiente objetivo con «Cambiar modo».</p>
+        <ul v-if="objective.deliveries?.length" class="text-xs mt-2 space-y-0.5">
+          <li v-for="d in objective.deliveries" :key="d.task"><span class="font-mono">{{ d.task }}</span> · <a v-if="safeLink(d.pr_url)" :href="safeLink(d.pr_url)" target="_blank" rel="noopener" class="underline">PR</a><span v-else>rama {{ d.branch }}</span></li>
+        </ul>
+      </div>
       <p v-if="autonomous && !objective.total" class="text-xs text-amber-200 mt-2">El objetivo no incluye tareas activas. Revisa el alcance o acepta las propuestas pendientes.</p>
     </div>
     <button v-if="canManage" class="glass-button" @click="open">Cambiar modo</button>
@@ -74,7 +81,7 @@
 <script setup>
 import { ref, computed, nextTick } from 'vue'
 import api from '../../services/api'
-import { detail, inScope, STATUS } from './hubUi'
+import { detail, inScope, safeLink, STATUS } from './hubUi'
 
 const props = defineProps({
   group: { type: String, required: true },
