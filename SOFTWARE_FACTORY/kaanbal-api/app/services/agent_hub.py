@@ -286,6 +286,8 @@ def public_task(task: Mapping[str, Any], index: Mapping[str, Mapping[str, Any]] 
         "created_by": task.get("created_by"), "updated_at": task.get("updated_at"),
         "reviewed_by": task.get("reviewed_by"), "reviewed_at": task.get("reviewed_at"),
         "integration": task.get("integration"),
+        "origin": task.get("origin"), "verification_path": task.get("verification_path") or "/",
+        "expected_visible_text": task.get("expected_visible_text") or "",
     }
     if index is not None:
         data["waiting_on"] = pending_dependencies(task, index)
@@ -332,7 +334,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {"mode": "guided", "done_by": "person", "auto
                                     "objective": "", "scope_phases": [], "scope_tasks": [],
                                     # Integración a main: manual (las personas fusionan) o auto (Kaanbal fusiona
                                     # lo revisado si los checks pasan y sigue el despliegue).
-                                    "integration": "manual", "require_checks": True, "integration_app": ""}
+                                    "integration": "manual", "require_checks": True, "integration_app": "",
+                                    # Ambiente que recibe la integración; rama vacía = la principal del repo.
+                                    "integration_env": "prod", "integration_branch": ""}
 
 GUIDED_RULES = [
     "Modo GUIADO: propón a la persona qué tarea vas a tomar y espera su visto bueno antes de hub_claim_task.",
@@ -372,6 +376,8 @@ def work_settings(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
         settings["integration"] = "manual"
     settings["require_checks"] = settings["require_checks"] is not False
     settings["integration_app"] = str(settings["integration_app"] or "")[:63]
+    settings["integration_env"] = "dev" if settings["integration_env"] == "dev" else "prod"
+    settings["integration_branch"] = str(settings["integration_branch"] or ("develop" if settings["integration_env"] == "dev" else ""))[:120]
     return settings
 
 
@@ -400,14 +406,18 @@ def objective_progress(tasks: List[Mapping[str, Any]], settings: Mapping[str, An
             "complete": bool(scoped) and done == len(scoped)}
 
 
-INTEGRATION_RULE = ("Integración automática: cuando quien revisa marca done una tarea con rama, Kaanbal la fusiona en "
-                    "main si sus checks de CI están en verde y sigue el despliegue en Argo. Si falla, la tarea vuelve a "
-                    "blocked con el motivo: corrige la rama y vuelve a pedir revisión. No hagas push a main tú.")
+INTEGRATION_RULE = ("Integración automática: cuando quien revisa marca done una tarea con rama, Kaanbal la integra en "
+                    "la rama del ambiente configurado (main = producción, salvo que el proyecto use Dev) si CI está en "
+                    "verde, y sigue despliegue y prueba funcional. No anuncies cambios visibles solo porque está done. "
+                    "Si falla, la tarea vuelve a blocked con el motivo: corrige la rama y vuelve a pedir revisión.")
 
 
 def work_rules(settings: Mapping[str, Any]) -> List[str]:
     base = AUTONOMOUS_RULES if settings.get("mode") == "autonomous" else GUIDED_RULES
     rules = base + [DONE_RULES[settings.get("done_by") or "person"]]
+    rules = rules + ["Guarda un resumen de las conversaciones, decisiones y siguientes pasos con hub_checkpoint. "
+                     "Reporta fricciones de Kaanbal con hub_report_feedback; van al proyecto Software Factory sin "
+                     "mezclar su implementación con este proyecto. No copies secretos ni chats privados completos."]
     return rules + [INTEGRATION_RULE] if settings.get("integration") == "auto" else rules
 
 

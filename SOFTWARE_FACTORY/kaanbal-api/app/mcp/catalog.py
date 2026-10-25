@@ -403,6 +403,22 @@ TOOLS: List[Dict[str, Any]] = [
           _schema({"name": _APP, "env": _ENV}, ["name"]), READ_ONLY),
 
     # ── Coordinar (Hub de agentes) ───────────────────────────────────────
+    _tool("hub_checkpoint", "Guardar contexto compartido", "coordinar", "hub.sessions.participate",
+          "Resume la conversación de trabajo, decisiones y próximos pasos para quien siga. Actualiza el resumen vivo "
+          "del proyecto; no envíes secretos ni transcripciones privadas completas.",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION,
+                   "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+                   "decisions": {"type": "array", "maxItems": 5, "items": {"type": "string", "maxLength": 400}},
+                   "next_steps": {"type": "array", "maxItems": 5, "items": {"type": "string", "maxLength": 400}}},
+                  ["group", "session_id", "summary"]), _HUB_WRITE),
+    _tool("hub_report_feedback", "Reportar una mejora de Kaanbal", "coordinar", "hub.sessions.participate",
+          "Publica una fricción, error o idea en Software Factory, conservando el proyecto de origen y una referencia "
+          "en ambas trazas. Queda como propuesta para otro agente enfocado en la plataforma.",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION,
+                   "title": {"type": "string", "minLength": 1, "maxLength": 160},
+                   "description": {"type": "string", "minLength": 1, "maxLength": 4000},
+                   "kind": {"type": "string", "enum": ["friction", "idea", "bug"]}},
+                  ["group", "session_id", "title", "description"]), _HUB_WRITE),
     _tool("hub_projects", "Proyectos del Hub", "coordinar", "hub.projects.view",
           "Los proyectos (grupos) con agentes en línea, tareas abiertas y bloqueadas, y su última actividad.",
           _schema(), READ_ONLY),
@@ -467,6 +483,8 @@ TOOLS: List[Dict[str, Any]] = [
                    "status": {"type": "string", "enum": ["todo", "in_progress", "blocked", "review", "done", "dropped"]},
                    "note": {"type": "string", "maxLength": 2000}, "branch": {"type": "string", "maxLength": 120},
                    "pr_url": {"type": "string", "description": "Solo un PR ya creado (…/pull/123); un compare va en la nota."},
+                   "verification_path": {"type": "string", "maxLength": 200, "description": "Ruta de la app a comprobar en Dev, p. ej. /; sin dominio ni consultas."},
+                   "expected_visible_text": {"type": "string", "maxLength": 300, "description": "Texto que la respuesta de esa ruta debe contener. La prueba HTTP no sustituye aceptar el diseño en navegador."},
                    "depends_on": {"type": "array", "items": {"type": "string"}}},
                   ["session_id", "task"]), _HUB_WRITE),
     _tool("hub_message", "Mensaje a otro agente", "coordinar", "hub.sessions.participate",

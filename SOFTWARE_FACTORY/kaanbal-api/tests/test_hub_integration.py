@@ -100,7 +100,7 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         final, states = await self.run_with(gh)
         self.assertEqual(final, "deployed")
         self.assertEqual([s for s, _ in states], ["checking", "merged", "deployed"])
-        self.assertEqual(gh.merged[:2], ("main", "claude/t09"))
+        self.assertEqual(gh.merged[:2], ("main", SHA))  # merge the checked commit, never a moving branch
         self.assertIn("revisó codex-uiux", gh.merged[2])
 
     async def test_missing_red_or_conflicting_work_is_not_merged(self):
@@ -126,6 +126,31 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_pipeline_for_the_merge_is_reported_as_unknown(self):
         self.assertEqual((await self.run_with(FakeGitHub(runs=[])))[0], "deploy_unknown")
 
+    async def test_a_deploy_is_verified_only_when_the_app_answers(self):
+        states = []
+
+        async def report(state, detail, extra):
+            states.append(state)
+
+        async def passing(sha):
+            return {"ok": True, "url": "https://app.example.com/", "detail": "responde"}
+
+        async def failing(sha):
+            return {"ok": False, "detail": "La ruta de prueba no devuelve el resultado esperado."}
+
+        for verify, final_state in ((passing, "verified"), (failing, "deploy_failed")):
+            states.clear()
+            final = await integration.run(DONE, "example/app", "app", FakeGitHub(), healthy, report,
+                                          sleep=no_sleep, check_wait=3, deploy_wait=3, verify=verify)
+            self.assertEqual((final, states[-2:]), (final_state, ["deployed", final_state]))
+
+    def test_only_skipped_checks_are_not_evidence(self):
+        skipped = [{"name": "ci", "status": "completed", "conclusion": "skipped"}]
+        self.assertEqual(integration.checks_verdict(skipped, [], True)[0], "missing")
+        self.assertEqual(integration.checks_verdict(skipped, [], False)[0], "ok")
+        self.assertFalse(integration.valid_branch("feature/../main"))
+        self.assertTrue(integration.valid_branch("codex/t06-landing"))
+
 
 def person(can=True):
     return SimpleNamespace(state=SimpleNamespace(principal=SimpleNamespace(
@@ -136,7 +161,7 @@ class SettingsAndTriggerTests(HubCase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
         await self.db.apps.insert_one({"_id": "a1", "name": "app-x-web", "app_group": "app-x",
-                                       "repo_url": "https://github.com/example/app-x-web.git"})
+                                       "repo_url": "https://github.com/example/app-x-web.git", "environments": ["dev", "prod"]})
 
     async def test_turning_on_integration_needs_the_critical_permission_and_cross_review(self):
         await self.upload_phases()

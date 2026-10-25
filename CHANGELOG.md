@@ -8,6 +8,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Agent Hub shared context (HUB2, first slice): `hub_checkpoint` keeps one living summary per agent
+  (decisions and next steps) for whoever resumes from another provider; `hub_report_feedback` files a
+  platform friction in the global `software-factory` project with its origin and a link in both traces;
+  overview and briefing include people and sessions, deliveries by state (reviewed, merged, deployed,
+  verified), recent decisions and the group's service cards. Integration checks a task's
+  `verification_path`/`expected_visible_text` on Business Base apps after deploying, requires at least
+  one successful check (skipped-only is not evidence), merges the checked commit and never treats an
+  unconfirmed pipeline as deployed. Integration still targets the repository's main branch by default.
 - Personal GitHub connection: each person connects their GitHub account once in Connect → Your GitHub
   (stored encrypted, never shown again, cannot be set from an agent token). Agents using that person's
   Kaanbal token can list their repos (`github_repos`), open a workspace on any of them from any branch

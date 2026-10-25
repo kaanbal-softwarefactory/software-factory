@@ -119,6 +119,26 @@ detienen; una persona fusiona y elige el siguiente objetivo. `pr_url` solo acept
 | Al terminar W1 ambos agentes se fueron y nadie avisó que tocaba fusionar | Aviso automático a las personas con lo que hay que fusionar |
 | En Windows, los `.sh` con CRLF impidieron levantar el stack local | Lección de plataforma: `.gitattributes` con `eol=lf` en repos con scripts |
 
+## Contexto compartido y mejoras de la plataforma
+
+- `hub_checkpoint` guarda el resumen vivo de un agente: qué se habló, decisiones y
+  siguientes pasos (uno por agente y persona; el último reemplaza al anterior). Es lo
+  que lee quien retoma desde otro proveedor o máquina. El Hub no recibe el chat
+  privado del agente: solo lo que el agente resume.
+- `hub_report_feedback` publica una fricción, error o idea de Kaanbal en el proyecto
+  global `software-factory` como tarea propuesta, con el proyecto de origen, y deja
+  una referencia en la traza de ambos. Un token de agente reporta con su `session_id`.
+- `overview` y `briefing` incluyen `workspace`: personas y sus sesiones, entregas por
+  estado (revisado ≠ integrado ≠ desplegado ≠ verificado), decisiones recientes,
+  resúmenes y las tarjetas de servicios del grupo con sus URLs.
+- Una tarea puede llevar `verification_path` y `expected_visible_text`: tras desplegar
+  una Business Base, la integración pide esa ruta (y `/api/ready`) y solo marca
+  `verified` si responde. Es una prueba técnica; la aceptación visual sigue siendo de
+  una persona.
+- La integración automática sigue apuntando a la rama principal del repo
+  (`integration_env=prod`, rama vacía), como antes. `integration_env=dev` con una rama
+  propia (normalmente `develop`) queda listo para cuando el stack tenga Dev.
+
 ## Fases y plan (`kaanbal.hub.json`)
 
 El ZIP de fases puede traer un plan que el Hub importa como tareas (idempotente por `key`, no toca

@@ -205,6 +205,7 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("GET", rf"{_V1}/hub/projects/{_SEG}/files/content", "hub.projects.view"),
     rule("PUT", rf"{_V1}/hub/projects/{_SEG}/board", "hub.sessions.participate"),
     rule("POST", rf"{_V1}/hub/projects/{_SEG}/(sessions|tasks|messages|lessons|notes)", "hub.sessions.participate"),
+    rule("POST", rf"{_V1}/hub/projects/{_SEG}/(checkpoints|feedback)", "hub.sessions.participate"),
     rule("POST", rf"{_V1}/hub/projects/{_SEG}/files", "hub.files.manage"),
     rule("DELETE", rf"{_V1}/hub/projects/{_SEG}/files", "hub.files.manage"),
     rule("POST", rf"{_V1}/hub/projects/{_SEG}/uploads", "hub.files.manage"),
