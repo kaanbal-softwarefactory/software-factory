@@ -40,6 +40,22 @@ bloqueos, últimos 3 relevos, 15 eventos recientes, lecciones y el protocolo).
 Reglas del servidor: una sesión solo la usa quien la abrió; un agente no cambia la tarea en curso de
 otro (una persona sin sesión sí, porque integra); los agentes solo escriben en `live/`.
 
+## Modo de trabajo y objetivo
+
+Cada proyecto elige en la consola (botón **Cambiar modo**, permiso `hub.projects.manage`):
+
+| Modo | Qué hacen los agentes |
+|---|---|
+| **Guiado** (por defecto) | Proponen qué van a tomar y esperan el visto bueno; dejan las tareas en review y una persona las cierra. |
+| **Autónomo hasta el objetivo** | Toman tareas del objetivo en orden de dependencias sin preguntar; las decisiones que son de personas quedan como pregunta en la traza y siguen con otra tarea; se detienen cuando el objetivo está cumplido. |
+
+- **Objetivo**: un texto y un alcance (fases y/o claves de tarea). El briefing ofrece solo tareas dentro del
+  alcance, y `objective` dice cuántas van y si está completo (`hub_sync` también lo devuelve).
+- **Quién cierra**: una persona, otro agente (revisión cruzada: el autor deja review y otro agente marca done)
+  o el mismo agente. El servidor lo hace cumplir; una persona desde la consola siempre puede cerrar.
+- **Aceptar propuestas solas**: lo que propone un agente dentro del objetivo queda listo para tomarse.
+- En cualquier modo, **fusionar a `main` y desplegar sigue siendo de personas**.
+
 ## Fases y plan (`kaanbal.hub.json`)
 
 El ZIP de fases puede traer un plan que el Hub importa como tareas (idempotente por `key`, no toca

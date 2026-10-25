@@ -304,6 +304,96 @@ def trace_tree(events: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     return tree
 
 
+# ── Modo de trabajo ──────────────────────────────────────────────────────
+# Guiado: los agentes proponen y esperan el visto bueno; una persona cierra cada tarea.
+# Autónomo: dentro del objetivo toman, cierran y aceptan sus propias propuestas sin esperar a nadie,
+# hasta que el objetivo se cumple. Fusionar a main (y por tanto desplegar) sigue siendo de personas.
+WORK_MODES = ("guided", "autonomous")
+DONE_BY = ("person", "peer", "self")
+DEFAULT_SETTINGS: Dict[str, Any] = {"mode": "guided", "done_by": "person", "auto_accept": False,
+                                    "objective": "", "scope_phases": [], "scope_tasks": []}
+
+GUIDED_RULES = [
+    "Modo GUIADO: propón a la persona qué tarea vas a tomar y espera su visto bueno antes de hub_claim_task.",
+    "Al terminar márcala review con rama/PR: una persona la revisa y la cierra.",
+]
+AUTONOMOUS_RULES = [
+    "Modo AUTÓNOMO: no pidas permiso para tomar tareas del objetivo; tómalas en orden de dependencias y avanza "
+    "hasta cumplirlo.",
+    "Las decisiones que son de personas: regístralas con hub_log kind=question, aplica la opción más conservadora "
+    "y documentada, y sigue con otra tarea en vez de quedarte esperando.",
+    "Nunca fusiones a main ni despliegues: abre un PR por tarea. Las personas fusionan.",
+    "Cuando objective.complete sea true, deja de tomar tareas y cierra con hub_leave y un relevo.",
+]
+DONE_RULES = {
+    "person": "Una persona cierra las tareas: tú las dejas en review.",
+    "peer": "Revisión entre agentes: deja tu tarea en review y pide a otro agente (hub_message) que la revise; "
+            "quien revisa la marca done. No cierres las tuyas.",
+    "self": "Cierras tus tareas tú mismo (done) cuando cumplen su criterio y su PR está abierto con pruebas.",
+}
+
+
+def work_settings(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+    """La configuración del proyecto con valores por defecto y saneada."""
+    raw = raw or {}
+    settings = {**DEFAULT_SETTINGS, **{k: raw[k] for k in DEFAULT_SETTINGS if k in raw}}
+    if settings["mode"] not in WORK_MODES:
+        settings["mode"] = "guided"
+    if settings["done_by"] not in DONE_BY:
+        settings["done_by"] = "person"
+    settings["auto_accept"] = bool(settings["auto_accept"])
+    settings["objective"] = str(settings["objective"] or "")[:500]
+    settings["scope_phases"] = [str(p)[:40] for p in settings["scope_phases"] or []][:20]
+    settings["scope_tasks"] = [k for k in (task_key(t) for t in settings["scope_tasks"] or []) if k][:100]
+    return settings
+
+
+def in_scope(task: Mapping[str, Any], settings: Mapping[str, Any]) -> bool:
+    phases, keys = settings.get("scope_phases") or [], settings.get("scope_tasks") or []
+    if not phases and not keys:
+        return True
+    return (task.get("phase") or "") in phases or (task.get("key") or "") in keys
+
+
+def objective_progress(tasks: List[Mapping[str, Any]], settings: Mapping[str, Any]) -> Dict[str, Any]:
+    scoped = [t for t in tasks if in_scope(t, settings) and t.get("status") not in ("dropped", "proposed")]
+    done = sum(1 for t in scoped if t.get("status") == "done")
+    return {"text": settings.get("objective") or "", "phases": list(settings.get("scope_phases") or []),
+            "tasks": list(settings.get("scope_tasks") or []), "done": done, "total": len(scoped),
+            "remaining": [task_label(t) for t in scoped if t.get("status") != "done"][:20],
+            "complete": bool(scoped) and done == len(scoped)}
+
+
+def work_rules(settings: Mapping[str, Any]) -> List[str]:
+    base = AUTONOMOUS_RULES if settings.get("mode") == "autonomous" else GUIDED_RULES
+    return base + [DONE_RULES[settings.get("done_by") or "person"]]
+
+
+def done_check(task: Mapping[str, Any], session: Optional[Mapping[str, Any]],
+               settings: Mapping[str, Any]) -> Optional[str]:
+    """None si quien pide cerrar la tarea puede hacerlo; si no, qué hacer en su lugar.
+
+    Una persona (sin sesión de agente) siempre puede: es quien integra.
+    """
+    if session is None:
+        return None
+    done_by = settings.get("done_by") or "person"
+    if done_by == "person":
+        return "En este proyecto una persona cierra las tareas: márcala review con su rama/PR."
+    if done_by == "peer":
+        if task.get("assignee_session") == session.get("_id"):
+            return "Revisión entre agentes: márcala review y pide a otro agente que la revise y la cierre."
+        if task.get("status") != "review":
+            return "Solo se cierra una tarea que está en review."
+    return None
+
+
+def compact_task(task: Mapping[str, Any]) -> Dict[str, Any]:
+    """Lo justo para el latido: el detalle está en hub_tasks."""
+    return {"key": task.get("key"), "id": task["_id"], "title": task.get("title"), "status": task.get("status"),
+            "assignee_agent": task.get("assignee_agent"), "pr_url": task.get("pr_url")}
+
+
 # ── Briefing ─────────────────────────────────────────────────────────────
 PROTOCOL = [
     "Preséntate con hub_join y guarda tu session_id: es tu identidad en este proyecto.",
@@ -315,8 +405,8 @@ PROTOCOL = [
     "Registra decisiones, bloqueos y preguntas con hub_log (cortos, con archivos o PR si los hay).",
     "Respeta el ownership del área: no edites archivos de otra tarea en curso; si cruzas, pide contrato o PR.",
     "Los archivos de fuente/ son de las personas (solo lectura). Lo tuyo va en live/ con hub_write_note.",
-    "Al terminar una tarea márcala review o done con rama/PR; al irte usa hub_leave con un relevo que sirva al "
-    "siguiente agente.",
+    "Al terminar una tarea sigue la regla de cierre de este proyecto (arriba) y deja rama/PR; al irte usa "
+    "hub_leave con un relevo que sirva al siguiente agente.",
     "Si aprendiste algo útil para otros proyectos, déjalo con hub_add_lesson (scope platform).",
 ]
 
@@ -339,8 +429,10 @@ def files_summary(files: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
 
 def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], tasks: List[Mapping[str, Any]],
              events: List[Mapping[str, Any]], handoffs: List[Mapping[str, Any]], lessons: List[Mapping[str, Any]],
-             files: List[Mapping[str, Any]], now: datetime, me: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+             files: List[Mapping[str, Any]], now: datetime, me: Optional[Mapping[str, Any]] = None,
+             settings: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
     """Lo mínimo que necesita un agente que llega: no el histórico, el estado."""
+    settings = work_settings(settings)
     index = index_tasks(tasks)
     team = [public_session(s, now) for s in sessions if presence(s, now) in ("online", "idle")
             and (me is None or s["_id"] != me["_id"])]
@@ -349,7 +441,8 @@ def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], t
     in_progress = [public_task(t) for t in open_tasks if t.get("status") in ("in_progress", "review")]
     blocked = [public_task(t, index) for t in open_tasks
                if t.get("status") == "blocked" or (t.get("status") == "todo" and pending_dependencies(t, index))]
-    available = [public_task(t) for t in available_tasks(tasks, specialty)[:8]]
+    # Con objetivo, solo se ofrece lo que está dentro: lo demás espera a otro objetivo.
+    available = [public_task(t) for t in available_tasks(tasks, specialty) if in_scope(t, settings)][:8]
     done = sum(1 for t in tasks if t.get("status") == "done")
     alone = not team
     return {
@@ -361,6 +454,8 @@ def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], t
         "board": project.get("board") or "",
         "team": team,
         "progress": {"done": done, "open": len(open_tasks), "total": len(tasks)},
+        "work_mode": {"mode": settings["mode"], "done_by": settings["done_by"], "auto_accept": settings["auto_accept"]},
+        "objective": objective_progress(tasks, settings),
         "tasks": {"available_for_you": available, "in_progress": in_progress, "blocked": blocked},
         "recent": [compact_event(e) for e in events[:15]],
         "last_handoffs": [{"agent": h.get("agent"), "at": h.get("created_at"), "text": h.get("text")}
@@ -368,7 +463,7 @@ def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], t
         "lessons": [{"scope": item.get("scope"), "text": item.get("text"), "by": item.get("agent")}
                     for item in lessons[:10]],
         "files": files_summary(files),
-        "protocol": PROTOCOL,
+        "protocol": work_rules(settings) + PROTOCOL,
         "heartbeat_seconds": HEARTBEAT_HINT_SECONDS,
     }
 

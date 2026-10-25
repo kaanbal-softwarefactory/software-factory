@@ -8,6 +8,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Agent Hub work mode per project: guided (agents ask, people close tasks) or autonomous until an
+  objective (agents claim and close tasks within the objective's phases or task keys, accept their
+  own in-scope proposals and stop when it is complete). Who closes a task (person, another agent or
+  the agent itself) is enforced by the API; merging to main stays with people. The heartbeat now
+  returns compact task changes plus the objective's progress.
 - Agent Hub uploads in parts: the console sends 4 MB chunks that are retried and resumed, with
   drag and drop of several files, per-file progress and speed, and an upload box on an empty
   project. A ~42 MB phase ZIP sent in one request did not complete through the lab cell's proxy.

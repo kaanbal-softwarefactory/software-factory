@@ -13,6 +13,8 @@
     </div>
     <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
 
+    <HubWorkMode :group="group" :settings="settings" :objective="objective" :phases="phaseNames" :can-manage="can.manage" @saved="refresh" />
+
     <!-- Equipo -->
     <div class="flex gap-3 overflow-x-auto pb-1">
       <div v-for="s in liveSessions" :key="s.id" class="glass-panel rounded-xl p-3 min-w-60 max-w-72 space-y-1">
@@ -223,6 +225,7 @@ import api from '../services/api'
 import HubFiles from '../components/hub/HubFiles.vue'
 import HubConnect from '../components/hub/HubConnect.vue'
 import HubUploader from '../components/hub/HubUploader.vue'
+import HubWorkMode from '../components/hub/HubWorkMode.vue'
 import { PRESENCE, STATUS, KIND, harnessOf, ago, detail, renderMarkdown } from '../components/hub/hubUi'
 
 const route = useRoute()
@@ -233,13 +236,16 @@ const trace = ref([]), tree = ref([]), traceFilter = ref({ day: '', agent: '', k
 const messages = ref([]), draft = ref({ to: 'all', text: '' })
 const newTask = ref(null), taskError = ref(''), taskFilter = ref(''), focusTask = ref(null)
 const digesting = ref(false), digestTasks = ref(false)
-const can = ref({ participate: false, files: false, digest: false })
+const can = ref({ participate: false, files: false, digest: false, manage: false })
+const settings = ref({ mode: 'guided', done_by: 'person', auto_accept: false, scope_phases: [], scope_tasks: [] })
+const objective = ref({ done: 0, total: 0, complete: false, text: '' })
 // Se decide al abrir el proyecto: si se ocultara al llegar el primer archivo, cortaría la cola de subida.
 const starter = ref(false)
 
 const columns = ['proposed', 'todo', 'in_progress', 'blocked', 'review', 'done']
 const alertTone = { orphan: 'text-amber-300', stale: 'text-amber-300', blocked: 'text-red-300', review: 'text-cyan-300', proposed: 'text-violet-300' }
 const digest = computed(() => project.value.last_digest)
+const phaseNames = computed(() => [...new Set(tasks.value.map(t => t.phase).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })))
 const liveSessions = computed(() => sessions.value.filter(s => s.presence !== 'left' && s.presence !== 'offline'))
 const agentNames = computed(() => [...new Set(sessions.value.map(s => s.agent))])
 const tabs = computed(() => [
@@ -275,6 +281,8 @@ async function refresh() {
   try {
     const { data } = await api.get(`/hub/projects/${group.value}`)
     project.value = data.project; sessions.value = data.sessions; tasks.value = data.tasks
+    if (data.settings) settings.value = data.settings
+    if (data.objective) objective.value = data.objective
     events.value = data.events; signals.value = data.signals; files.value = data.files; lessons.value = data.lessons
     if (!loadedOnce) { starter.value = !data.files.total; loadedOnce = true }
   } catch (e) { error.value = detail(e, 'No se pudo cargar el proyecto.') }
@@ -338,8 +346,8 @@ async function sendMessage() {
 async function loadPermissions() {
   try {
     const perms = new Set((await api.get('/security/me')).data.permissions || [])
-    can.value = { participate: perms.has('hub.sessions.participate'), files: perms.has('hub.files.manage'), digest: perms.has('hub.digest.run') }
-  } catch { can.value = { participate: false, files: false, digest: false } }
+    can.value = { participate: perms.has('hub.sessions.participate'), files: perms.has('hub.files.manage'), digest: perms.has('hub.digest.run'), manage: perms.has('hub.projects.manage') }
+  } catch { can.value = { participate: false, files: false, digest: false, manage: false } }
 }
 
 watch(tab, value => { if (value === 'trace') loadTrace(); if (value === 'messages') loadMessages() })

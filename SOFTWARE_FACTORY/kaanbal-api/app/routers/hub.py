@@ -138,7 +138,8 @@ async def _briefing(group: str, me: Optional[Dict[str, Any]] = None) -> Dict[str
     handoffs = await db[EVENTS].find({"group": group, "kind": "handoff"}).sort("created_at", -1).limit(3).to_list(3)
     return hub.briefing(await _project(group), sessions=await _group_sessions(group), tasks=await _group_tasks(group),
                         events=await _recent_events(group, 15), handoffs=handoffs, lessons=await _lessons(group),
-                        files=await _file_rows(group), now=_now(), me=me)
+                        files=await _file_rows(group), now=_now(), me=me,
+                        settings=(await _project(group)).get("settings"))
 
 
 async def _store_file(group: str, path: str, data: bytes, actor: str, origin: str) -> Dict[str, Any]:
@@ -181,6 +182,7 @@ async def list_projects():
             "open_tasks": sum(1 for t in open_tasks if t.get("group") == slug),
             "blocked_tasks": sum(1 for t in open_tasks if t.get("group") == slug and t.get("status") == "blocked"),
             "last_activity": project.get("last_activity"), "in_hub": slug in projects,
+            "mode": hub.work_settings(project.get("settings"))["mode"],
         })
     rows.sort(key=lambda r: r["last_activity"] or datetime.min, reverse=True)
     return {"projects": rows, "total": len(rows)}
@@ -195,9 +197,12 @@ async def project_overview(group: str):
     tasks = await _group_tasks(group)
     events = await _recent_events(group, 200)
     index = hub.index_tasks(tasks)
+    settings = hub.work_settings(project.get("settings"))
     return {
         "project": {k: project.get(k) for k in ("_id", "name", "description", "owner", "board", "board_updated_by",
                                                  "board_updated_at", "last_digest", "last_activity")},
+        "settings": settings,
+        "objective": hub.objective_progress(tasks, settings),
         "sessions": [hub.public_session(s, now) for s in sessions],
         "tasks": [hub.public_task(t, index) for t in tasks],
         "events": [{**hub.compact_event(e), "id": e["_id"], "person": e.get("person"), "harness": e.get("harness")}
@@ -230,6 +235,36 @@ async def update_board(group: str, body: BoardUpdate, request: Request):
     await _event(group, "board", f"Actualizó el tablero ({len(previous)} → {len(body.content.strip())} caracteres).",
                  session=session, person=_principal(request).username, agent=actor)
     return {"group": group, "board": body.content.strip(), "updated_by": actor}
+
+
+class WorkSettings(BaseModel):
+    mode: Literal["guided", "autonomous"] = "guided"
+    done_by: Literal["person", "peer", "self"] = "person"
+    auto_accept: bool = False
+    objective: str = Field(default="", max_length=500)
+    scope_phases: List[str] = Field(default_factory=list, max_length=20)
+    scope_tasks: List[str] = Field(default_factory=list, max_length=100)
+
+
+@router.put("/projects/{group}/settings")
+async def update_settings(group: str, body: WorkSettings, request: Request):
+    """Modo de trabajo del proyecto: guiado (personas aprueban) o autónomo hasta cumplir un objetivo."""
+    group = _group(group)
+    try:
+        settings = hub.work_settings(body.model_dump())
+        if [k for k in body.scope_tasks if not hub.task_key(k)]:
+            raise hub.HubError("Hay claves de tarea vacías en el objetivo.")
+    except hub.HubError as exc:
+        raise _bad(exc)
+    actor = _principal(request).username
+    await _touch_project(group, settings=settings)
+    label = "autónomo" if settings["mode"] == "autonomous" else "guiado"
+    scope = ", ".join(settings["scope_phases"] + settings["scope_tasks"]) or "todo el proyecto"
+    await _event(group, "board", f"Modo {label} ({scope}); cierre: {settings['done_by']}"
+                 + (f". Objetivo: {settings['objective']}" if settings["objective"] else "."), person=actor, agent=actor)
+    await activity_log.log("hub.settings.updated", category=CATEGORY_APP, actor=actor, target=group, detail=settings)
+    tasks = await _group_tasks(group)
+    return {"settings": settings, "objective": hub.objective_progress(tasks, settings)}
 
 
 # ── Sesiones ─────────────────────────────────────────────────────────────
@@ -295,12 +330,16 @@ async def heartbeat(session_id: str, body: SyncBody, request: Request):
     changed = await db[TASKS].find({"group": session["group"], "updated_at": {"$gt": cursor}}).limit(20).to_list(20)
     team = [hub.public_session(s, now) for s in await _group_sessions(session["group"], days=1)
             if s["_id"] != session_id and hub.presence(s, now) in ("online", "idle")]
+    settings = hub.work_settings((await _project(session["group"])).get("settings"))
+    objective = hub.objective_progress(await _group_tasks(session["group"]), settings)
     return {
         "messages": [{"id": m["_id"], "from": m.get("from_agent") or m.get("person"), "to": m.get("to"),
                       "text": m.get("text"), "at": m.get("created_at"), "task": m.get("task_ref")} for m in inbox],
         "events": [hub.compact_event(e) for e in news],
-        "tasks_changed": [hub.public_task(t) for t in changed],
+        "tasks_changed": [hub.compact_task(t) for t in changed],
         "team": team,
+        "work_mode": {"mode": settings["mode"], "done_by": settings["done_by"]},
+        "objective": {k: objective[k] for k in ("done", "total", "complete")},
         "next_sync_seconds": hub.HEARTBEAT_HINT_SECONDS,
     }
 
@@ -384,15 +423,21 @@ async def create_task(group: str, body: TaskCreate, request: Request):
     if key and await db[TASKS].find_one({"group": group, "key": key}, {"_id": 1}):
         raise HTTPException(409, f"Ya existe la tarea {key} en este proyecto.")
     now = _now()
-    # Lo que crea un agente queda como propuesta si él lo pide; lo que crea el plan o una persona, listo.
+    settings = hub.work_settings((await _project(group)).get("settings"))
+    # Lo que crea un agente queda como propuesta si él lo pide; en modo autónomo con aceptación automática, la
+    # propuesta dentro del objetivo queda lista para tomarse. Lo que crea el plan o una persona, listo.
+    accepted = body.proposed and settings["auto_accept"] and hub.in_scope(
+        {"phase": body.phase.strip(), "key": key}, settings)
+    proposed = body.proposed and not accepted
     task = {"_id": _new_id(), "group": group, "key": key, "title": body.title.strip(),
             "description": body.description.strip(), "area": body.area.strip(), "phase": body.phase.strip(),
-            "depends_on": depends, "sources": sources, "status": "proposed" if body.proposed else "todo",
+            "depends_on": depends, "sources": sources, "status": "proposed" if proposed else "todo",
             "assignee_session": None, "assignee_agent": None, "branch": None, "pr_url": None, "notes": [],
             "created_by": (session or {}).get("agent") or _principal(request).username,
             "created_at": now, "updated_at": now}
     await db[TASKS].insert_one(task)
-    await _event(group, "task", f"Creó {hub.task_label(task)}" + (" (propuesta)" if body.proposed else "") + ".",
+    await _event(group, "task", f"Creó {hub.task_label(task)}" + (" (propuesta)" if proposed else "")
+                 + (" (aceptada sola: modo autónomo)" if accepted else "") + ".",
                  session=session, person=_principal(request).username, task_ref=key or task["_id"],
                  agent=(session or {}).get("agent"))
     return hub.public_task(task)
@@ -472,6 +517,10 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
     # Un agente no le cambia la tarea en curso a otro; una persona (sin sesión) sí puede: es quien integra.
     if session and holder and holder != session["_id"] and task.get("status") == "in_progress":
         raise HTTPException(409, f"{hub.task_label(task)} la tiene {task.get('assignee_agent')}: mándale un mensaje.")
+    if body.status == "done":
+        problem = hub.done_check(task, session, hub.work_settings((await _project(task["group"])).get("settings")))
+        if problem:
+            raise HTTPException(409, problem)
     values: Dict[str, Any] = {"updated_at": _now()}
     try:
         if body.depends_on is not None:

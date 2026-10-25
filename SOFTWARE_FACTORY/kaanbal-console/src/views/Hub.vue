@@ -49,6 +49,7 @@
           <span class="text-slate-300"><strong class="text-white">{{ p.open_tasks }}</strong> abiertas</span>
           <span v-if="p.blocked_tasks" class="text-red-300"><strong>{{ p.blocked_tasks }}</strong> bloqueadas</span>
           <span v-if="!p.in_hub" class="text-slate-500">Aún sin actividad</span>
+          <span v-if="p.mode === 'autonomous'" class="text-emerald-300 ml-auto">Autónomo</span>
         </div>
       </router-link>
     </div>

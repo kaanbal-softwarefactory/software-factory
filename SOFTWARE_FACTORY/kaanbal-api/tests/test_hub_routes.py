@@ -155,7 +155,9 @@ class Upload:
         return self.data
 
 
-class HubFlowTests(unittest.IsolatedAsyncioTestCase):
+class HubCase(unittest.IsolatedAsyncioTestCase):
+    """Mongo y GridFS en memoria, dos personas y un ZIP de fases con plan."""
+
     async def asyncSetUp(self):
         self.db = Db()
         self.bucket = Bucket(self.db["hub_files.files"])
@@ -187,10 +189,14 @@ class HubFlowTests(unittest.IsolatedAsyncioTestCase):
         imported = await routes.import_plan("app-x", routes.PlanImport(), self.ana)
         self.assertEqual((imported["created"], imported["board_set"]), (4, True))
 
+
+class HubFlowTests(HubCase):
     async def test_two_agents_coordinate_through_the_hub(self):
         await self.upload_phases()
+        # Los agentes cierran sus propias tareas: modo autónomo con cierre propio.
+        await routes.update_settings("app-x", routes.WorkSettings(mode="autonomous", done_by="self"), self.ana)
 
-        # Agustín llega primero con Codex (Astra), especializado en diseño.
+        # Ana llega primero con Codex (Astra), especializada en diseño.
         first = await routes.join("app-x", routes.JoinBody(agent="astra", harness="codex", specialty="diseño frontend",
                                                            focus="design system"), self.ana)
         astra = first["session_id"]
@@ -279,6 +285,70 @@ class HubFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_project_identifiers_cannot_be_mongo_expressions(self):
         with self.assertRaises(HTTPException):
             await routes.project_briefing("$where")
+
+
+class WorkModeTests(HubCase):
+    """Guiado: las personas aprueban y cierran. Autónomo: los agentes avanzan solos hasta el objetivo."""
+
+    async def join_and_claim(self, agent, person, task):
+        session = (await routes.join("app-x", routes.JoinBody(agent=agent, harness="claude"), person))["session_id"]
+        await routes.claim_task(task, routes.ClaimBody(session_id=session), person)
+        return session
+
+    async def test_guided_is_the_default_and_a_person_closes_tasks(self):
+        await self.upload_phases()
+        brief = await routes.project_briefing("app-x")
+        self.assertEqual(brief["work_mode"]["mode"], "guided")
+        self.assertIn("GUIADO", brief["protocol"][0])
+        session = await self.join_and_claim("claude-api", self.beto, "T01")
+        with self.assertRaises(HTTPException) as caught:
+            await routes.update_task("T01", routes.TaskUpdate(session_id=session, status="done"), self.beto)
+        self.assertIn("review", caught.exception.detail)
+        await routes.update_task("T01", routes.TaskUpdate(session_id=session, status="review"), self.beto)
+        task_id = (await routes.list_tasks("app-x", status="review"))["tasks"][0]["id"]
+        await routes.update_task(task_id, routes.TaskUpdate(status="done"), self.ana)  # la persona, sin sesión
+        self.assertEqual((await routes.list_tasks("app-x", status="done"))["total"], 1)
+
+    async def test_autonomous_mode_offers_only_the_objective_and_reports_when_it_is_complete(self):
+        await self.upload_phases()
+        result = await routes.update_settings("app-x", routes.WorkSettings(
+            mode="autonomous", done_by="self", auto_accept=True, objective="Auditoría y contrato",
+            scope_tasks=["T01", "T02"]), self.ana)
+        self.assertEqual((result["objective"]["done"], result["objective"]["total"]), (0, 2))
+        joined = await routes.join("app-x", routes.JoinBody(agent="claude-api", harness="claude"), self.beto)
+        brief = joined["briefing"]
+        self.assertIn("AUTÓNOMO", brief["protocol"][0])
+        self.assertEqual([t["key"] for t in brief["tasks"]["available_for_you"]], ["T01"])  # T03 queda fuera
+        session = joined["session_id"]
+        await routes.claim_task("T01", routes.ClaimBody(session_id=session), self.beto)
+        await routes.update_task("T01", routes.TaskUpdate(session_id=session, status="done"), self.beto)
+        await routes.claim_task("T02", routes.ClaimBody(session_id=session), self.beto)
+        await routes.update_task("T02", routes.TaskUpdate(session_id=session, status="done"), self.beto)
+        sync = await routes.heartbeat(session, routes.SyncBody(), self.beto)
+        self.assertTrue(sync["objective"]["complete"])
+        self.assertEqual(set(sync["tasks_changed"][0]), {"key", "id", "title", "status", "assignee_agent", "pr_url"})
+
+    async def test_autonomous_proposals_inside_the_objective_are_accepted(self):
+        await self.upload_phases()
+        await routes.update_settings("app-x", routes.WorkSettings(mode="autonomous", done_by="self", auto_accept=True,
+                                                                  scope_phases=["W1"]), self.ana)
+        session = (await routes.join("app-x", routes.JoinBody(agent="claude-api", harness="claude"), self.beto))["session_id"]
+        inside = await routes.create_task("app-x", routes.TaskCreate(title="Partir Workspace", phase="W1", proposed=True,
+                                                                     session_id=session), self.beto)
+        outside = await routes.create_task("app-x", routes.TaskCreate(title="Idea futura", phase="W9", proposed=True,
+                                                                      session_id=session), self.beto)
+        self.assertEqual((inside["status"], outside["status"]), ("todo", "proposed"))
+
+    async def test_peer_review_needs_another_agent(self):
+        await self.upload_phases()
+        await routes.update_settings("app-x", routes.WorkSettings(mode="autonomous", done_by="peer"), self.ana)
+        author = await self.join_and_claim("claude-api", self.beto, "T01")
+        with self.assertRaises(HTTPException):
+            await routes.update_task("T01", routes.TaskUpdate(session_id=author, status="done"), self.beto)
+        await routes.update_task("T01", routes.TaskUpdate(session_id=author, status="review"), self.beto)
+        reviewer = (await routes.join("app-x", routes.JoinBody(agent="astra", harness="codex"), self.ana))["session_id"]
+        await routes.update_task("T01", routes.TaskUpdate(session_id=reviewer, status="done", note="Revisado"), self.ana)
+        self.assertEqual((await routes.list_tasks("app-x", status="done"))["total"], 1)
 
 
 if __name__ == "__main__":
