@@ -42,6 +42,11 @@
         <p v-if="selected.branch" class="text-xs text-slate-400 break-all">Rama: <code>{{ selected.branch }}</code></p>
         <a v-if="safeLink(selected.pr_url)" :href="safeLink(selected.pr_url)" target="_blank" rel="noopener" class="inline-block text-sm text-cyan-300 underline">Abrir pull request ↗</a>
         <p v-if="selected.reviewed_by" class="text-xs text-emerald-300">Cerrada por {{ selected.reviewed_by }} · {{ ago(selected.reviewed_at) }}</p>
+        <div v-if="selected.integration" :class="['rounded-lg p-3 text-xs', INTEGRATION_TONE[selected.integration.state] || 'bg-slate-950/50 text-slate-300']" role="status">
+          <p class="font-medium">Integración a main: {{ INTEGRATION_LABEL[selected.integration.state] || selected.integration.state }} · {{ ago(selected.integration.at) }}</p>
+          <p class="mt-1">{{ selected.integration.detail }}</p>
+        </div>
+        <button v-if="canIntegrate && selected.status === 'done' && selected.branch && !['checking', 'merged'].includes(selected.integration?.state)" class="glass-button text-sm" :disabled="busy" @click="integrate">Integrar a main ahora</button>
         <div v-if="selected.sources?.length" class="text-xs text-slate-400"><p class="mb-1">Documentos de referencia</p><p v-for="s in selected.sources" :key="s" class="font-mono break-all">{{ s }}</p></div>
         <div v-if="canEdit" class="border-t border-white/10 pt-4 space-y-3">
           <p v-if="selected.status === 'review'" class="text-sm text-amber-200">Revisa el PR y las pruebas antes de cerrar. Puedes devolverla con una nota si necesita cambios.</p>
@@ -66,7 +71,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import api from '../../services/api'
 import { STATUS, ago, detail, inScope, safeLink } from './hubUi'
-const props = defineProps({ tasks: { type: Array, default: () => [] }, settings: { type: Object, default: () => ({}) }, focusTask: Object, initialFilter: String, canEdit: Boolean })
+const props = defineProps({ tasks: { type: Array, default: () => [] }, settings: { type: Object, default: () => ({}) }, focusTask: Object, initialFilter: String, canEdit: Boolean, canIntegrate: Boolean })
 const emit = defineEmits(['changed'])
 const search = ref(''), phase = ref(''), agent = ref(''), filter = ref(props.initialFilter || 'open'), scopeOnly = ref(false)
 const selectedId = ref(props.focusTask?.id || null), note = ref(''), error = ref(''), busy = ref(false), saved = ref(''), detailPanel = ref(null)
@@ -86,6 +91,15 @@ function dependencyLabel(key) { const t = props.tasks.find(t => t.key === key ||
 watch(() => props.focusTask, t => { if (t) { reset(); select(t) } })
 watch(() => props.initialFilter, value => { if (value) filter.value = value })
 watch(selectedId, () => { note.value = ''; error.value = ''; saved.value = '' })
+const INTEGRATION_LABEL = { checking: 'revisando checks', merged: 'fusionada, desplegando', deployed: 'desplegada y sana', deploy_failed: 'falló el despliegue', deploy_unknown: 'sin pipeline', blocked: 'bloqueada' }
+const INTEGRATION_TONE = { deployed: 'bg-emerald-400/10 text-emerald-200', blocked: 'bg-red-400/10 text-red-200', deploy_failed: 'bg-red-400/10 text-red-200', checking: 'bg-cyan-400/10 text-cyan-200', merged: 'bg-cyan-400/10 text-cyan-200' }
+async function integrate() {
+  if (busy.value) return
+  busy.value = true; error.value = ''; saved.value = ''
+  try { await api.post(`/hub/tasks/${selected.value.id}/integrate`); saved.value = 'Integración en marcha: revisa checks, fusiona y sigue el despliegue.'; emit('changed') }
+  catch (e) { error.value = detail(e, 'No se pudo iniciar la integración.') }
+  finally { busy.value = false }
+}
 async function update(status) {
   if (busy.value) return
   busy.value = true; error.value = ''; saved.value = ''

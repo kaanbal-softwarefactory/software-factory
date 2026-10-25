@@ -6,10 +6,11 @@ usar la persona (o el token) que la abrió.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
@@ -20,6 +21,7 @@ from pymongo import ReturnDocument
 from app.db import get_db
 from app.services import agent_hub as hub
 from app.services import agent_hub_guides as guides
+from app.services import hub_integration as integration
 from app.services.activity_log import activity_log, CATEGORY_APP
 
 router = APIRouter()
@@ -257,6 +259,9 @@ class WorkSettings(BaseModel):
     objective: str = Field(default="", max_length=500)
     scope_phases: List[str] = Field(default_factory=list, max_length=20)
     scope_tasks: List[str] = Field(default_factory=list, max_length=100)
+    integration: Literal["manual", "auto"] = "manual"
+    require_checks: bool = True
+    integration_app: str = Field(default="", max_length=63)
 
 
 @router.put("/projects/{group}/settings")
@@ -270,6 +275,17 @@ async def update_settings(group: str, body: WorkSettings, request: Request):
     except hub.HubError as exc:
         raise _bad(exc)
     actor = _principal(request).username
+    previous = hub.work_settings((await _project(group)).get("settings"))
+    integration_changed = any(settings[k] != previous[k] for k in ("integration", "require_checks", "integration_app"))
+    if integration_changed and not _principal(request).can("hub.integration.manage"):
+        raise HTTPException(403, "Cambiar la integración a main exige el permiso hub.integration.manage: despliega sin intervención humana.")
+    if settings["integration"] == "auto" and settings["done_by"] == "self":
+        raise HTTPException(422, "La integración automática exige revisión de otro agente o de una persona (cierre: peer o person).")
+    if settings["integration"] == "auto":
+        try:
+            await _integration_target(group, settings)
+        except integration.IntegrationBlocked as exc:
+            raise HTTPException(422, str(exc))
     tasks = await _group_tasks(group)
     known = hub.index_tasks(tasks)
     unknown = [key for key in settings["scope_tasks"] if key not in known]
@@ -642,7 +658,85 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
                  task_ref=task.get("key") or task_id, agent=actor)
     if body.status == "done":
         await _announce_objective(task["group"])
+        if hub.work_settings((await _project(task["group"])).get("settings"))["integration"] == "auto":
+            _start_integration(task_id)
     return hub.public_task(updated)
+
+
+# ── Integración a main ────────────────────────────────────────────────────
+_JOBS: Dict[str, Any] = {}  # tareas en integración en este proceso (evita dos a la vez)
+
+
+async def _integration_target(group: str, settings: Dict[str, Any]) -> Tuple[str, str]:
+    """(app, repo owner/name) que recibe las integraciones del proyecto."""
+    query: Dict[str, Any] = {"app_group": group, "repo_url": {"$nin": [None, ""]}}
+    if settings.get("integration_app"):
+        query["name"] = settings["integration_app"]
+    apps = await get_db().apps.find(query, {"name": 1, "repo_url": 1}).to_list(20)
+    if len(apps) != 1:
+        names = ", ".join(a["name"] for a in apps) or "el grupo no tiene apps con repositorio"
+        raise integration.IntegrationBlocked(f"Elige la app que recibe las integraciones (integration_app): {names}.")
+    repo = integration.repo_from_url(apps[0]["repo_url"])
+    if not repo:
+        raise integration.IntegrationBlocked("La integración directa solo admite repositorios de GitHub.")
+    return apps[0]["name"], repo
+
+
+def _start_integration(task_id: str) -> bool:
+    if task_id in _JOBS and not _JOBS[task_id].done():
+        return False
+    _JOBS[task_id] = asyncio.create_task(_integration_job(task_id))
+    return True
+
+
+async def _integration_job(task_id: str) -> str:
+    db = get_db()
+    task = await db[TASKS].find_one({"_id": task_id})
+    group = task["group"]
+    settings = hub.work_settings((await _project(group)).get("settings"))
+    label = hub.task_label(task)
+    notify = [a for a in (task.get("assignee_agent"),) if a]
+
+    async def report(state: str, detail: str, extra: Dict[str, Any]) -> None:
+        record = {"state": state, "detail": detail, "at": _now(), **extra}
+        change: Dict[str, Any] = {"$set": {"integration": record, "updated_at": _now()}}
+        if state in ("blocked", "deploy_failed"):
+            change["$set"]["status"] = "blocked"
+            change["$push"] = {"notes": {"at": _now(), "by": "kaanbal", "text": f"No se integró: {detail}"}}
+        await db[TASKS].update_one({"_id": task_id}, change)
+        await _event(group, "task", f"{label} · integración {state}: {detail}", agent="kaanbal",
+                     task_ref=task.get("key") or task_id)
+        if state in ("blocked", "deploy_failed", "deployed", "deploy_unknown"):
+            for to in notify + ["people"]:
+                await db[MESSAGES].insert_one({"_id": _new_id(), "group": group, "to": to, "text": f"{label}: {detail}"[:4000],
+                                               "task_ref": task.get("key"), "from_session": None, "from_agent": "kaanbal",
+                                               "person": None, "created_at": _now(), "read_by": []})
+
+    try:
+        app, repo = await _integration_target(group, settings)
+        config = await db.system_config.find_one({"_id": "main"}) or {}
+        gh = integration.GitHubIntegration(config.get("github_token") or config.get("git_token") or "")
+    except integration.IntegrationBlocked as exc:
+        await report("blocked", str(exc), {})
+        return "blocked"
+    from app.services.argocd_service import argocd_service
+
+    return await integration.run(task, repo, app, gh, argocd_service.get_application_status, report,
+                                 require_checks=settings["require_checks"])
+
+
+@router.post("/tasks/{task_id}/integrate")
+async def integrate_task(task_id: str, request: Request):
+    """Integra ya una tarea cerrada (también en modo manual): checks, merge a main y seguimiento del despliegue."""
+    task = await _task(task_id)
+    problem = integration.precheck(task)
+    if problem:
+        raise HTTPException(409, problem)
+    started = _start_integration(task["_id"])
+    await _event(task["group"], "task", f"{hub.task_label(task)}: integración pedida por {_principal(request).username}.",
+                 person=_principal(request).username, task_ref=task.get("key") or task["_id"])
+    return {"started": started, "task": task.get("key") or task["_id"],
+            "hint": "Sigue el avance en la traza o en el detalle de la tarea (integration)."}
 
 
 async def _announce_objective(group: str) -> None:

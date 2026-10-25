@@ -86,6 +86,7 @@ PERMISSIONS: Tuple[PermissionDef, ...] = (
     permission("hub.files.manage", "Subir, reemplazar y quitar la fuente de un proyecto (ZIP de fases) e importar su plan."),
     permission("hub.digest.run", "Pedir al secretario el resumen del proyecto (puede usar la IA configurada)."),
     permission("hub.projects.manage", "Elegir el modo de trabajo del proyecto (guiado o autónomo) y su objetivo.", risk=RISK_HIGH),
+    permission("hub.integration.manage", "Integrar a main sin intervención humana (tareas revisadas con checks en verde) y activarlo por proyecto.", risk=RISK_CRITICAL),
     # Datos de las bases
     permission("data.backups.view", "Ver los respaldos de las bases de datos."),
     permission("data.backups.create", "Respaldar una base de datos.", risk=RISK_HIGH),
@@ -206,6 +207,7 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("POST", rf"{_V1}/hub/projects/{_SEG}/plan/import", "hub.files.manage"),
     rule("POST", rf"{_V1}/hub/projects/{_SEG}/digest", "hub.digest.run"),
     rule("PUT", rf"{_V1}/hub/projects/{_SEG}/settings", "hub.projects.manage"),
+    rule("POST", rf"{_V1}/hub/tasks/{_SEG}/integrate", "hub.integration.manage"),
     rule("POST", rf"{_V1}/hub/sessions/{_SEG}/(heartbeat|events|leave)", "hub.sessions.participate"),
     rule("POST", rf"{_V1}/hub/tasks/{_SEG}/claim", "hub.sessions.participate"),
     rule("PATCH", rf"{_V1}/hub/tasks/{_SEG}", "hub.sessions.participate"),

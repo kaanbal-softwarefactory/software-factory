@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Added
+- Agent Hub integration to main, opt-in per project (critical permission `hub.integration.manage`): when
+  another agent or a person closes a task with a branch, Kaanbal merges it into the app's main branch with
+  its GitHub credential once the branch checks are green, then follows the pipeline and Argo until the new
+  image is healthy. Conflicts, red or missing checks and failed deploys send the task back to blocked with
+  the reason and notify the agent and people. People can also trigger it for a closed task. Never applies
+  to the Kaanbal core.
+
 ### Fixed
 - Agent Hub, second pilot iteration: read state is kept per agent (a returning agent no longer gets
   already-read messages or its own broadcasts back); any agent action counts as a heartbeat; `pr_url`

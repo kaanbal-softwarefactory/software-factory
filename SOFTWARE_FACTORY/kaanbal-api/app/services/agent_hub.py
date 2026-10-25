@@ -285,6 +285,7 @@ def public_task(task: Mapping[str, Any], index: Mapping[str, Mapping[str, Any]] 
         "branch": task.get("branch"), "pr_url": task.get("pr_url"), "notes": task.get("notes") or [],
         "created_by": task.get("created_by"), "updated_at": task.get("updated_at"),
         "reviewed_by": task.get("reviewed_by"), "reviewed_at": task.get("reviewed_at"),
+        "integration": task.get("integration"),
     }
     if index is not None:
         data["waiting_on"] = pending_dependencies(task, index)
@@ -328,7 +329,10 @@ def trace_tree(events: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
 WORK_MODES = ("guided", "autonomous")
 DONE_BY = ("person", "peer", "self")
 DEFAULT_SETTINGS: Dict[str, Any] = {"mode": "guided", "done_by": "person", "auto_accept": False,
-                                    "objective": "", "scope_phases": [], "scope_tasks": []}
+                                    "objective": "", "scope_phases": [], "scope_tasks": [],
+                                    # Integración a main: manual (las personas fusionan) o auto (Kaanbal fusiona
+                                    # lo revisado si los checks pasan y sigue el despliegue).
+                                    "integration": "manual", "require_checks": True, "integration_app": ""}
 
 GUIDED_RULES = [
     "Modo GUIADO: propón a la persona qué tarea vas a tomar y espera su visto bueno antes de hub_claim_task.",
@@ -364,6 +368,10 @@ def work_settings(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     settings["scope_tasks"] = [k for k in (task_key(t) for t in settings["scope_tasks"] or []) if k][:100]
     if settings["mode"] == "guided":
         settings.update(done_by="person", auto_accept=False)
+    if settings["integration"] not in ("manual", "auto"):
+        settings["integration"] = "manual"
+    settings["require_checks"] = settings["require_checks"] is not False
+    settings["integration_app"] = str(settings["integration_app"] or "")[:63]
     return settings
 
 
@@ -392,9 +400,15 @@ def objective_progress(tasks: List[Mapping[str, Any]], settings: Mapping[str, An
             "complete": bool(scoped) and done == len(scoped)}
 
 
+INTEGRATION_RULE = ("Integración automática: cuando quien revisa marca done una tarea con rama, Kaanbal la fusiona en "
+                    "main si sus checks de CI están en verde y sigue el despliegue en Argo. Si falla, la tarea vuelve a "
+                    "blocked con el motivo: corrige la rama y vuelve a pedir revisión. No hagas push a main tú.")
+
+
 def work_rules(settings: Mapping[str, Any]) -> List[str]:
     base = AUTONOMOUS_RULES if settings.get("mode") == "autonomous" else GUIDED_RULES
-    return base + [DONE_RULES[settings.get("done_by") or "person"]]
+    rules = base + [DONE_RULES[settings.get("done_by") or "person"]]
+    return rules + [INTEGRATION_RULE] if settings.get("integration") == "auto" else rules
 
 
 def done_check(task: Mapping[str, Any], session: Optional[Mapping[str, Any]],

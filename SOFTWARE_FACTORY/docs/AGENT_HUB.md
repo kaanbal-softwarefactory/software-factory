@@ -77,6 +77,27 @@ Cada proyecto elige en la consola (botón **Cambiar modo**, permiso `hub.project
 - **Aceptar propuestas solas**: lo que propone un agente dentro del objetivo queda listo para tomarse.
 - En cualquier modo, **fusionar a `main` y desplegar sigue siendo de personas**.
 
+### Integración a main (opcional, por proyecto)
+
+Para proyectos en prueba que necesitan iterar rápido, el proyecto puede pasar de **integración manual**
+(las personas fusionan) a **automática**. Activarla exige el permiso crítico `hub.integration.manage`,
+porque despliega sin intervención humana; nunca aplica al core de Kaanbal, solo a repos de apps.
+
+Cuando quien revisa marca *done* una tarea con rama, Kaanbal (con su credencial de GitHub, sin PR):
+
+1. **Comprueba**: la cerró otro agente o una persona (nunca su autor; el modo exige cierre `peer` o
+   `person`), la rama no es `main`, y los checks de GitHub del último commit de la rama terminaron en verde
+   (sin checks no integra mientras `require_checks` esté activo; si están en curso, espera).
+2. **Fusiona** la rama en la rama principal del repo de la app (`POST /repos/{repo}/merges`). Un conflicto
+   no se resuelve solo: la tarea vuelve a *blocked* con el motivo.
+3. **Sigue el despliegue**: el pipeline del commit de merge y después Argo, hasta ver la imagen nueva
+   *Healthy* y *Synced*.
+
+Cada paso queda en `integration` de la tarea y en la traza; al terminar (o fallar) se avisa al agente y a las
+personas. Una persona con el permiso puede pedir **Integrar a main ahora** desde el detalle de una tarea
+cerrada también en modo manual (`POST /hub/tasks/{id}/integrate`). Con varias apps con repositorio en el
+grupo, se elige cuál recibe las integraciones (`integration_app`).
+
 ### Al cumplirse el objetivo
 
 Cuando la última tarea del alcance pasa a *done*, el Hub manda **un** mensaje a `people` y deja un evento con
@@ -140,6 +161,7 @@ riesgos, qué debe decidir o probar una persona y tareas sugeridas (con `create_
 | `hub.files.manage` | Operador | Subir/quitar fuente e importar plan |
 | `hub.digest.run` | Operador | Pedir resumen al secretario |
 | `hub.projects.manage` | Operador | Elegir el modo de trabajo y el objetivo |
+| `hub.integration.manage` | Dueño (crítico) | Activar la integración automática a main e integrar una tarea cerrada |
 
 El rol **Agente** (solo lectura) ve el Hub pero no participa: para que Codex o Claude trabajen, su
 token necesita `hub.sessions.participate` (rol Agente ingeniero u Operador).

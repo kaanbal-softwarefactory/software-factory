@@ -3,7 +3,7 @@
     <div class="min-w-0 flex-1">
       <p class="text-sm">
         <span :class="['font-semibold', autonomous ? 'text-emerald-300' : 'text-slate-200']">{{ autonomous ? 'Modo autónomo' : 'Modo guiado' }}</span>
-        <span class="text-slate-400"> · {{ autonomous ? 'los agentes toman y avanzan sin pedir aprobación' : 'los agentes proponen y esperan tu visto bueno' }} · cierra: {{ DONE_LABEL[settings.done_by] }}</span>
+        <span class="text-slate-400"> · {{ autonomous ? 'los agentes toman y avanzan sin pedir aprobación' : 'los agentes proponen y esperan tu visto bueno' }} · cierra: {{ DONE_LABEL[settings.done_by] }}</span><span v-if="settings.integration === 'auto'" class="text-amber-200"> · integra a main solo</span>
       </p>
       <p v-if="objective.text || objective.total" class="text-sm text-white mt-1">
         Objetivo: {{ objective.text || scopeLabel }}
@@ -71,7 +71,20 @@
         <input type="checkbox" v-model="form.auto_accept" class="mt-1" :disabled="form.mode === 'guided'" />
         <span>Aceptar solas las tareas que propongan los agentes dentro del objetivo</span>
       </label>
-      <p class="text-xs text-slate-500">En cualquier modo, fusionar a main (y desplegar) sigue siendo de personas. Los agentes abren un PR por tarea y se detienen al cumplir el objetivo.</p>
+      <fieldset class="rounded-xl border border-white/10 p-3 space-y-2 text-sm text-slate-300">
+        <legend class="px-1">Integración a main</legend>
+        <label class="flex items-start gap-2"><input type="radio" value="manual" v-model="form.integration" class="mt-1" :disabled="!canIntegrate" />
+          <span>Manual: las personas revisan y fusionan cada entrega.</span></label>
+        <label class="flex items-start gap-2"><input type="radio" value="auto" v-model="form.integration" class="mt-1" :disabled="!canIntegrate || form.done_by === 'self'" />
+          <span>Automática: cuando otro agente o una persona cierra una tarea con rama, Kaanbal la fusiona en main si sus checks están en verde y sigue el despliegue en Argo. <strong class="text-amber-200">Despliega sin intervención humana:</strong> pensada para proyectos en prueba.</span></label>
+        <div v-if="form.integration === 'auto'" class="pl-6 space-y-2">
+          <label class="flex items-center gap-2"><input type="checkbox" v-model="form.require_checks" :disabled="!canIntegrate" /> Exigir checks de CI en la rama (recomendado)</label>
+          <label class="block text-xs text-slate-400">App que recibe las integraciones (vacío si el grupo tiene una sola)
+            <input v-model="form.integration_app" maxlength="63" class="field w-full mt-1" :disabled="!canIntegrate" /></label>
+        </div>
+        <p v-if="!canIntegrate" class="text-xs text-slate-500">Cambiarla exige el permiso hub.integration.manage.</p>
+      </fieldset>
+      <p class="text-xs text-slate-500">{{ form.integration === 'auto' ? 'Lo revisado y en verde llega a main solo; lo demás vuelve a la tarea como bloqueo con el motivo.' : 'Fusionar a main (y desplegar) queda en manos de personas; también pueden pedir «Integrar a main» desde el detalle de una tarea cerrada.' }} Los agentes se detienen al cumplir el objetivo.</p>
       <p v-if="error" role="alert" class="text-sm text-red-300">{{ error }}</p>
       <div class="flex justify-end gap-3"><button type="button" class="glass-button" :disabled="saving" @click="close">Cancelar</button><button class="glass-button" :disabled="saving || preview.unknown.length > 0">{{ saving ? 'Guardando…' : 'Guardar modo y objetivo' }}</button></div>
     </form>
@@ -90,6 +103,7 @@ const props = defineProps({
   phases: { type: Array, default: () => [] },
   tasks: { type: Array, default: () => [] },
   canManage: Boolean,
+  canIntegrate: Boolean,
 })
 const emit = defineEmits(['saved'])
 
@@ -123,7 +137,8 @@ function open() {
   opener = document.activeElement
   const s = props.settings
   form.value = { mode: s.mode, done_by: s.done_by, auto_accept: s.auto_accept, objective: s.objective || '',
-    scope_phases: [...(s.scope_phases || [])], tasks: (s.scope_tasks || []).join(', ') }
+    scope_phases: [...(s.scope_phases || [])], tasks: (s.scope_tasks || []).join(', '),
+    integration: s.integration || 'manual', require_checks: s.require_checks !== false, integration_app: s.integration_app || '' }
   error.value = ''
   nextTick(() => document.querySelector('[aria-label="Modo de trabajo"] input')?.focus())
 }

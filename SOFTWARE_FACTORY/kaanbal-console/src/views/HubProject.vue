@@ -13,7 +13,7 @@
     </div>
     <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
 
-    <HubWorkMode :group="group" :settings="settings" :objective="objective" :phases="phaseNames" :tasks="tasks" :can-manage="can.manage" @saved="refresh" />
+    <HubWorkMode :group="group" :settings="settings" :objective="objective" :phases="phaseNames" :tasks="tasks" :can-manage="can.manage" :can-integrate="can.integrate" @saved="refresh" />
 
     <p v-if="notice" role="status" class="rounded-lg bg-emerald-400/10 p-3 text-sm text-emerald-200">{{ notice }} <button class="ml-3 underline" @click="notice = ''">Cerrar</button></p>
     <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3" aria-label="Estado actual del proyecto">
@@ -139,7 +139,7 @@
         <button v-if="can.files && files.has_plan" class="glass-button" @click="importPlan()">Reimportar plan</button>
 
       </div>
-      <HubTasks :key="taskViewVersion" :tasks="tasks" :settings="settings" :focus-task="focusTask" :initial-filter="taskView" :can-edit="can.participate" @changed="refresh" />
+      <HubTasks :key="taskViewVersion" :tasks="tasks" :settings="settings" :focus-task="focusTask" :initial-filter="taskView" :can-edit="can.participate" :can-integrate="can.integrate" @changed="refresh" />
     </div>
 
     <!-- Traza -->
@@ -349,8 +349,8 @@ async function sendMessage() {
 async function loadPermissions() {
   try {
     const perms = new Set((await api.get('/security/me')).data.permissions || [])
-    can.value = { participate: perms.has('hub.sessions.participate'), files: perms.has('hub.files.manage'), digest: perms.has('hub.digest.run'), manage: perms.has('hub.projects.manage') }
-  } catch { can.value = { participate: false, files: false, digest: false, manage: false } }
+    can.value = { participate: perms.has('hub.sessions.participate'), files: perms.has('hub.files.manage'), digest: perms.has('hub.digest.run'), manage: perms.has('hub.projects.manage'), integrate: perms.has('hub.integration.manage') }
+  } catch { can.value = { participate: false, files: false, digest: false, manage: false, integrate: false } }
 }
 
 watch(tab, value => { if (value === 'trace') loadTrace(); if (value === 'messages') loadMessages() })
