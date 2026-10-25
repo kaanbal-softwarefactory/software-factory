@@ -21,6 +21,7 @@ HANDLED = frozenset({
     "hub_projects", "hub_join", "hub_briefing", "hub_sync", "hub_log", "hub_tasks", "hub_create_task",
     "hub_claim_task", "hub_update_task", "hub_message", "hub_files", "hub_read_file", "hub_write_note",
     "hub_trace", "hub_add_lesson", "hub_update_board", "hub_leave", "hub_digest", "hub_guides",
+    "hub_checkpoint", "hub_report_feedback",
 })
 
 _GROUP = re.compile(r"^[a-z0-9_][a-z0-9_-]{0,99}$")
@@ -78,6 +79,12 @@ async def call(client: Any, name: str, args: Dict[str, Any], context: Dict[str, 
         return await client.get(f"/hub/projects/{_group(args)}/briefing")
     if name == "hub_sync":
         return await client.post(f"/hub/sessions/{_session(args)}/heartbeat", _pick(args, "focus", "status", "branch"))
+    if name == "hub_checkpoint":
+        return await client.post(f"/hub/projects/{_group(args)}/checkpoints", {
+            **_pick(args, "summary", "decisions", "next_steps"), "session_id": _session(args)})
+    if name == "hub_report_feedback":
+        return await client.post(f"/hub/projects/{_group(args)}/feedback", {
+            **_pick(args, "title", "description", "kind"), "session_id": _session(args)})
     if name == "hub_log":
         return await client.post(f"/hub/sessions/{_session(args)}/events", _pick(args, "kind", "text", "task", "refs"))
     if name == "hub_leave":
@@ -93,7 +100,7 @@ async def call(client: Any, name: str, args: Dict[str, Any], context: Dict[str, 
     if name == "hub_claim_task":
         return await client.post(f"/hub/tasks/{_task(args)}/claim", {"session_id": _session(args)})
     if name == "hub_update_task":
-        body = _pick(args, "status", "note", "branch", "pr_url", "depends_on")
+        body = _pick(args, "status", "note", "branch", "pr_url", "depends_on", "verification_path", "expected_visible_text")
         body["session_id"] = _session(args)
         return await client.request("PATCH", f"/hub/tasks/{_task(args)}", json=body)
 

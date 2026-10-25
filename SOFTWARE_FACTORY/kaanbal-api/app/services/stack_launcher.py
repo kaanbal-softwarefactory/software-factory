@@ -85,13 +85,13 @@ def build_plan(
     """
     components = sort_components(list(stack.get("components") or []))
     business_demo = stack.get("profile") == "business-demo"
-    if business_demo and environments != ["prod"]:
-        raise StackPlanError("Business Base demo usa solo prod; lanza otro nombre para una prueba aislada.")
+    if business_demo and any(env not in ("dev", "prod") for env in environments):
+        raise StackPlanError("Business Base admite ambientes Dev y Prod aislados.")
     if not components:
         raise StackPlanError(f"El stack '{stack.get('id')}' no define componentes.")
 
     envs = [e for e in (environments or []) if e] or ["prod"]
-    if "prod" not in envs:
+    if not business_demo and "prod" not in envs:
         envs = [*envs, "prod"]
 
     base = normalize_base_name(base_name, domain_fqdn)

@@ -142,6 +142,8 @@ async def launch_stack(
     stack = await template_service.get_stack_details(request.stack_id)
     if not stack:
         raise HTTPException(status_code=404, detail=f"Stack '{request.stack_id}' not found")
+    if stack.get("profile") == "business-demo" and "environments" not in request.model_fields_set:
+        request.environments = ["dev", "prod"]
 
     target_domain = await _resolve_domain(request.domain_id)
     fqdn = str(target_domain.get("fqdn") or "").strip().lower()
@@ -275,7 +277,8 @@ async def _run_stack(run_id: str, plan: dict, description: str, actor: str):
 
             if component.get("business_wait_ready"):
                 from app.services.business_deployer import wait_ready
-                await wait_ready(component["name"], component["template"])
+                for env in component.get("environments") or ["prod"]:
+                    await wait_ready(component["name"], component["template"], env=env)
 
             await db.stack_runs.update_one({"_id": run_oid}, {"$set": {
                 f"{field}.state": "ready",

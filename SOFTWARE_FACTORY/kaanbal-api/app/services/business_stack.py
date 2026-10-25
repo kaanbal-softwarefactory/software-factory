@@ -30,8 +30,8 @@ def normalize_modules(preset, selected=None):
 def validate_config(template, config, environments):
     if template not in TEMPLATES:
         return
-    if environments != ["prod"]:
-        raise ValueError("Business Base candidato usa solo prod; crea otro nombre para una copia aislada.")
+    if not environments or any(env not in ("dev", "prod") for env in environments):
+        raise ValueError("Business Base admite Dev y Prod con datos e identidad aislados.")
     if config.get("BUSINESS_PROFILE") != "demo":
         raise ValueError("Selecciona el stack Business Base demo: este candidato requiere su contrato completo.")
     for key in ("BUSINESS_DB_APP", "BUSINESS_IDENTITY_APP", "BUSINESS_APP"):
@@ -91,13 +91,15 @@ def _probe(path, port):
     return {"httpGet": {"path": path, "port": port}, "periodSeconds": 5, "timeoutSeconds": 3, "failureThreshold": 60}
 
 
-def render(template, name, config, *, domain, image, ingress_class="traefik", cluster_issuer=""):
+def render(template, name, config, *, domain, image, ingress_class="traefik", cluster_issuer="", env="prod"):
     """Return Kubernetes objects without any credential values."""
-    validate_config(template, config, ["prod"])
+    validate_config(template, config, [env])
     db, identity, web = (config[k] for k in ("BUSINESS_DB_APP", "BUSINESS_IDENTITY_APP", "BUSINESS_APP"))
     secret = f"{name}-secrets"
-    app_origin = f"https://{domain}" if config.get("use_root_domain") else f"https://{web}.{domain}"
-    issuer = f"https://{identity}.{domain}/realms/business"
+    from app.services.domain_service import public_host
+    app_origin = "https://" + public_host(web, env, domain, is_root_domain=bool(config.get("use_root_domain") and env == "prod"))
+    identity_host = public_host(identity, env, domain)
+    issuer = f"https://{identity_host}/realms/business"
     docs = []
     if template == "business-postgres":
         # psql's quoted variables handle passwords without string-built SQL.
@@ -127,7 +129,7 @@ SQL
     elif template == "business-identity":
         c = _container(name, "quay.io/keycloak/keycloak:26.6.3", _env({
             "KC_DB": "postgres", "KC_DB_URL": f"jdbc:postgresql://{db}:5432/identity", "KC_DB_USERNAME": "business_identity",
-            "KC_HOSTNAME": f"https://{identity}.{domain}", "KC_HTTP_ENABLED": "true", "KC_PROXY_HEADERS": "xforwarded",
+            "KC_HOSTNAME": f"https://{identity_host}", "KC_HTTP_ENABLED": "true", "KC_PROXY_HEADERS": "xforwarded",
             "KC_HEALTH_ENABLED": "true", "KC_BOOTSTRAP_ADMIN_USERNAME": "business-bootstrap",
         }, secret, ["KC_DB_PASSWORD", "KC_BOOTSTRAP_ADMIN_PASSWORD"]), command=["/opt/keycloak/bin/kc.sh", "start"], port=8080)
         c["resources"] = {"requests": {"cpu": "250m", "memory": "512Mi"}, "limits": {"cpu": "1500m", "memory": "1536Mi"}}
@@ -159,7 +161,7 @@ SQL
                  _deployment(f"{web}-mail", _container("mail", "axllent/mailpit:v1.27.8", port=1025)), _service(f"{web}-mail", 1025)]
         # SMTP deliberately captured internally for this demo. Never a public inbox.
     if template != "business-postgres":
-        host = f"{identity}.{domain}" if template == "business-identity" else app_origin.removeprefix("https://")
+        host = identity_host if template == "business-identity" else app_origin.removeprefix("https://")
         path = "/realms/" if template == "business-identity" else "/"
         ing = _resource("Ingress", name, {"ingressClassName": ingress_class, "rules": [{"host": host, "http": {"paths": [{"path": path, "pathType": "Prefix", "backend": {"service": {"name": name, "port": {"number": 8080 if template == "business-identity" else 3000}}}}]}}]})
         if cluster_issuer:
@@ -182,18 +184,28 @@ SQL
     return docs
 
 
-def write_overlay(root, template, name, config, *, domain, dockerhub_user, ingress_class="traefik", cluster_issuer=""):
+def write_overlay(root, template, name, config, *, domain, dockerhub_user, ingress_class="traefik", cluster_issuer="", env="prod"):
     import yaml
     target = Path(root) / "apps" / name
-    base = target / "base"
-    overlay = target / "overlays" / "prod"
+    overlay = target / "overlays" / env
+    # Dev owns its resources: never overwrite the Prod base (URLs, PVCs or secrets).
+    base = target / "base" if env == "prod" else overlay
     base.mkdir(parents=True, exist_ok=True)
     overlay.mkdir(parents=True, exist_ok=True)
     image = "business-base-image:pending"
-    documents = render(template, name, config, domain=domain, image=image, ingress_class=ingress_class, cluster_issuer=cluster_issuer)
+    documents = render(template, name, config, domain=domain, image=image, ingress_class=ingress_class, cluster_issuer=cluster_issuer, env=env)
     (base / "resources.yaml").write_text(yaml.safe_dump_all(documents, sort_keys=False, allow_unicode=True), encoding="utf-8")
     (base / "kustomization.yaml").write_text("apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources:\n  - resources.yaml\n", encoding="utf-8")
-    kust = {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "namespace": "prod", "resources": ["../../base"]}
+    kust = {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "namespace": env, "resources": ["../../base"] if env == "prod" else ["resources.yaml"]}
     if template == "business-base":
-        kust["images"] = [{"name": image, "newName": f"{dockerhub_user}/{name}", "newTag": "pending-initial-build"}]
+        tag = "pending-initial-build"
+        existing = overlay / "kustomization.yaml"
+        if env == "dev" and existing.exists():
+            previous = yaml.safe_load(existing.read_text()) or {}
+            for item in previous.get("images") or []:
+                if item.get("name") == image:
+                    if item.get("newName") != f"{dockerhub_user}/{name}":
+                        raise ValueError("La imagen Dev existente no coincide con el repositorio del stack.")
+                    tag = item.get("newTag") or tag
+        kust["images"] = [{"name": image, "newName": f"{dockerhub_user}/{name}", "newTag": tag}]
     (overlay / "kustomization.yaml").write_text(yaml.safe_dump(kust, sort_keys=False), encoding="utf-8")

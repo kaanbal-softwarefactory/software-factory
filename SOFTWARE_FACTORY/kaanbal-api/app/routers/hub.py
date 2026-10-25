@@ -15,13 +15,14 @@ from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pymongo import ReturnDocument
 
 from app.db import get_db
 from app.services import agent_hub as hub
 from app.services import agent_hub_guides as guides
 from app.services import hub_integration as integration
+from app.services import hub_workspace as workspace
 from app.services.activity_log import activity_log, CATEGORY_APP
 
 router = APIRouter()
@@ -29,6 +30,7 @@ router = APIRouter()
 PROJECTS, SESSIONS, EVENTS, TASKS = "hub_projects", "hub_sessions", "hub_events", "hub_tasks"
 MESSAGES, LESSONS, BOARDS, BUCKET = "hub_messages", "hub_lessons", "hub_board_history", "hub_files"
 UPLOADS, UPLOAD_PARTS = "hub_uploads", "hub_upload_parts"
+CHECKPOINTS = "hub_checkpoints"
 
 
 # ── Utilidades ───────────────────────────────────────────────────────────
@@ -71,6 +73,8 @@ async def _project(group: str) -> Dict[str, Any]:
     meta = await db.app_groups.find_one({"_id": group}) or {}
     base = {"_id": group, "name": meta.get("name") or group, "description": meta.get("description") or "",
             "owner": meta.get("owner"), "board": ""}
+    if group == workspace.PLATFORM_GROUP:
+        base.update(name=workspace.PLATFORM_NAME, description=workspace.PLATFORM_DESCRIPTION, scope="platform")
     return {**base, **(project or {})}
 
 
@@ -145,10 +149,33 @@ async def _file_rows(group: str) -> List[Dict[str, Any]]:
 async def _briefing(group: str, me: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     db = get_db()
     handoffs = await db[EVENTS].find({"group": group, "kind": "handoff"}).sort("created_at", -1).limit(3).to_list(3)
-    return hub.briefing(await _project(group), sessions=await _group_sessions(group), tasks=await _group_tasks(group),
+    result = hub.briefing(await _project(group), sessions=await _group_sessions(group), tasks=await _group_tasks(group),
                         events=await _recent_events(group, 15), handoffs=handoffs, lessons=await _lessons(group),
                         files=await _file_rows(group), now=_now(), me=me,
                         settings=(await _project(group)).get("settings"))
+    result["workspace"] = await _workspace_context(group)
+    return result
+
+
+async def _workspace_context(group: str) -> Dict[str, Any]:
+    db = get_db()
+    project = await _project(group)
+    config = await db.system_config.find_one({"_id": "main"}) or {}
+    apps = await db.apps.find({"app_group": group}).to_list(100)
+    from app.services import domain_service
+    apps = [{**app, "domain": (await domain_service.resolve_for_app(app)).get("fqdn") or config.get("domain") or ""}
+            for app in apps]
+    checkpoints = await db[CHECKPOINTS].find({"group": group}).sort("updated_at", -1).limit(8).to_list(8)
+    result = workspace.snapshot(project, await _group_tasks(group), await _group_sessions(group),
+                                await _recent_events(group, 50), checkpoints, now=_now())
+    result["services"] = workspace.service_cards(apps, config.get("domain") or "")
+    result["dev_environment"] = project.get("dev_environment")
+    job = await db.hub_dev_jobs.find_one({"_id": group})
+    if job:
+        result["dev_preparation"] = {k: job.get(k) for k in ("state", "run_id", "phase", "detail", "started_at", "finished_at")}
+        if job.get("state") == "preparing" and job.get("expires_at", datetime.min) <= _now():
+            result["dev_preparation"].update(state="interrupted", detail="La preparación se interrumpió. Puedes revisar y reintentar sin borrar datos.")
+    return result
 
 
 async def _store_file(group: str, path: str, data: bytes, actor: str, origin: str) -> Dict[str, Any]:
@@ -178,6 +205,8 @@ async def list_projects():
     now = _now()
     groups = {item["_id"]: item for item in await db.app_groups.find({}).to_list(None)}
     projects = {item["_id"]: item for item in await db[PROJECTS].find({}).to_list(None)}
+    projects.setdefault(workspace.PLATFORM_GROUP, {"name": workspace.PLATFORM_NAME,
+                                                "description": workspace.PLATFORM_DESCRIPTION, "scope": "platform"})
     active = await db[SESSIONS].find({"last_seen": {"$gte": now - hub.IDLE}, "left_at": None}).to_list(None)
     all_tasks = await db[TASKS].find({}, {"group": 1, "status": 1, "key": 1, "title": 1, "phase": 1,
                                          "depends_on": 1, "updated_at": 1, "assignee_agent": 1}).to_list(None)
@@ -188,8 +217,9 @@ async def list_projects():
         tasks = [t for t in all_tasks if t.get("group") == slug]
         state = hub.coordination_state(project, tasks, [], now)
         rows.append({
-            "group": slug, "name": meta.get("name") or slug, "owner": meta.get("owner"),
-            "stage": meta.get("stage", "active"), "description": meta.get("description") or "",
+            "group": slug, "name": project.get("name") or meta.get("name") or slug, "owner": meta.get("owner"),
+            "scope": "platform" if slug == workspace.PLATFORM_GROUP else "project",
+            "stage": meta.get("stage", "active"), "description": project.get("description") or meta.get("description") or "",
             "agents_online": [a for a in agents if a["presence"] in ("online", "idle")],
             "open_tasks": sum(t.get("status") in hub.OPEN_STATUSES for t in tasks),
             "blocked_tasks": state["blocked"],
@@ -216,6 +246,7 @@ async def project_overview(group: str):
         "project": {k: project.get(k) for k in ("_id", "name", "description", "owner", "board", "board_updated_by",
                                                  "board_updated_at", "last_digest", "last_activity")},
         "settings": settings,
+        "workspace": await _workspace_context(group),
         "objective": hub.objective_progress(tasks, settings),
         "coordination": hub.coordination_state(project, tasks, sessions, now),
         "sessions": [hub.public_session(s, now) for s in sessions],
@@ -262,6 +293,8 @@ class WorkSettings(BaseModel):
     integration: Literal["manual", "auto"] = "manual"
     require_checks: bool = True
     integration_app: str = Field(default="", max_length=63)
+    integration_env: Literal["dev", "prod"] = "dev"
+    integration_branch: str = Field(default="develop", min_length=1, max_length=120)
 
 
 @router.put("/projects/{group}/settings")
@@ -276,11 +309,18 @@ async def update_settings(group: str, body: WorkSettings, request: Request):
         raise _bad(exc)
     actor = _principal(request).username
     previous = hub.work_settings((await _project(group)).get("settings"))
-    integration_changed = any(settings[k] != previous[k] for k in ("integration", "require_checks", "integration_app"))
+    integration_changed = any(settings[k] != previous[k] for k in (
+        "integration", "require_checks", "integration_app", "integration_env", "integration_branch"))
     if integration_changed and not _principal(request).can("hub.integration.manage"):
         raise HTTPException(403, "Cambiar la integración a main exige el permiso hub.integration.manage: despliega sin intervención humana.")
     if settings["integration"] == "auto" and settings["done_by"] == "self":
         raise HTTPException(422, "La integración automática exige revisión de otro agente o de una persona (cierre: peer o person).")
+    if settings["integration"] == "auto" and settings["integration_env"] != "dev":
+        raise HTTPException(422, "La integración automática trabaja en Dev. Producción se promueve explícitamente.")
+    if settings["integration_env"] == "dev" and settings["integration_branch"] in ("main", "master"):
+        raise HTTPException(422, "Dev necesita una rama distinta de main, normalmente develop.")
+    if not integration.valid_branch(settings["integration_branch"]):
+        raise HTTPException(422, "Rama de integración inválida.")
     if settings["integration"] == "auto":
         try:
             await _integration_target(group, settings)
@@ -576,6 +616,15 @@ class TaskUpdate(BaseModel):
     area: Optional[str] = Field(default=None, max_length=40)
     phase: Optional[str] = Field(default=None, max_length=40)
     depends_on: Optional[List[str]] = Field(default=None, max_length=20)
+    verification_path: Optional[str] = Field(default=None, max_length=200, pattern=r"^/[^?#\\\r\n]*$")
+    expected_visible_text: Optional[str] = Field(default=None, max_length=300)
+
+    @field_validator("verification_path")
+    @classmethod
+    def local_verification_path(cls, value):
+        if value and value.startswith("//"):
+            raise ValueError("La ruta debe pertenecer a la app; no uses otro dominio.")
+        return value
 
 
 @router.patch("/tasks/{task_id}")
@@ -611,7 +660,7 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
             values["depends_on"] = [k for k in (hub.task_key(d) for d in body.depends_on) if k]
     except hub.HubError as exc:
         raise _bad(exc)
-    for field in ("title", "description", "area", "phase", "branch", "pr_url"):
+    for field in ("title", "description", "area", "phase", "branch", "pr_url", "verification_path", "expected_visible_text"):
         value = getattr(body, field)
         if value is not None:
             values[field] = (value.strip() or None) if field in ("branch", "pr_url") else value.strip()
@@ -665,20 +714,25 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
 
 # ── Integración a main ────────────────────────────────────────────────────
 _JOBS: Dict[str, Any] = {}  # tareas en integración en este proceso (evita dos a la vez)
+_INTEGRATION_LOCKS: Dict[str, Any] = {}
 
 
 async def _integration_target(group: str, settings: Dict[str, Any]) -> Tuple[str, str]:
     """(app, repo owner/name) que recibe las integraciones del proyecto."""
+    if group == workspace.PLATFORM_GROUP:
+        raise integration.IntegrationBlocked("El núcleo de Kaanbal se actualiza manualmente; no se despliega desde el Hub.")
     query: Dict[str, Any] = {"app_group": group, "repo_url": {"$nin": [None, ""]}}
     if settings.get("integration_app"):
         query["name"] = settings["integration_app"]
-    apps = await get_db().apps.find(query, {"name": 1, "repo_url": 1}).to_list(20)
+    apps = await get_db().apps.find(query, {"name": 1, "repo_url": 1, "environments": 1}).to_list(20)
     if len(apps) != 1:
         names = ", ".join(a["name"] for a in apps) or "el grupo no tiene apps con repositorio"
         raise integration.IntegrationBlocked(f"Elige la app que recibe las integraciones (integration_app): {names}.")
     repo = integration.repo_from_url(apps[0]["repo_url"])
     if not repo:
         raise integration.IntegrationBlocked("La integración directa solo admite repositorios de GitHub.")
+    if settings.get("integration_env", "dev") not in (apps[0].get("environments") or ["prod"]):
+        raise integration.IntegrationBlocked("Prepara primero el ambiente Dev del stack completo desde el proyecto.")
     return apps[0]["name"], repo
 
 
@@ -690,6 +744,17 @@ def _start_integration(task_id: str) -> bool:
 
 
 async def _integration_job(task_id: str) -> str:
+    task = await get_db()[TASKS].find_one({"_id": task_id})
+    if not task:
+        return "blocked"
+    # One deployment at a time per project, so two agents do not overwrite the
+    # expected image while the first task is still being verified.
+    lock = _INTEGRATION_LOCKS.setdefault(task["group"], asyncio.Lock())
+    async with lock:
+        return await _run_integration_job(task_id)
+
+
+async def _run_integration_job(task_id: str) -> str:
     db = get_db()
     task = await db[TASKS].find_one({"_id": task_id})
     group = task["group"]
@@ -698,7 +763,9 @@ async def _integration_job(task_id: str) -> str:
     notify = [a for a in (task.get("assignee_agent"),) if a]
 
     async def report(state: str, detail: str, extra: Dict[str, Any]) -> None:
-        record = {"state": state, "detail": detail, "at": _now(), **extra}
+        prior = (await db[TASKS].find_one({"_id": task_id}) or {}).get("integration") or {}
+        record = {**prior, "state": state, "detail": detail, "at": _now(),
+                  "environment": settings["integration_env"], **extra}
         change: Dict[str, Any] = {"$set": {"integration": record, "updated_at": _now()}}
         if state in ("blocked", "deploy_failed"):
             change["$set"]["status"] = "blocked"
@@ -706,7 +773,7 @@ async def _integration_job(task_id: str) -> str:
         await db[TASKS].update_one({"_id": task_id}, change)
         await _event(group, "task", f"{label} · integración {state}: {detail}", agent="kaanbal",
                      task_ref=task.get("key") or task_id)
-        if state in ("blocked", "deploy_failed", "deployed", "deploy_unknown"):
+        if state in ("blocked", "deploy_failed", "deployed", "verified", "deploy_unknown"):
             for to in notify + ["people"]:
                 await db[MESSAGES].insert_one({"_id": _new_id(), "group": group, "to": to, "text": f"{label}: {detail}"[:4000],
                                                "task_ref": task.get("key"), "from_session": None, "from_agent": "kaanbal",
@@ -721,8 +788,23 @@ async def _integration_job(task_id: str) -> str:
         return "blocked"
     from app.services.argocd_service import argocd_service
 
-    return await integration.run(task, repo, app, gh, argocd_service.get_application_status, report,
-                                 require_checks=settings["require_checks"])
+    async def env_status(name):
+        return await argocd_service.get_env_status(name, settings["integration_env"])
+
+    app_doc = await db.apps.find_one({"name": app}) or {}
+    async def smoke(sha):
+        from app.services import domain_service
+        domain = (await domain_service.resolve_for_app(app_doc)).get("fqdn")
+        if not domain:
+            return {"ok": False, "detail": "Falta el dominio del ambiente; no se puede comprobar su URL."}
+        url = "https://" + domain_service.public_host(app, settings["integration_env"], domain)
+        return await integration.verify_business_app(url, path=task.get("verification_path") or "/",
+                                                     expected_text=task.get("expected_visible_text") or "")
+
+    return await integration.run(task, repo, app, gh, env_status, report,
+                                 require_checks=settings["require_checks"],
+                                 base_branch=settings["integration_branch"], environment=settings["integration_env"],
+                                 verify=smoke if app_doc.get("template") == "business-base" else None)
 
 
 @router.post("/tasks/{task_id}/integrate")
@@ -1149,3 +1231,197 @@ async def hub_guides(group: str = "", harness: str = "", specialty: str = "", ag
     return {"chatgpt_phases": guides.CHATGPT_PHASES_PROMPT, "agent_start": guides.agent_start_prompt(
         slug, harness[:30], specialty[:120], name), "repo_snippet": guides.REPO_SNIPPET, "protocol": hub.PROTOCOL,
         "plan_file": hub.PLAN_FILE}
+
+
+# ── Contexto compartido y mejora de la plataforma ─────────────────────────
+class CheckpointBody(BaseModel):
+    session_id: str
+    summary: str = Field(min_length=1, max_length=2000)
+    decisions: List[str] = Field(default_factory=list, max_length=5)
+    next_steps: List[str] = Field(default_factory=list, max_length=5)
+
+
+@router.post("/projects/{group}/checkpoints")
+async def save_checkpoint(group: str, body: CheckpointBody, request: Request):
+    group = _group(group)
+    session = await _optional_session(request, body.session_id, group)
+    if not body.summary.strip() or any(len(item) > 400 for item in body.decisions + body.next_steps):
+        raise HTTPException(422, "Escribe un resumen y hasta cinco decisiones/pasos de 400 caracteres cada uno.")
+    doc = {"group": group, "agent": session["agent"], "person": session["person"],
+           "summary": body.summary.strip(), "decisions": body.decisions, "next_steps": body.next_steps,
+           "session_id": session["_id"], "updated_at": _now()}
+    await get_db()[CHECKPOINTS].update_one({"_id": f"{group}:{session['agent']}:{session['person']}"},
+                                          {"$set": doc}, upsert=True)
+    await _event(group, "checkpoint", body.summary, session=session,
+                 refs=["Resumen compartido del proyecto"])
+    return {"saved": True, "checkpoint": doc}
+
+
+class FeedbackBody(BaseModel):
+    session_id: Optional[str] = None
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=4000)
+    kind: Literal["friction", "idea", "bug"] = "friction"
+
+
+@router.post("/projects/{group}/feedback")
+async def report_feedback(group: str, body: FeedbackBody, request: Request):
+    group = _group(group)
+    session = await _optional_session(request, body.session_id, group)
+    if not session and getattr(_principal(request), "via_token", False):
+        raise HTTPException(403, "Un agente reporta con el session_id del proyecto de origen.")
+    if not body.title.strip() or not body.description.strip():
+        raise HTTPException(422, "Escribe el título y lo observado.")
+    actor = (session or {}).get("agent") or _principal(request).username
+    key = "F-" + _new_id()[:8]
+    doc = {"_id": _new_id(), "group": workspace.PLATFORM_GROUP, "key": key, "title": body.title.strip(),
+           "description": body.description.strip(), "status": "proposed", "area": "plataforma",
+           "phase": "Mejoras", "depends_on": [], "sources": [], "notes": [],
+           "created_by": actor, "created_at": _now(), "updated_at": _now(),
+           "origin": {"group": group, "agent": actor, "person": _principal(request).username, "kind": body.kind}}
+    await get_db()[TASKS].insert_one(doc)
+    await _touch_project(workspace.PLATFORM_GROUP, name=workspace.PLATFORM_NAME,
+                         description=workspace.PLATFORM_DESCRIPTION)
+    await _event(workspace.PLATFORM_GROUP, "feedback", f"{key} · {body.title.strip()} (desde {group})",
+                 person=_principal(request).username, agent=actor, task_ref=key, refs=[f"/hub/{group}"])
+    if group != workspace.PLATFORM_GROUP:
+        await _event(group, "feedback", f"Reportó {key} a Software Factory: {body.title.strip()}",
+                     session=session, person=_principal(request).username, agent=actor,
+                     refs=[f"/hub/{workspace.PLATFORM_GROUP}"])
+    return {"task": hub.public_task(doc), "origin_group": group, "platform_group": workspace.PLATFORM_GROUP}
+
+
+class DevEnvironmentBody(BaseModel):
+    app: str = Field(default="", max_length=63)
+    plan_id: Optional[str] = None
+    apply: bool = False
+
+
+_DEV_JOBS: Dict[str, Any] = {}
+
+
+@router.post("/projects/{group}/dev-environment")
+async def prepare_dev_environment(group: str, body: DevEnvironmentBody, request: Request):
+    from app.services import hub_dev, domain_service
+    from pymongo.errors import DuplicateKeyError
+    group = _group(group)
+    if group == workspace.PLATFORM_GROUP:
+        raise HTTPException(422, "Software Factory se publica y actualiza manualmente; el Dev de este flujo es para las apps.")
+    db = get_db()
+    apps = await db.apps.find({"app_group": group}).to_list(100)
+    candidates = [a for a in apps if a.get("template") == "business-base" and (not body.app or a["name"] == body.app)]
+    if len(candidates) != 1:
+        raise HTTPException(422, "Selecciona la aplicación Business Base del stack.")
+    domain = (await domain_service.resolve_for_app(candidates[0])).get("fqdn") or ""
+    try:
+        proposal = hub_dev.plan(apps, domain, body.app)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    actor = _principal(request).username
+    if not body.apply:
+        plan_id = _new_id()
+        await db.hub_dev_plans.insert_one({"_id": plan_id, "group": group, "actor": actor, "plan": proposal,
+                                          "expires_at": _now() + timedelta(minutes=20)})
+        return {"plan_id": plan_id, "plan": proposal, "applied": False}
+    saved = await db.hub_dev_plans.find_one({"_id": body.plan_id, "group": group, "actor": actor,
+                                           "expires_at": {"$gt": _now()}})
+    if not saved or saved["plan"]["fingerprint"] != proposal["fingerprint"]:
+        raise HTTPException(409, "El plan caducó o el stack cambió. Genera una nueva vista previa.")
+    previous = await db.hub_dev_jobs.find_one({"_id": group})
+    if previous and previous.get("state") == "preparing" and previous.get("expires_at", datetime.min) > _now():
+        return {"started": False, "state": "preparing", "run_id": previous["run_id"]}
+    run_id = _new_id()
+    record = {"state": "preparing", "run_id": run_id, "actor": actor, "started_at": _now(),
+              "expires_at": _now() + timedelta(minutes=2), "plan": proposal}
+    if previous:
+        changed = await db.hub_dev_jobs.find_one_and_update({"_id": group, "run_id": previous["run_id"],
+                                                             "expires_at": previous.get("expires_at")}, {"$set": record})
+        if not changed:
+            raise HTTPException(409, "Otra persona empezó la preparación. Actualiza el proyecto.")
+    else:
+        try:
+            await db.hub_dev_jobs.insert_one({"_id": group, **record})
+        except DuplicateKeyError:
+            raise HTTPException(409, "Otra persona empezó la preparación. Actualiza el proyecto.")
+    _DEV_JOBS[group] = asyncio.create_task(_prepare_dev_job(group, run_id, apps, proposal, actor))
+    return {"started": True, "run_id": run_id, "state": "preparing"}
+
+
+async def _prepare_dev_job(group, run_id, apps, proposal, actor):
+    from app.services import hub_dev
+    db = get_db()
+    phase = "source"
+    async def emit(stage, detail):
+        nonlocal phase
+        phase = stage
+        owned = await db.hub_dev_jobs.find_one({"_id": group, "run_id": run_id, "state": "preparing"})
+        if not owned:
+            raise asyncio.CancelledError()
+        await db.hub_dev_jobs.update_one({"_id": group, "run_id": run_id}, {"$set": {
+            "phase": stage, "detail": detail, "expires_at": _now() + timedelta(minutes=2)}})
+        await _event(group, "dev", detail, person=actor, agent="kaanbal")
+    async def heartbeat():
+        while True:
+            await asyncio.sleep(25)
+            await db.hub_dev_jobs.update_one({"_id": group, "run_id": run_id, "state": "preparing"},
+                                              {"$set": {"expires_at": _now() + timedelta(minutes=2)}})
+    pulse = asyncio.create_task(heartbeat())
+    try:
+        result = await hub_dev.prepare(apps, proposal, emit)
+        for component in proposal["components"]:
+            await db.apps.update_one({"name": component["name"], "app_group": group},
+                                     {"$addToSet": {"environments": "dev"}})
+        settings = hub.work_settings((await _project(group)).get("settings"))
+        settings.update(integration="auto", integration_env="dev", integration_branch="develop",
+                        integration_app=proposal["app"], require_checks=True, done_by="peer")
+        await _touch_project(group, settings=settings, dev_environment={**result, "at": _now()})
+        await db.hub_dev_jobs.update_one({"_id": group, "run_id": run_id}, {"$set": {
+            "state": "ready", "detail": "Dev verificado y listo para los agentes.", "finished_at": _now()}})
+        await _event(group, "dev", "Dev está verificado. Las tareas revisadas se integran en develop; producción requiere promoción.",
+                     person=actor, agent="kaanbal", refs=[result["url"]])
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        message = f"Dev no se completó en el paso {phase}. Revisa CI, Vault, DNS y permisos. Se conservan los recursos; puedes reintentar."
+        await db.hub_dev_jobs.update_one({"_id": group, "run_id": run_id},
+                                         {"$set": {"state": "failed", "detail": message, "finished_at": _now()}})
+        await _event(group, "blocker", message, person=actor, agent="kaanbal")
+    finally:
+        pulse.cancel()
+        await asyncio.gather(pulse, return_exceptions=True)
+
+
+@router.post("/projects/{group}/promotion")
+async def promote_verified_dev(group: str, request: Request):
+    """Create a real, pinned promotion PR. Never merges or moves Dev data to Prod."""
+    group = _group(group)
+    db = get_db()
+    project = await _project(group)
+    settings = hub.work_settings(project.get("settings"))
+    if settings["integration_env"] != "dev":
+        raise HTTPException(409, "La promoción necesita un ambiente Dev verificado.")
+    try:
+        app, repo = await _integration_target(group, settings)
+        config = await db.system_config.find_one({"_id": "main"}) or {}
+        gh = integration.GitHubIntegration(config.get("github_token") or config.get("git_token") or "")
+        head = await gh.branch_head(repo, settings["integration_branch"])
+        checked = (project.get("dev_environment") or {}).get("verified_commit") == head
+        checked = checked or any((t.get("integration") or {}).get("sha") == head
+            and (t.get("integration") or {}).get("environment") == "dev"
+            and (t.get("integration") or {}).get("state") == "verified" for t in await _group_tasks(group))
+        if not checked:
+            raise integration.IntegrationBlocked("El último commit de Dev todavía no está verificado. Espera su comprobación antes de promover.")
+        from app.services.argocd_service import argocd_service
+        state = await argocd_service.get_env_status(app, "dev")
+        if integration.deploy_verdict(state, head)[0] != "deployed":
+            raise integration.IntegrationBlocked("Dev ya no está sirviendo el commit verificado; no se abre una promoción desactualizada.")
+        result = await gh.promotion_pr(repo, head, title=f"Promover Dev verificado · {group}",
+            body=(f"Candidato verificado en Dev: `{head}`.\n\n"
+                  "Este PR conserva ese commit aunque develop siga avanzando. Revisa y fusiona para que el pipeline de producción lo despliegue.\n\n"
+                  "No se copian datos, usuarios ni secretos de Dev a producción."))
+    except integration.IntegrationBlocked as exc:
+        raise HTTPException(409, str(exc))
+    await _touch_project(group, promotion={**result, "created_by": _principal(request).username, "at": _now()})
+    await _event(group, "promotion", f"Promoción preparada en PR #{result['number']}; la integración a producción es explícita.",
+                 person=_principal(request).username, refs=[result["url"]])
+    return {"promotion": result, "merged": False}

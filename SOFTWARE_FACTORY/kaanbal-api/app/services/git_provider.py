@@ -841,6 +841,9 @@ class GitHubProvider(GitProvider):
             for env, branch in env_branch_pairs
         )
 
+        validation_commands = "npm run test --if-present\n            npm run typecheck --if-present" if is_node else "true"
+        deploy_cases = "\n".join(f'            {branch}) ENV="{env}" ;;' for env, branch in env_branch_pairs)
+
         content = f"""# ==============================================================================
 # GITHUB ACTIONS - {app_name}
 # ==============================================================================
@@ -852,7 +855,8 @@ name: Deploy {app_name}
 
 on:
   push:
-    branches: [{', '.join(branches)}]
+    branches: ['**']
+  pull_request:
   workflow_dispatch:
 
 # Portable entre células: nada de la célula va escrito aquí. La app es el repo,
@@ -863,12 +867,20 @@ env:
   APP_NAME: ${{{{ github.event.repository.name }}}}
   DOCKERHUB_USER: ${{{{ secrets.DOCKERHUB_USERNAME }}}}
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{{{ github.ref }}}}
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{{{ steps.meta.outputs.tag }}}}
       deploy_env: ${{{{ steps.meta.outputs.env }}}}
+      deploy: ${{{{ steps.meta.outputs.deploy }}}}
     steps:
       - uses: actions/checkout@v4
 
@@ -877,28 +889,32 @@ jobs:
       - name: Build
         run: |
             {build_run}
+            {validation_commands}
 
       - name: Determine environment
         id: meta
         run: |
           BRANCH="${{GITHUB_REF_NAME}}"
+          echo "deploy=false" >> $GITHUB_OUTPUT
+          if [ "${{{{ github.event_name }}}}" = "pull_request" ]; then exit 0; fi
           case "$BRANCH" in
-            main)    ENV="prod" ;;
-            staging) ENV="staging" ;;
-            develop) ENV="dev" ;;
-            *)       ENV="dev" ;;
+{deploy_cases}
+            *) exit 0 ;;
           esac
+          echo "deploy=true" >> $GITHUB_OUTPUT
           TAG="${{ENV}}-$(echo $GITHUB_SHA | cut -c1-7)"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "env=$ENV" >> $GITHUB_OUTPUT
 
       - name: Login to Docker Hub
+        if: steps.meta.outputs.deploy == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{{{ secrets.DOCKERHUB_USERNAME }}}}
           password: ${{{{ secrets.DOCKERHUB_PASSWORD }}}}
 
       - name: Build and push Docker image
+        if: steps.meta.outputs.deploy == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -906,6 +922,7 @@ jobs:
           tags: ${{{{ env.DOCKERHUB_USER }}}}/${{{{ env.APP_NAME }}}}:${{{{ steps.meta.outputs.tag }}}}
 
   update-infra:
+    if: needs.build.outputs.deploy == 'true'
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -925,15 +942,19 @@ jobs:
           sed -i "s/newTag.*/newTag: $IMAGE_TAG/g" kustomization.yaml
 
           git add kustomization.yaml
-          git commit -m "deploy($DEPLOY_ENV): ${{APP_NAME}} to $IMAGE_TAG [skip ci]"
+          if ! git diff --cached --quiet; then
+            git commit -m "deploy($DEPLOY_ENV): ${{APP_NAME}} to $IMAGE_TAG [skip ci]"
+          fi
           cd ../../../../
 
           # Retry push with rebase
+          pushed=false
           for i in 1 2 3 4 5; do
-            git pull --rebase origin main && git push origin main && break
+            if git pull --rebase origin main && git push origin main; then pushed=true; break; fi
             echo "Push attempt $i failed, retrying in 5s..."
             sleep 5
           done
+          test "$pushed" = true
 """
         return (".github/workflows/deploy.yml", content)
 

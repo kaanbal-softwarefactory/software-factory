@@ -100,7 +100,7 @@ class RunTests(unittest.IsolatedAsyncioTestCase):
         final, states = await self.run_with(gh)
         self.assertEqual(final, "deployed")
         self.assertEqual([s for s, _ in states], ["checking", "merged", "deployed"])
-        self.assertEqual(gh.merged[:2], ("main", "claude/t09"))
+        self.assertEqual(gh.merged[:2], ("main", SHA))  # merge the checked commit, never a moving branch
         self.assertIn("revisó codex-uiux", gh.merged[2])
 
     async def test_missing_red_or_conflicting_work_is_not_merged(self):
@@ -136,7 +136,7 @@ class SettingsAndTriggerTests(HubCase):
     async def asyncSetUp(self):
         await super().asyncSetUp()
         await self.db.apps.insert_one({"_id": "a1", "name": "app-x-web", "app_group": "app-x",
-                                       "repo_url": "https://github.com/example/app-x-web.git"})
+                                       "repo_url": "https://github.com/example/app-x-web.git", "environments": ["dev", "prod"]})
 
     async def test_turning_on_integration_needs_the_critical_permission_and_cross_review(self):
         await self.upload_phases()
