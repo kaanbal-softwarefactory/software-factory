@@ -129,14 +129,14 @@ class TraceTests(unittest.TestCase):
             {"created_at": NOW, "agent": "astra", "kind": "progress", "session_id": "s1"},
             {"created_at": NOW - timedelta(minutes=5), "agent": "astra", "kind": "decision", "session_id": "s1"},
             {"created_at": NOW - timedelta(days=1), "agent": "claude-api", "kind": "join", "session_id": "s2"},
-            {"created_at": NOW, "person": "agustin", "kind": "file"},
+            {"created_at": NOW, "person": "ana", "kind": "file"},
         ]
         tree = hub.trace_tree(events)
         self.assertEqual([day["day"] for day in tree], ["2026-10-24", "2026-10-23"])
         astra = next(a for a in tree[0]["agents"] if a["agent"] == "astra")
         self.assertEqual(astra["events"], 2)
         self.assertEqual(astra["kinds"], {"progress": 1, "decision": 1})
-        self.assertIn("agustin", [a["agent"] for a in tree[0]["agents"]])
+        self.assertIn("ana", [a["agent"] for a in tree[0]["agents"]])
 
 
 class BriefingTests(unittest.TestCase):
