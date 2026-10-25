@@ -151,6 +151,55 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
             await service.diff(self.actor, ws["id"])
         self.assertEqual(error.exception.status, 410)
 
+    async def test_personal_repo_workspace_pushes_and_keeps_working(self):
+        self.github.repo = AsyncMock(return_value={"permissions": {"push": True}, "default_branch": "main"})
+        results = iter([{"sha": "d" * 40, "tree": "e" * 40, "created": False}, {"sha": "f" * 40, "tree": "1" * 40, "created": True},
+                        {"sha": "2" * 40, "tree": "3" * 40, "created": False}])
+        bases = []
+        async def push(ws, changes, message, branch):
+            bases.append(ws["base_sha"])
+            return next(results)
+        self.github.push = AsyncMock(side_effect=push)
+        self.config["autonomy"]["grants"] = []  # el límite es la cuenta GitHub de la persona, no una concesión
+        with patch.object(service, "broker_for", AsyncMock(return_value=self.github)):
+            ws = await service.open_workspace(self.actor, target="repo", app="", env="", reason="Work on my repo", repo="owner/site")
+            self.assertEqual((ws["credential"], ws["repo"], ws["push_repo"]), ("personal", "owner/site", "owner/site"))
+            await service.initialize(self.actor, ws["id"])
+            await service.files(self.actor, ws["id"], path="app.py", content="print('v2')\n", write=True)
+            diff = await service.diff(self.actor, ws["id"])
+            with self.assertRaises(AutonomyError) as blocked:  # sin «Push directo» no se toca main
+                await service.push(self.actor, ws["id"], "Update app", diff["digest"])
+            self.assertEqual(blocked.exception.status, 403)
+            self.config["autonomy"]["direct_push_enabled"] = True
+            with self.assertRaises(AutonomyError):
+                await service.push(self.actor, ws["id"], "Update app", "0" * 64)
+            pushed = await service.push(self.actor, ws["id"], "Update app", diff["digest"])
+            self.assertEqual((pushed["commit"], pushed["branch"], pushed["base_sha"]), ("d" * 40, "main", "d" * 40))
+            self.assertEqual((await service.diff(self.actor, ws["id"]))["changes"], [])  # lo empujado es la nueva base
+            await service.files(self.actor, ws["id"], path="app.py", content="print('v3')\n", write=True)
+            second = await service.diff(self.actor, ws["id"])
+            self.assertEqual([c["content"] for c in second["changes"]], ["print('v3')\n"])
+            pushed = await service.push(self.actor, ws["id"], "Try on a branch", second["digest"], branch="kaanbal/try")
+            self.assertTrue(pushed["created_branch"])
+            self.assertEqual(bases, ["a" * 40, "d" * 40])  # el segundo commit parte del primero
+            self.assertEqual(len(pushed["pushes"]), 2)
+            # Seguir en la rama de trabajo no depende de «Push directo»; volver a main sí.
+            self.config["autonomy"]["direct_push_enabled"] = False
+            await service.files(self.actor, ws["id"], path="app.py", content="print('v4')\n", write=True)
+            third = await service.diff(self.actor, ws["id"])
+            with self.assertRaises(AutonomyError):
+                await service.push(self.actor, ws["id"], "Back to main", third["digest"], branch="main")
+            pushed = await service.push(self.actor, ws["id"], "Keep going", third["digest"])
+            self.assertEqual((pushed["branch"], bases[-1]), ("kaanbal/try", "f" * 40))
+        self.assertTrue(any(event["action"] == "workspace.push" for event in self.db["token_activity"].rows))
+
+    async def test_push_is_only_for_personal_workspaces(self):
+        ws, diff = await self.prepare()
+        self.config["autonomy"]["direct_push_enabled"] = True
+        with self.assertRaises(AutonomyError) as error:
+            await service.push(self.actor, ws["id"], "Update app", diff["digest"])
+        self.assertEqual(error.exception.status, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

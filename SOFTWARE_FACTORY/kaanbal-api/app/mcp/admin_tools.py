@@ -39,8 +39,10 @@ FEATURES = {
     "open_app_workspace": "workspace", "open_core_workspace": "workspace", "initialize_workspace": "workspace",
     "workspace_files": "workspace", "write_workspace_file": "workspace", "workspace_diff": "workspace",
     "run_workspace_command": "workspace", "publish_workspace_pr": "workspace", "close_workspace": "workspace",
-    "get_workspace": "workspace",
+    "get_workspace": "workspace", "open_repo_workspace": "workspace", "push_workspace": "workspace",
 }
+# Estas dependen de una concesión por app, nodo o core; las de repos personales, de la cuenta GitHub de la persona.
+NEEDS_GRANT = {"execute_app_command", "execute_node_command", "merge_app_pr", "open_app_workspace", "open_core_workspace"}
 NEEDS_APPROVAL = {"execute_app_command", "execute_node_command", "merge_app_pr", "platform_upgrade"}
 
 
@@ -99,14 +101,14 @@ def _tool_row(tool: Mapping[str, Any], permissions: set, elevated: bool, approva
 
 def _capability_row(spec: Mapping[str, Any], permissions: set, elevated: bool,
                     access: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
-    missing = [f"permiso {p}" for p in [spec["permission"], *spec.get("extra_permissions", [])] if p not in permissions]
+    missing = [f"permiso {p}" for p in [spec["permission"], *spec.get("extra_permissions", [])] if p and p not in permissions]
     if spec.get("elevated") and not elevated:
         missing.append("token crítico")
     feature = FEATURES.get(spec["name"])
     if feature and access is not None:
         if not (access.get("features") or {}).get(feature):
             missing.append(f"la política no enciende '{feature}'")
-        elif not access.get("grants"):
+        elif spec["name"] in NEEDS_GRANT and not access.get("grants"):
             missing.append("sin concesión vigente en la política")
     kind = "consulta" if spec["method"] == "GET" else ("crítica" if spec.get("elevated") else "acción")
     row = {"name": spec["name"], "group": "autonomía", "kind": kind, "permission": spec["permission"],

@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Personal GitHub connection: each person connects their GitHub account once in Connect → Your GitHub
+  (stored encrypted, never shown again, cannot be set from an agent token). Agents using that person's
+  Kaanbal token can list their repos (`github_repos`), open a workspace on any of them from any branch
+  (`open_repo_workspace`, no per-app grant needed) and commit directly with `push_workspace`: to a new
+  or existing branch; the repository's default branch only when the owner enables "Direct push" in the autonomy policy.
+  Pushes never force; the workspace keeps running on the pushed commit for further changes.
 - Agent Hub integration to main, opt-in per project (critical permission `hub.integration.manage`): when
   another agent or a person closes a task with a branch, Kaanbal merges it into the app's main branch with
   its GitHub credential once the branch checks are green, then follows the pipeline and Argo until the new

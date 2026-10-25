@@ -106,6 +106,8 @@
         </ul>
       </div>
 
+      <GitHubConnection />
+
       <!-- La API -->
       <div class="rounded-2xl border border-white/10 bg-slate-900/60 p-6 space-y-3">
         <h2 class="text-lg font-semibold text-white">La API, por si la llamas directo</h2>
@@ -127,6 +129,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 
+import GitHubConnection from '@/components/GitHubConnection.vue'
 import api from '@/services/api'
 
 const copyClass =

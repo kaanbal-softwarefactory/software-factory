@@ -84,6 +84,8 @@ class Policy(StrictModel):
     workspace_enabled: bool = False
     host_enabled: bool = False
     merge_enabled: bool = False
+    # Workspaces de repos personales: permitir commit directo a su rama base (p. ej. main).
+    direct_push_enabled: bool = False
     # Ejecutar, integrar, restaurar, borrar y actualizar el core esperan a una persona.
     approval_required: bool = True
     workbench_image: str = Field(default="", max_length=300)
@@ -126,6 +128,23 @@ class OpenWorkspace(StrictModel):
 class OpenCore(StrictModel):
     env: str = Field(default="prod", max_length=63)
     reason: str = Field(..., min_length=5, max_length=500)
+
+
+class OpenRepo(StrictModel):
+    repo: str = Field(..., pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+    reason: str = Field(..., min_length=5, max_length=500)
+    base_branch: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9._/-]{1,100}$")
+
+
+class GitHubConnection(StrictModel):
+    token: str = Field(..., min_length=20, max_length=300, repr=False)
+
+
+class Push(StrictModel):
+    message: str = Field(..., min_length=5, max_length=2000)
+    expected_digest: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    # Sin rama, la base del workspace (requiere «Push directo» en la política).
+    branch: Optional[str] = Field(default=None, pattern=r"^[A-Za-z0-9._/-]{1,100}$")
 
 
 class FileWrite(StrictModel):
@@ -278,6 +297,40 @@ async def open_workspace(body: OpenWorkspace, request: Request):
                                         reason=body.reason, base_branch=body.base_branch)
 
 
+@router.get("/github")
+async def github_status(request: Request):
+    from app.services import github_accounts
+    return await github_accounts.status(principal(request))
+
+
+@router.put("/github")
+async def github_connect(body: GitHubConnection, request: Request):
+    from app.services import github_accounts
+    actor = principal(request)
+    async with service.audit(actor, "github.connect", actor.username, "Conectar cuenta GitHub personal"):
+        return await github_accounts.connect(actor, body.token)
+
+
+@router.delete("/github")
+async def github_disconnect(request: Request):
+    from app.services import github_accounts
+    actor = principal(request)
+    async with service.audit(actor, "github.disconnect", actor.username, "Desconectar cuenta GitHub personal"):
+        return await github_accounts.disconnect(actor)
+
+
+@router.get("/github/repos")
+async def github_repos(request: Request, q: str = "", limit: int = 50):
+    from app.services import github_accounts
+    return await github_accounts.repositories(principal(request), q[:100], max(1, min(limit, 100)))
+
+
+@router.post("/repos/workspaces", status_code=201)
+async def open_repo_workspace(body: OpenRepo, request: Request):
+    return await service.open_workspace(principal(request), target="repo", app="", env="", reason=body.reason,
+                                        base_branch=body.base_branch, repo=body.repo)
+
+
 @router.post("/core/workspaces", status_code=201)
 async def open_core_workspace(body: OpenCore, request: Request):
     return await service.open_workspace(principal(request), target="core", app="", env=body.env, reason=body.reason)
@@ -321,6 +374,11 @@ async def execute_workspace(workspace_id: str, body: Command, request: Request):
 @router.post("/workspaces/{workspace_id}/pull-request")
 async def publish_workspace(workspace_id: str, body: PullRequest, request: Request):
     return await service.publish(principal(request), workspace_id, body.title, body.body, body.expected_digest)
+
+
+@router.post("/workspaces/{workspace_id}/push")
+async def push_workspace(workspace_id: str, body: Push, request: Request):
+    return await service.push(principal(request), workspace_id, body.message, body.expected_digest, branch=body.branch)
 
 
 @router.post("/workspaces/{workspace_id}/merge")

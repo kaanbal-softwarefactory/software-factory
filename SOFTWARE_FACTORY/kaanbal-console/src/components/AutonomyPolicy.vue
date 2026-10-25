@@ -9,6 +9,7 @@
         <label class="flex gap-2"><input v-model="policy.runtime_enabled" type="checkbox" /> Comandos en apps autorizadas</label>
         <label class="flex gap-2 text-amber-300"><input v-model="policy.host_enabled" type="checkbox" /> Comandos root en nodos autorizados</label>
         <label class="flex gap-2"><input v-model="policy.merge_enabled" type="checkbox" /> Merge de PRs de apps</label>
+        <label class="flex gap-2"><input v-model="policy.direct_push_enabled" type="checkbox" /> Push directo a la rama principal en repos personales (con el GitHub de cada persona)</label>
       </div>
       <label class="flex gap-2 text-sm text-slate-300"><input v-model="policy.approval_required" type="checkbox" /> Exigir aprobación humana (Acceso → Solicitudes) para comandos, merge, restaurar bases, borrar apps y actualizar el core</label>
       <p v-if="policy.approval_required === false" class="text-sm text-red-200 border border-red-500/30 rounded-lg p-3">Sin aprobación humana, un token crítico ejecuta lo irreversible en cuanto lo pide. Úsalo solo en una célula de laboratorio.</p>
@@ -49,7 +50,7 @@ import { onMounted, ref } from 'vue'
 import axios from 'axios'
 
 const props = defineProps({ username: String, users: { type: Array, default: () => [] } })
-const policy = ref({ enabled: false, workspace_enabled: false, runtime_enabled: false, host_enabled: false, merge_enabled: false, approval_required: true, workbench_image: '', core_fork: '', workspace_lifetime_seconds: 3600 })
+const policy = ref({ enabled: false, workspace_enabled: false, runtime_enabled: false, host_enabled: false, merge_enabled: false, direct_push_enabled: false, approval_required: true, workbench_image: '', core_fork: '', workspace_lifetime_seconds: 3600 })
 const grants = ref([])
 const adminUsername = ref(props.username)
 const password = ref('')

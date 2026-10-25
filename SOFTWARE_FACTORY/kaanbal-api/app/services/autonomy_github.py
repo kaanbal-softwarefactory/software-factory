@@ -114,6 +114,24 @@ class GitHubBroker:
         commit = await self.request("POST", f"/repos/{repo}/git/commits", body={"message": message, "tree": tree["sha"], "parents": [workspace["base_sha"]]})
         return commit["sha"]
 
+    async def push(self, workspace: dict, changes: list[dict], message: str, branch: str) -> dict:
+        """Commit sobre el commit base y avance de la rama sin forzar: si alguien empujó antes, se rechaza."""
+        repo = repository(workspace["push_repo"])
+        ref = quote(branch, safe="/")
+        refs = await self.request("GET", f"/repos/{repo}/git/matching-refs/heads/{ref}")
+        exact = [r for r in refs if r["ref"] == f"refs/heads/{branch}"]
+        if exact and exact[0]["object"]["sha"] != workspace["base_sha"]:
+            raise AutonomyError(f"La rama {branch} avanzó fuera de este workspace (otro commit). "
+                                "Abre un workspace nuevo desde ella o empuja a otra rama.")
+        entries = [{"path": c["path"], "mode": c["mode"], "type": "blob", **({"sha": None} if c.get("content") is None else {"content": c["content"]})} for c in changes]
+        tree = await self.request("POST", f"/repos/{repo}/git/trees", body={"base_tree": workspace["base_tree"], "tree": entries})
+        commit = await self.request("POST", f"/repos/{repo}/git/commits", body={"message": message, "tree": tree["sha"], "parents": [workspace["base_sha"]]})
+        if exact:
+            await self.request("PATCH", f"/repos/{repo}/git/refs/heads/{ref}", body={"sha": commit["sha"], "force": False})
+        else:
+            await self.request("POST", f"/repos/{repo}/git/refs", body={"ref": f"refs/heads/{branch}", "sha": commit["sha"]})
+        return {"sha": commit["sha"], "tree": tree["sha"], "created": not exact}
+
     async def publish(self, workspace: dict, sha: str, title: str, body: str) -> dict:
         repo, source, branch = repository(workspace["push_repo"]), repository(workspace["repo"]), workspace["branch"]
         # Reconcile after a lost response: a retry reuses the same branch/PR.
