@@ -263,6 +263,31 @@ class DiagnosisToolTests(unittest.TestCase):
 
 
 class StatusToolTests(unittest.TestCase):
+    def test_platform_status_counts_docs_commits_without_claiming_engine_update(self):
+        upstream = {"available": True, "head_sha": "b" * 40, "ahead_by": 1,
+                    "commits": [{"sha": "b" * 40}], "touches_engine": False}
+        client = FakeClient({"/core/updates": {"tracking": "commits", "update_available": False,
+                                              "upstream": upstream}})
+        result = run(tools.call_tool(client, "platform_status", {}))
+        self.assertIs(result["updates_available"], False)
+        self.assertEqual(result["pending_commits"], 1)
+        self.assertEqual(result["upstream"]["head_sha"], "b" * 40)
+
+    def test_platform_status_reports_engine_update_from_the_core_contract(self):
+        client = FakeClient({"/core/updates": {"tracking": "commits", "update_available": True,
+                                              "upstream": {"available": True, "ahead_by": 7}}})
+        result = run(tools.call_tool(client, "platform_status", {}))
+        self.assertIs(result["updates_available"], True)
+        self.assertEqual(result["pending_commits"], 7)
+
+    def test_platform_status_keeps_failed_lookup_unknown(self):
+        client = FakeClient({"/core/updates": {"tracking": "commits", "update_available": False,
+                                              "upstream": {"available": False, "reason": "GitHub HTTP 403"}}})
+        result = run(tools.call_tool(client, "platform_status", {}))
+        self.assertIsNone(result["updates_available"])
+        self.assertIsNone(result["pending_commits"])
+        self.assertIn("403", result["upstream"]["reason"])
+
     def test_deploy_status_follows_a_running_change(self):
         client = FakeClient({
             "/apps/x": {"name": "x", "status": "running", "exposure_change": {"state": "running", "per_env": {"prod": "public"}},

@@ -16,6 +16,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to the Kaanbal core.
 
 ### Fixed
+- Updates distinguishes newer repository commits from engine updates and failed checks instead of
+  always claiming the cell is up to date. Dev installations can manually reapply the checked main SHA
+  with confirmation and drift protection. MCP platform status reads the current updates contract.
 - Agent Hub, second pilot iteration: read state is kept per agent (a returning agent no longer gets
   already-read messages or its own broadcasts back); any agent action counts as a heartbeat; `pr_url`
   only accepts a created pull request; MCP validation errors read as one sentence per field and the tool

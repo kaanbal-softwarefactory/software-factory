@@ -540,10 +540,15 @@ async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
         version = await client.get("/core/version")
         updates = await client.get("/core/updates")
         health = await client.get("/system/health")
+        upstream = updates.get("upstream") or {}
+        checked = (upstream.get("available") if updates.get("tracking") == "commits"
+                   else bool(updates.get("latest")))
         return {
             "version": version,
-            "updates_available": updates.get("available"),
-            "pending_commits": len(updates.get("commits") or []),
+            "updates_available": updates.get("update_available") if checked else None,
+            "pending_commits": (upstream.get("ahead_by") if updates.get("tracking") == "commits" else 0) if checked else None,
+            "upstream": upstream,
+            "tracking": updates.get("tracking"),
             "health": health,
         }
 

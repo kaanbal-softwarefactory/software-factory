@@ -97,6 +97,7 @@ jobs:
           cache: npm
           cache-dependency-path: SOFTWARE_FACTORY/kaanbal-console/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run build
 
   mcp:

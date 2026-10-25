@@ -10,6 +10,8 @@
       </button>
     </div>
 
+    <p v-if="error" role="alert" class="rounded-lg border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-200">{{ error }}</p>
+
     <div v-if="loading && !data" class="text-center py-12 text-slate-400">Consultando upstream...</div>
 
     <!-- Progreso del upgrade: se lee del clúster, sobrevive a recargas y al reinicio de la API -->
@@ -138,8 +140,9 @@
         </div>
       </div>
 
-      <div v-else class="glass-panel p-6 rounded-xl border-emerald-500/25 bg-emerald-500/5">
-        <p class="text-emerald-300 font-medium">✅ Esta célula está al día.</p>
+      <div v-else class="glass-panel p-6 rounded-xl" :class="summary.kind === 'current' ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-amber-500/25 bg-amber-500/5'" role="status">
+        <p :class="summary.kind === 'current' ? 'text-emerald-300' : 'text-amber-200'" class="font-medium">{{ summary.title }}</p>
+        <p v-if="summary.detail" class="text-sm text-slate-400 mt-2">{{ summary.detail }}</p>
       </div>
 
       <!-- Canal dev: commits pendientes del monorepo -->
@@ -155,7 +158,7 @@
           {{ data.upstream?.reason || 'No se pudo consultar GitHub.' }}
         </p>
         <p v-else-if="data.upstream.reason" class="text-sm text-amber-300 mb-3">{{ data.upstream.reason }}</p>
-        <p v-else-if="!data.upstream.commits?.length" class="text-sm text-slate-400">
+        <p v-else-if="data.upstream.head_sha && !data.upstream.commits?.length" class="text-sm text-slate-400">
           Esta célula corre el último commit de main.
         </p>
 
@@ -187,34 +190,40 @@
 
         <!-- El botón no depende de que haya lista de commits: cuando el historial cambió
              (el proyecto se mudó de repositorio) no hay qué listar, pero sí qué aplicar. -->
-        <template v-if="data.update_available && !upgradeRunning">
+        <template v-if="(data.update_available || reapplyAvailable) && !upgradeRunning">
           <div class="mt-5 pt-4 border-t border-white/10">
             <p class="text-xs text-slate-400">
               Construye las imágenes, promueve, verifica que los pods arranquen y revierte solo si algo
               falla. Tus apps y datos no se tocan. La consola se reiniciará unos segundos durante el proceso.
             </p>
 
-            <div v-if="!confirming" class="mt-3">
+            <div v-if="!confirming && data.update_available" class="mt-3">
               <button
-                @click="confirming = true"
-                :disabled="data.blocked_by_drift || launching"
+                @click="confirmUpgrade"
+                :disabled="blocked || launching || loading"
                 class="upgrade-button"
               >
                 ⬆️ Actualizar ahora
               </button>
-              <p v-if="data.blocked_by_drift" class="text-xs text-amber-300 mt-2">
+              <p v-if="blocked" class="text-xs text-amber-300 mt-2">
                 Bloqueado: hay cambios locales en el engine. Resuelve la deriva primero.
               </p>
             </div>
 
-            <div v-else class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+            <details v-if="!confirming && reapplyAvailable" class="mt-4">
+              <summary class="text-sm text-slate-400 cursor-pointer">Avanzado: reaplicar la revisión de main</summary>
+              <p class="text-xs text-slate-400 mt-2">Puedes solicitar un nuevo upgrade aunque no haya cambios del engine. No incorpora ramas sin fusionar a main.</p>
+              <button @click="confirmUpgrade" :disabled="blocked || launching || loading" class="glass-button text-sm mt-3">Reaplicar main @ {{ data.upstream.head_sha.slice(0, 7) }}</button>
+              <p v-if="blocked" class="text-xs text-amber-300 mt-2">Resuelve los cambios locales antes de reaplicar.</p>
+            </details>
+
+            <div v-if="confirming" class="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
               <p class="text-sm text-amber-200">
-                {{ data.upstream.ahead_by != null
-                  ? `¿Aplicar ${data.upstream.ahead_by} commit(s) sobre esta célula?`
-                  : `¿Actualizar esta célula a la última revisión de ${data.source || 'upstream'}?` }}
+                ¿Aplicar la revisión {{ selectedRef?.slice(0, 7) }} de {{ data.source || 'upstream' }} a esta célula?
+                La revisión queda fijada aunque main reciba otros commits.
               </p>
               <div class="flex gap-2 mt-3">
-                <button @click="launchUpgrade" :disabled="launching" class="upgrade-button">
+                <button @click="launchUpgrade" :disabled="launching || blocked || loading" class="upgrade-button">
                   {{ launching ? 'Lanzando…' : 'Sí, actualizar' }}
                 </button>
                 <button @click="confirming = false" :disabled="launching" class="glass-button text-sm">Cancelar</button>
@@ -253,6 +262,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import axios from 'axios'
+import { updateSummary, canReapplyLatest, upgradeBlocked } from '@/utils/coreUpdates'
 
 // ── Upgrade desde la consola ─────────────────────────────────────────────
 // El upgrade corre como Job en el clúster. La consola solo lo lanza y lee su
@@ -261,6 +271,7 @@ import axios from 'axios'
 const POLL_MS = 4000
 const upgrade = ref(null)
 const confirming = ref(false)
+const selectedRef = ref(null)
 const launching = ref(false)
 const connectionLost = ref(false)
 const upgradeJustFinished = ref(false)
@@ -314,11 +325,17 @@ const stopPolling = () => {
   pollTimer = null
 }
 
+const confirmUpgrade = () => {
+  selectedRef.value = data.value?.upstream?.head_sha || data.value?.latest?.sha || 'main'
+  confirming.value = true
+}
+
 const launchUpgrade = async () => {
+  if (blocked.value || loading.value || !selectedRef.value || upgradeRunning.value) return
   launching.value = true
   error.value = ''
   try {
-    const { data: started } = await axios.post('/api/v1/core/upgrade', { ref: 'main' })
+    const { data: started } = await axios.post('/api/v1/core/upgrade', { ref: selectedRef.value })
     upgrade.value = { exists: true, ...started, log: '' }
     upgradeJustFinished.value = false
     confirming.value = false
@@ -352,6 +369,9 @@ onUnmounted(stopPolling)
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')
+const summary = computed(() => updateSummary(data.value))
+const reapplyAvailable = computed(() => canReapplyLatest(data.value))
+const blocked = computed(() => upgradeBlocked(data.value))
 
 const channelClass = computed(() => ({
   stable: 'bg-emerald-500/20 text-emerald-300',
@@ -371,6 +391,9 @@ const load = async () => {
     data.value = payload
     window.dispatchEvent(new CustomEvent('kaanbal:engine-checked', { detail: payload }))
   } catch (e) {
+    data.value = null
+    confirming.value = false
+    selectedRef.value = null
     error.value = e.response?.data?.detail || 'No se pudo consultar el estado del engine'
   } finally {
     loading.value = false
