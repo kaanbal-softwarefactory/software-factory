@@ -9,13 +9,13 @@
       <router-link to="/systems" class="glass-button self-start">Grupos y responsables</router-link>
     </div>
 
-    <ol class="grid md:grid-cols-5 gap-3 text-sm">
+    <details class="glass-panel rounded-xl p-4"><summary class="cursor-pointer text-sm text-slate-300">Cómo coordinar un proyecto con agentes</summary><ol class="grid md:grid-cols-5 gap-3 text-sm mt-3">
       <li v-for="(step, i) in cycle" :key="step.title" class="glass-panel p-4 rounded-xl">
         <span class="text-cyan-300 font-mono text-xs">{{ i + 1 }}</span>
         <p class="text-white font-medium mt-1">{{ step.title }}</p>
         <p class="text-slate-400 text-xs mt-1">{{ step.text }}</p>
       </li>
-    </ol>
+    </ol></details>
 
     <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
     <div class="flex flex-wrap gap-3">
@@ -51,6 +51,8 @@
           <span v-if="!p.in_hub" class="text-slate-500">Aún sin actividad</span>
           <span v-if="p.mode === 'autonomous'" class="text-emerald-300 ml-auto">Autónomo</span>
         </div>
+        <div class="flex flex-wrap gap-3 text-xs"><span class="text-emerald-300">{{ p.ready_tasks || 0 }} listas</span><span class="text-amber-200">{{ p.review_tasks || 0 }} por revisar</span></div>
+        <div v-if="p.objective?.total" class="space-y-2"><div class="flex justify-between text-xs text-slate-400"><span class="truncate">{{ p.objective.text || 'Avance del alcance' }}</span><span class="shrink-0 ml-2">{{ p.objective.done }}/{{ p.objective.total }}</span></div><div class="h-1.5 bg-slate-800 rounded-full"><div class="h-1.5 bg-cyan-400 rounded-full" :style="{ width: `${p.objective.done / p.objective.total * 100}%` }"></div></div></div>
       </router-link>
     </div>
   </div>

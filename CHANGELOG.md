@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Agent Hub coordination experience: project metrics that open the matching tasks, a task list
+  with search, filters and a detail panel (dependencies, PR, review notes, approve or request
+  changes), an objective preview before saving the work mode, and a notice when the shared board
+  is older than the tasks. The API computes the coordination state, enforces the active objective
+  and dependencies on every status change, keeps sessions inside their project, rejects unknown or
+  circular dependencies on edits, detects concurrent task edits, records who closed a task and pages
+  heartbeat news without losing events that share a timestamp.
 - Agent Hub work mode per project: guided (agents ask, people close tasks) or autonomous until an
   objective (agents claim and close tasks within the objective's phases or task keys, accept their
   own in-scope proposals and stop when it is complete). Who closes a task (person, another agent or

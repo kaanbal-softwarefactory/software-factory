@@ -65,6 +65,10 @@ class Cursor:
         self.rows = rows
 
     def sort(self, key, direction=1):
+        if isinstance(key, list):
+            for field, order in reversed(key):
+                self.sort(field, order)
+            return self
         self.rows.sort(key=lambda d: (_get(d, key) is None, _get(d, key)), reverse=direction == -1)
         return self
 

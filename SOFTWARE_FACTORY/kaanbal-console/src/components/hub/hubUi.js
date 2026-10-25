@@ -11,7 +11,7 @@ export const HARNESS = {
 
 export const PRESENCE = {
   online: { label: 'En línea', dot: 'bg-emerald-400' },
-  idle: { label: 'Ocupado', dot: 'bg-amber-400' },
+  idle: { label: 'Sin latido reciente', dot: 'bg-amber-400' },
   offline: { label: 'Desconectado', dot: 'bg-slate-500' },
   left: { label: 'Salió', dot: 'bg-slate-700' },
 }
@@ -34,9 +34,25 @@ export const KIND = {
 
 export function harnessOf(name) { return HARNESS[name] || HARNESS.otro }
 
+export function inScope(task, settings) {
+  const phases = settings.scope_phases || [], keys = settings.scope_tasks || []
+  return (!phases.length && !keys.length) || phases.includes(task.phase) || keys.includes(task.key)
+}
+
+export function safeLink(value) {
+  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null } catch { return null }
+}
+
+export function utcDate(value) {
+  if (!value) return new Date(NaN)
+  const text = String(value)
+  return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text}Z`)
+}
+
 export function ago(value) {
   if (!value) return '—'
-  const date = new Date(String(value).endsWith('Z') || String(value).includes('+') ? value : `${value}Z`)
+  const date = utcDate(value)
+  if (Number.isNaN(date.getTime())) return '—'
   const seconds = Math.max(0, (Date.now() - date.getTime()) / 1000)
   if (seconds < 60) return 'hace un momento'
   if (seconds < 3600) return `hace ${Math.floor(seconds / 60)} min`

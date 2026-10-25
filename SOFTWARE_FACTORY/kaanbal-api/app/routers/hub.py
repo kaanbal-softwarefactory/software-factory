@@ -103,8 +103,11 @@ async def _own_session(request: Request, session_id: str) -> Dict[str, Any]:
     return session
 
 
-async def _optional_session(request: Request, session_id: Optional[str]) -> Optional[Dict[str, Any]]:
-    return await _own_session(request, session_id) if session_id else None
+async def _optional_session(request: Request, session_id: Optional[str], group: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    session = await _own_session(request, session_id) if session_id else None
+    if session and group and session["group"] != group:
+        raise HTTPException(422, "La sesión es de otro proyecto.")
+    return session
 
 
 async def _group_tasks(group: str) -> List[Dict[str, Any]]:
@@ -170,17 +173,22 @@ async def list_projects():
     groups = {item["_id"]: item for item in await db.app_groups.find({}).to_list(None)}
     projects = {item["_id"]: item for item in await db[PROJECTS].find({}).to_list(None)}
     active = await db[SESSIONS].find({"last_seen": {"$gte": now - hub.IDLE}, "left_at": None}).to_list(None)
-    open_tasks = await db[TASKS].find({"status": {"$in": list(hub.OPEN_STATUSES)}}, {"group": 1, "status": 1}).to_list(None)
+    all_tasks = await db[TASKS].find({}, {"group": 1, "status": 1, "key": 1, "title": 1, "phase": 1,
+                                         "depends_on": 1, "updated_at": 1, "assignee_agent": 1}).to_list(None)
     rows = []
     for slug in sorted(set(groups) | set(projects)):
         meta, project = groups.get(slug) or {}, projects.get(slug) or {}
         agents = [hub.public_session(s, now) for s in active if s.get("group") == slug]
+        tasks = [t for t in all_tasks if t.get("group") == slug]
+        state = hub.coordination_state(project, tasks, [], now)
         rows.append({
             "group": slug, "name": meta.get("name") or slug, "owner": meta.get("owner"),
             "stage": meta.get("stage", "active"), "description": meta.get("description") or "",
             "agents_online": [a for a in agents if a["presence"] in ("online", "idle")],
-            "open_tasks": sum(1 for t in open_tasks if t.get("group") == slug),
-            "blocked_tasks": sum(1 for t in open_tasks if t.get("group") == slug and t.get("status") == "blocked"),
+            "open_tasks": sum(t.get("status") in hub.OPEN_STATUSES for t in tasks),
+            "blocked_tasks": state["blocked"],
+            "ready_tasks": state["ready"], "review_tasks": state["counts"]["review"],
+            "objective": hub.objective_progress(tasks, hub.work_settings(project.get("settings"))),
             "last_activity": project.get("last_activity"), "in_hub": slug in projects,
             "mode": hub.work_settings(project.get("settings"))["mode"],
         })
@@ -203,6 +211,7 @@ async def project_overview(group: str):
                                                  "board_updated_at", "last_digest", "last_activity")},
         "settings": settings,
         "objective": hub.objective_progress(tasks, settings),
+        "coordination": hub.coordination_state(project, tasks, sessions, now),
         "sessions": [hub.public_session(s, now) for s in sessions],
         "tasks": [hub.public_task(t, index) for t in tasks],
         "events": [{**hub.compact_event(e), "id": e["_id"], "person": e.get("person"), "harness": e.get("harness")}
@@ -227,7 +236,7 @@ class BoardUpdate(BaseModel):
 @router.put("/projects/{group}/board")
 async def update_board(group: str, body: BoardUpdate, request: Request):
     group = _group(group)
-    session = await _optional_session(request, body.session_id)
+    session = await _optional_session(request, body.session_id, group)
     actor = (session or {}).get("agent") or _principal(request).username
     previous = (await _project(group)).get("board") or ""
     await get_db()[BOARDS].insert_one({"group": group, "content": previous, "replaced_by": actor, "at": _now()})
@@ -257,6 +266,11 @@ async def update_settings(group: str, body: WorkSettings, request: Request):
     except hub.HubError as exc:
         raise _bad(exc)
     actor = _principal(request).username
+    tasks = await _group_tasks(group)
+    known = hub.index_tasks(tasks)
+    unknown = [key for key in settings["scope_tasks"] if key not in known]
+    if unknown:
+        raise HTTPException(422, "Tareas del objetivo inexistentes: " + ", ".join(unknown))
     await _touch_project(group, settings=settings)
     label = "autónomo" if settings["mode"] == "autonomous" else "guiado"
     scope = ", ".join(settings["scope_phases"] + settings["scope_tasks"]) or "todo el proyecto"
@@ -311,7 +325,7 @@ async def heartbeat(session_id: str, body: SyncBody, request: Request):
     db = get_db()
     now = _now()
     cursor = session.get("cursor") or session["started_at"]
-    updates: Dict[str, Any] = {"last_seen": now, "cursor": now}
+    updates: Dict[str, Any] = {"last_seen": now}
     if body.focus is not None:
         updates["focus"] = body.focus.strip()
     if body.branch is not None:
@@ -325,9 +339,20 @@ async def heartbeat(session_id: str, body: SyncBody, request: Request):
     inbox = await db[MESSAGES].find(inbox_query).sort("created_at", 1).limit(50).to_list(50)
     if inbox:
         await db[MESSAGES].update_many({"_id": {"$in": [m["_id"] for m in inbox]}}, {"$addToSet": {"read_by": session_id}})
-    news = await db[EVENTS].find({"group": session["group"], "session_id": {"$ne": session_id},
-                                  "created_at": {"$gt": cursor}}).sort("created_at", 1).limit(30).to_list(30)
-    changed = await db[TASKS].find({"group": session["group"], "updated_at": {"$gt": cursor}}).limit(20).to_list(20)
+    async def page(collection, field, name, limit, extra=None):
+        checkpoint = session.get(name) or {"at": cursor, "id": ""}
+        query = {"group": session["group"], **(extra or {}), "$or": [
+            {field: {"$gt": checkpoint["at"]}},
+            {field: checkpoint["at"], "_id": {"$gt": checkpoint["id"]}}]}
+        rows = await db[collection].find(query).sort([(field, 1), ("_id", 1)]).limit(limit + 1).to_list(limit + 1)
+        selected = rows[:limit]
+        if selected:
+            last = selected[-1]
+            await db[SESSIONS].update_one({"_id": session_id}, {"$set": {name: {"at": last[field], "id": last["_id"]}}})
+        return selected, len(rows) > limit
+
+    news, more_events = await page(EVENTS, "created_at", "event_cursor", 30, {"session_id": {"$ne": session_id}})
+    changed, more_tasks = await page(TASKS, "updated_at", "task_cursor", 20)
     team = [hub.public_session(s, now) for s in await _group_sessions(session["group"], days=1)
             if s["_id"] != session_id and hub.presence(s, now) in ("online", "idle")]
     settings = hub.work_settings((await _project(session["group"])).get("settings"))
@@ -338,9 +363,11 @@ async def heartbeat(session_id: str, body: SyncBody, request: Request):
         "events": [hub.compact_event(e) for e in news],
         "tasks_changed": [hub.compact_task(t) for t in changed],
         "team": team,
-        "work_mode": {"mode": settings["mode"], "done_by": settings["done_by"]},
-        "objective": {k: objective[k] for k in ("done", "total", "complete")},
-        "next_sync_seconds": hub.HEARTBEAT_HINT_SECONDS,
+        "work_mode": settings,
+        "objective": objective,
+        "protocol": hub.work_rules(settings),
+        "has_more": {"events": more_events, "tasks": more_tasks, "messages": len(inbox) == 50},
+        "next_sync_seconds": 0 if more_events or more_tasks or len(inbox) == 50 else hub.HEARTBEAT_HINT_SECONDS,
     }
 
 
@@ -412,7 +439,7 @@ class TaskCreate(BaseModel):
 @router.post("/projects/{group}/tasks")
 async def create_task(group: str, body: TaskCreate, request: Request):
     group = _group(group)
-    session = await _optional_session(request, body.session_id)
+    session = await _optional_session(request, body.session_id, group)
     try:
         key = hub.task_key(body.key)
         depends = [k for k in (hub.task_key(d) for d in body.depends_on) if k]
@@ -426,7 +453,7 @@ async def create_task(group: str, body: TaskCreate, request: Request):
     settings = hub.work_settings((await _project(group)).get("settings"))
     # Lo que crea un agente queda como propuesta si él lo pide; en modo autónomo con aceptación automática, la
     # propuesta dentro del objetivo queda lista para tomarse. Lo que crea el plan o una persona, listo.
-    accepted = body.proposed and settings["auto_accept"] and hub.in_scope(
+    accepted = body.proposed and settings["mode"] == "autonomous" and settings["auto_accept"] and hub.in_scope(
         {"phase": body.phase.strip(), "key": key}, settings)
     proposed = body.proposed and not accepted
     task = {"_id": _new_id(), "group": group, "key": key, "title": body.title.strip(),
@@ -435,6 +462,10 @@ async def create_task(group: str, body: TaskCreate, request: Request):
             "assignee_session": None, "assignee_agent": None, "branch": None, "pr_url": None, "notes": [],
             "created_by": (session or {}).get("agent") or _principal(request).username,
             "created_at": now, "updated_at": now}
+    try:
+        hub.validate_dependencies(task, await _group_tasks(group))
+    except hub.HubError as exc:
+        raise _bad(exc)
     await db[TASKS].insert_one(task)
     await _event(group, "task", f"Creó {hub.task_label(task)}" + (" (propuesta)" if proposed else "")
                  + (" (aceptada sola: modo autónomo)" if accepted else "") + ".",
@@ -474,6 +505,9 @@ async def claim_task(task_id: str, body: ClaimBody, request: Request):
     if task["group"] != session["group"]:
         raise HTTPException(422, "La tarea es de otro proyecto.")
     index = hub.index_tasks(await _group_tasks(task["group"]))
+    settings = hub.work_settings((await _project(task["group"])).get("settings"))
+    if settings["mode"] == "autonomous" and not hub.in_scope(task, settings):
+        raise HTTPException(409, "Esta tarea está fuera del objetivo activo. Toma una del briefing o pide ampliar el alcance.")
     problem = hub.claim_check(task, index, session)
     if problem:
         raise HTTPException(409, {"message": f"{problem['reason']} {problem.get('hint', '')}".strip(), **problem})
@@ -509,16 +543,28 @@ class TaskUpdate(BaseModel):
 @router.patch("/tasks/{task_id}")
 async def update_task(task_id: str, body: TaskUpdate, request: Request):
     session = await _optional_session(request, body.session_id)
+    if not session and getattr(_principal(request), "via_token", False):
+        raise HTTPException(403, "Para actualizar tareas con un token usa session_id de hub_join. El cierre humano se hace desde la consola.")
     task = await _task(task_id, (session or {}).get("group"))
     task_id = task["_id"]
     if session and task["group"] != session["group"]:
         raise HTTPException(422, "La tarea es de otro proyecto.")
     holder = task.get("assignee_session")
+    settings = hub.work_settings((await _project(task["group"])).get("settings"))
+    if session:
+        if settings["mode"] == "autonomous" and not hub.in_scope(task, settings):
+            raise HTTPException(409, "Esta tarea está fuera del objetivo activo.")
+        if body.status == "in_progress" and (holder != session["_id"] or task["status"] != "in_progress"):
+            raise HTTPException(409, "Usa hub_claim_task para tomar la tarea y comprobar sus dependencias.")
+        if body.status in ("review", "blocked") and holder != session["_id"]:
+            raise HTTPException(409, "Solo el agente que tomó la tarea puede enviarla a revisión o marcarla bloqueada.")
+        if task["status"] == "proposed" and body.status not in (None, "proposed"):
+            raise HTTPException(409, "La propuesta debe aceptarse desde la consola antes de tomarla.")
     # Un agente no le cambia la tarea en curso a otro; una persona (sin sesión) sí puede: es quien integra.
     if session and holder and holder != session["_id"] and task.get("status") == "in_progress":
         raise HTTPException(409, f"{hub.task_label(task)} la tiene {task.get('assignee_agent')}: mándale un mensaje.")
     if body.status == "done":
-        problem = hub.done_check(task, session, hub.work_settings((await _project(task["group"])).get("settings")))
+        problem = hub.done_check(task, session, settings)
         if problem:
             raise HTTPException(409, problem)
     values: Dict[str, Any] = {"updated_at": _now()}
@@ -536,12 +582,29 @@ async def update_task(task_id: str, body: TaskUpdate, request: Request):
         if body.status in ("todo", "proposed", "dropped"):
             values.update(assignee_session=None, assignee_agent=None)
     actor = (session or {}).get("agent") or _principal(request).username
+    try:
+        hub.validate_dependencies({**task, **values}, await _group_tasks(task["group"]))
+    except hub.HubError as exc:
+        raise _bad(exc)
+    if body.status in ("in_progress", "review", "done"):
+        pending = hub.pending_dependencies({**task, **values}, hub.index_tasks(await _group_tasks(task["group"])))
+        if pending:
+            raise HTTPException(409, "Antes deben terminar: " + ", ".join(p["ref"] for p in pending))
+    if body.status == "done":
+        values.update(reviewed_by=actor, reviewed_at=_now())
+    elif body.status and task["status"] == "done":
+        values.update(reviewed_by=None, reviewed_at=None)
     change: Dict[str, Any] = {"$set": values}
     if body.note.strip():
         change["$push"] = {"notes": {"at": _now(), "by": actor, "text": body.note.strip()}}
-    updated = await get_db()[TASKS].find_one_and_update({"_id": task_id}, change, return_document=ReturnDocument.AFTER)
-    if body.status in hub.CLOSED_STATUSES + ("review",) and session and session.get("task") in (task.get("key"), task_id):
-        await get_db()[SESSIONS].update_one({"_id": session["_id"]}, {"$set": {"task": None}})
+    updated = await get_db()[TASKS].find_one_and_update(
+        {"_id": task_id, "status": task["status"], "updated_at": task.get("updated_at")}, change,
+        return_document=ReturnDocument.AFTER)
+    if not updated:
+        raise HTTPException(409, "La tarea cambió mientras la editabas. Actualiza y vuelve a intentarlo.")
+    if body.status and body.status != "in_progress" and holder:
+        await get_db()[SESSIONS].update_one(
+            {"_id": holder, "task": task.get("key") or task_id}, {"$set": {"task": None}})
     parts = []
     if body.status:
         parts.append(f"estado {body.status}")
@@ -567,7 +630,7 @@ class MessageBody(BaseModel):
 async def send_message(group: str, body: MessageBody, request: Request):
     """De un agente a otro (por nombre o sesión), a todos, o a las personas ('people')."""
     group = _group(group)
-    session = await _optional_session(request, body.session_id)
+    session = await _optional_session(request, body.session_id, group)
     to = body.to.strip() or "all"
     if to not in ("all", "people") and not hub.valid_id(to):
         try:
@@ -633,7 +696,7 @@ class LessonBody(BaseModel):
 @router.post("/projects/{group}/lessons")
 async def add_lesson(group: str, body: LessonBody, request: Request):
     group = _group(group)
-    session = await _optional_session(request, body.session_id)
+    session = await _optional_session(request, body.session_id, group)
     doc = {"_id": _new_id(), "group": group, "scope": body.scope, "text": body.text.strip(),
            "agent": (session or {}).get("agent"), "person": _principal(request).username, "created_at": _now()}
     await get_db()[LESSONS].insert_one(doc)
@@ -811,7 +874,7 @@ class NoteBody(BaseModel):
 async def write_note(group: str, body: NoteBody, request: Request):
     """Lo que escribe un agente: siempre bajo live/ (fuente/ es de las personas)."""
     group = _group(group)
-    session = await _optional_session(request, body.session_id)
+    session = await _optional_session(request, body.session_id, group)
     try:
         path = hub.normalize_path(body.path)
     except hub.HubError as exc:

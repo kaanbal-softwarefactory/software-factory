@@ -13,11 +13,22 @@
     </div>
     <p v-if="error" role="alert" class="text-red-300">{{ error }}</p>
 
-    <HubWorkMode :group="group" :settings="settings" :objective="objective" :phases="phaseNames" :can-manage="can.manage" @saved="refresh" />
+    <HubWorkMode :group="group" :settings="settings" :objective="objective" :phases="phaseNames" :tasks="tasks" :can-manage="can.manage" @saved="refresh" />
 
+    <p v-if="notice" role="status" class="rounded-lg bg-emerald-400/10 p-3 text-sm text-emerald-200">{{ notice }} <button class="ml-3 underline" @click="notice = ''">Cerrar</button></p>
+    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3" aria-label="Estado actual del proyecto">
+      <button v-for="m in metrics" :key="m.filter" @click="showTasks(m.filter)" class="glass-panel rounded-xl p-4 text-left hover:border-cyan-400/30 border border-white/10">
+        <span :class="['block text-3xl font-semibold tabular-nums', m.tone]">{{ m.value }}</span><span class="block text-xs text-slate-400 mt-1">{{ m.label }} →</span>
+      </button>
+    </div>
+    <div class="flex justify-between flex-wrap gap-2 text-xs text-slate-400">
+      <p role="status">{{ loading ? 'Actualizando…' : error ? 'Sin conexión · mostrando la última lectura' : 'Actualización automática cada 15 s' }}<span v-if="lastRefresh"> · última lectura {{ ago(lastRefresh) }}</span></p>
+      <p>Las tareas y dependencias son la fuente del estado actual.</p>
+    </div>
     <!-- Equipo -->
+    <div class="flex justify-between flex-wrap gap-2 items-center"><h2 class="text-white font-semibold">Equipo <span class="text-xs text-slate-400 font-normal">{{ coordination.active || 0 }} con latido reciente</span></h2><button v-if="inactiveSessions.length" class="text-xs text-slate-400 underline" @click="showOffline = !showOffline">{{ showOffline ? 'Ocultar sesiones anteriores' : `Ver ${inactiveSessions.length} sesiones sin conexión` }}</button></div>
     <div class="flex gap-3 overflow-x-auto pb-1">
-      <div v-for="s in liveSessions" :key="s.id" class="glass-panel rounded-xl p-3 min-w-60 max-w-72 space-y-1">
+      <div v-for="s in shownSessions" :key="s.id" class="glass-panel rounded-xl p-3 min-w-60 max-w-72 space-y-1">
         <div class="flex items-center gap-2">
           <span :class="['w-2.5 h-2.5 rounded-full', PRESENCE[s.presence].dot]" :title="PRESENCE[s.presence].label"></span>
           <span class="text-white font-medium truncate">{{ s.agent }}</span>
@@ -28,9 +39,10 @@
         <p class="text-xs text-cyan-300" v-if="s.task">Tarea {{ s.task }}<span v-if="s.branch" class="text-slate-500"> · {{ s.branch }}</span></p>
         <p class="text-[11px] text-slate-500">{{ PRESENCE[s.presence].label }} · {{ ago(s.last_seen) }}</p>
       </div>
-      <p v-if="!liveSessions.length" class="text-sm text-slate-500 glass-panel rounded-xl p-3">Ningún agente conectado. Usa la pestaña Conectar para arrancar el primero.</p>
+      <p v-if="!shownSessions.length" class="text-sm text-slate-500 glass-panel rounded-xl p-3">Ningún agente conectado. Usa la pestaña Conectar para arrancar el primero.</p>
     </div>
 
+    <p class="text-xs text-slate-500">El latido indica cuándo consultó el Hub: reciente &lt; 3 min, sin latido 3–15 min, desconectado &gt; 15 min. No confirma que el agente siga trabajando.</p>
     <div class="flex gap-1 border-b border-white/10 overflow-x-auto" role="tablist">
       <button v-for="t in tabs" :key="t.id" role="tab" :aria-selected="tab === t.id" @click="tab = t.id"
               :class="['px-4 py-2 text-sm whitespace-nowrap border-b-2 -mb-px', tab === t.id ? 'border-cyan-400 text-white' : 'border-transparent text-slate-400 hover:text-white']">
@@ -50,10 +62,12 @@
       <div class="space-y-4">
         <section class="glass-panel p-5 rounded-xl">
           <div class="flex justify-between items-center mb-2">
-            <h2 class="text-white font-semibold">Tablero</h2>
+            <h2 class="text-white font-semibold">Contexto y acuerdos</h2>
             <span class="text-xs text-slate-500" v-if="project.board_updated_by">{{ project.board_updated_by }} · {{ ago(project.board_updated_at) }}</span>
             <button v-if="can.participate && board === null" class="text-sm text-slate-300 hover:text-white" @click="board = project.board || ''">Editar</button>
           </div>
+          <p class="text-xs text-slate-400 mb-3">Notas compartidas del equipo. El estado actual de las tareas se calcula arriba.</p>
+          <p v-if="coordination.board_stale" class="rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-200 mb-3">Hay cambios en las tareas posteriores a estas notas. Revisa las cifras y las tareas antes de usar este texto como estado actual.</p>
           <template v-if="board !== null">
             <textarea v-model="board" rows="14" class="field w-full font-mono text-xs" aria-label="Tablero"></textarea>
             <div class="flex justify-end gap-2 mt-2"><button class="glass-button" @click="board = null">Cancelar</button><button class="glass-button" @click="saveBoard">Guardar</button></div>
@@ -123,31 +137,9 @@
       <div class="flex flex-wrap gap-3">
         <button v-if="can.participate" class="glass-button" @click="newTask = { title: '', key: '', area: '', phase: '', description: '', depends: '' }">Nueva tarea</button>
         <button v-if="can.files && files.has_plan" class="glass-button" @click="importPlan()">Reimportar plan</button>
-        <input v-model="taskFilter" placeholder="Filtrar por texto, área o agente" class="field flex-1 min-w-56" aria-label="Filtrar tareas" />
+
       </div>
-      <div class="flex gap-3 overflow-x-auto pb-2">
-        <div v-for="col in columns" :key="col" class="min-w-64 w-64 shrink-0 space-y-2">
-          <p :class="['text-sm font-semibold border-b pb-1', STATUS[col].tone]">{{ STATUS[col].label }} <span class="text-slate-500">{{ byStatus[col].length }}</span></p>
-          <article v-for="t in byStatus[col]" :key="t.id" :class="['glass-panel rounded-lg p-3 space-y-1 text-sm', focusTask?.id === t.id ? 'ring-1 ring-cyan-400' : '']">
-            <p class="text-white"><span class="font-mono text-cyan-300 text-xs">{{ t.key }}</span> {{ t.title }}</p>
-            <p class="text-xs text-slate-500">{{ [t.area, t.phase].filter(Boolean).join(' · ') || 'sin área' }}</p>
-            <p v-if="t.assignee_agent" class="text-xs text-slate-300">⟶ {{ t.assignee_agent }}</p>
-            <p v-if="t.waiting_on?.length" class="text-xs text-red-300">Espera: {{ t.waiting_on.map(w => `${w.ref} (${w.status}${w.holder ? ', ' + w.holder : ''})`).join(', ') }}</p>
-            <a v-if="t.pr_url" :href="t.pr_url" target="_blank" rel="noopener" class="text-xs text-cyan-300 break-all">{{ t.pr_url }}</a>
-            <details v-if="t.description || t.notes.length" class="text-xs text-slate-400">
-              <summary class="cursor-pointer">Detalle</summary>
-              <p class="whitespace-pre-wrap mt-1">{{ t.description }}</p>
-              <p v-for="n in t.notes" :key="n.at" class="mt-1"><strong>{{ n.by }}</strong>: {{ n.text }}</p>
-            </details>
-            <div v-if="can.participate" class="flex gap-2 pt-1">
-              <button v-if="t.status === 'proposed'" class="text-xs text-emerald-300" @click="setStatus(t, 'todo')">Aceptar</button>
-              <select class="field text-xs py-1 flex-1" :value="t.status" @change="setStatus(t, $event.target.value)" aria-label="Cambiar estado">
-                <option v-for="s in Object.keys(STATUS)" :key="s" :value="s">{{ STATUS[s].label }}</option>
-              </select>
-            </div>
-          </article>
-        </div>
-      </div>
+      <HubTasks :key="taskViewVersion" :tasks="tasks" :settings="settings" :focus-task="focusTask" :initial-filter="taskView" :can-edit="can.participate" @changed="refresh" />
     </div>
 
     <!-- Traza -->
@@ -171,7 +163,7 @@
         </div>
         <ol class="space-y-2 max-h-[62vh] overflow-auto">
           <li v-for="e in trace" :key="e.id" class="border-l-2 border-white/10 pl-3 text-sm">
-            <p class="text-xs text-slate-500">{{ new Date(e.at + 'Z').toLocaleString() }} · <span :class="harnessOf(e.harness).color.split(' ').find(c => c.startsWith('text-'))">{{ e.agent || e.person }}</span> · {{ KIND[e.kind] || e.kind }}<span v-if="e.task"> · {{ e.task }}</span></p>
+            <p class="text-xs text-slate-500">{{ utcDate(e.at).toLocaleString() }} · <span :class="harnessOf(e.harness).color.split(' ').find(c => c.startsWith('text-'))">{{ e.agent || e.person }}</span> · {{ KIND[e.kind] || e.kind }}<span v-if="e.task"> · {{ e.task }}</span></p>
             <p class="text-slate-200 whitespace-pre-wrap">{{ e.text }}</p>
             <p v-if="e.refs?.length" class="text-xs text-cyan-300 break-all">{{ e.refs.join(' · ') }}</p>
           </li>
@@ -193,7 +185,7 @@
           <select v-model="draft.to" class="field w-full mt-1"><option value="all">Todos los agentes</option><option v-for="a in agentNames" :key="a" :value="a">{{ a }}</option><option value="people">Personas</option></select></label>
         <label class="block text-sm text-slate-300">Mensaje<textarea v-model="draft.text" rows="5" class="field w-full mt-1" required maxlength="4000"></textarea></label>
         <p class="text-xs text-slate-500">El agente lo recibe en su próximo hub_sync.</p>
-        <button class="glass-button w-full" :disabled="!draft.text.trim()">Enviar</button>
+        <button class="glass-button w-full" :disabled="sending || !draft.text.trim()">{{ sending ? 'Enviando…' : 'Enviar' }}</button>
       </form>
     </div>
 
@@ -226,7 +218,8 @@ import HubFiles from '../components/hub/HubFiles.vue'
 import HubConnect from '../components/hub/HubConnect.vue'
 import HubUploader from '../components/hub/HubUploader.vue'
 import HubWorkMode from '../components/hub/HubWorkMode.vue'
-import { PRESENCE, STATUS, KIND, harnessOf, ago, detail, renderMarkdown } from '../components/hub/hubUi'
+import HubTasks from '../components/hub/HubTasks.vue'
+import { PRESENCE, STATUS, KIND, harnessOf, ago, detail, renderMarkdown, utcDate } from '../components/hub/hubUi'
 
 const route = useRoute()
 const group = computed(() => route.params.group)
@@ -242,7 +235,19 @@ const objective = ref({ done: 0, total: 0, complete: false, text: '' })
 // Se decide al abrir el proyecto: si se ocultara al llegar el primer archivo, cortaría la cola de subida.
 const starter = ref(false)
 
-const columns = ['proposed', 'todo', 'in_progress', 'blocked', 'review', 'done']
+const taskViewVersion = ref(0)
+const taskView = ref('open'), showOffline = ref(false), lastRefresh = ref(null), coordination = ref({})
+const notice = ref(''), sending = ref(false)
+const inactiveSessions = computed(() => sessions.value.filter(s => ['offline', 'left'].includes(s.presence)))
+const shownSessions = computed(() => showOffline.value ? sessions.value : liveSessions.value)
+const metrics = computed(() => [
+  { filter: 'ready', label: 'Listas para empezar', value: coordination.value.ready || 0, tone: 'text-emerald-300' },
+  { filter: 'in_progress', label: 'En curso', value: coordination.value.counts?.in_progress || 0, tone: 'text-cyan-300' },
+  { filter: 'review', label: 'Por revisar', value: coordination.value.counts?.review || 0, tone: 'text-amber-200' },
+  { filter: 'waiting', label: 'Bloqueadas', value: coordination.value.blocked || 0, tone: 'text-red-300' },
+  { filter: 'done', label: 'Hechas', value: coordination.value.counts?.done || 0, tone: 'text-slate-200' },
+])
+function showTasks(value) { taskViewVersion.value++; taskView.value = value; focusTask.value = null; tab.value = 'tasks' }
 const alertTone = { orphan: 'text-amber-300', stale: 'text-amber-300', blocked: 'text-red-300', review: 'text-cyan-300', proposed: 'text-violet-300' }
 const digest = computed(() => project.value.last_digest)
 const phaseNames = computed(() => [...new Set(tasks.value.map(t => t.phase).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true })))
@@ -265,29 +270,24 @@ const lanes = computed(() => {
   }
   return [...map.values()].sort((a, b) => a.phase.localeCompare(b.phase, undefined, { numeric: true }))
 })
-const byStatus = computed(() => {
-  const needle = taskFilter.value.toLowerCase()
-  const out = Object.fromEntries(columns.map(c => [c, []]))
-  for (const t of tasks.value) {
-    if (!out[t.status]) continue
-    if (needle && !`${t.key} ${t.title} ${t.area} ${t.phase} ${t.assignee_agent || ''}`.toLowerCase().includes(needle)) continue
-    out[t.status].push(t)
-  }
-  return out
-})
 
 async function refresh() {
-  loading.value = true; error.value = ''
+  if (loading.value) return
+  const requestedGroup = group.value
+  loading.value = true
   try {
-    const { data } = await api.get(`/hub/projects/${group.value}`)
+    const { data } = await api.get(`/hub/projects/${requestedGroup}`)
+    if (requestedGroup !== group.value) return
+    error.value = ''; lastRefresh.value = new Date().toISOString(); coordination.value = data.coordination || {}
     project.value = data.project; sessions.value = data.sessions; tasks.value = data.tasks
     if (data.settings) settings.value = data.settings
     if (data.objective) objective.value = data.objective
     events.value = data.events; signals.value = data.signals; files.value = data.files; lessons.value = data.lessons
     if (!loadedOnce) { starter.value = !data.files.total; loadedOnce = true }
   } catch (e) { error.value = detail(e, 'No se pudo cargar el proyecto.') }
-  finally { loading.value = false }
+  finally { loading.value = false; if (requestedGroup !== group.value) refresh() }
   if (tab.value === 'messages') loadMessages()
+  if (tab.value === 'trace') loadTrace()
 }
 
 async function loadTrace() {
@@ -326,7 +326,7 @@ async function createTask() {
 async function importPlan(path) {
   try {
     const { data } = await api.post(`/hub/projects/${group.value}/plan/import`, { path: path || null })
-    alert(`Plan ${data.path}: ${data.created} tareas nuevas, ${data.updated} actualizadas${data.board_set ? ', tablero cargado' : ''}.`)
+    notice.value = `Plan importado: ${data.created} tareas nuevas y ${data.updated} actualizadas${data.board_set ? '; notas cargadas' : ''}.`
     await refresh(); tab.value = 'summary'
   } catch (e) { error.value = detail(e, 'No se pudo importar el plan.') }
 }
@@ -339,8 +339,11 @@ async function runDigest() {
 }
 
 async function sendMessage() {
-  try { await api.post(`/hub/projects/${group.value}/messages`, draft.value); draft.value = { to: draft.value.to, text: '' }; await loadMessages() }
+  if (sending.value) return
+  sending.value = true
+  try { await api.post(`/hub/projects/${group.value}/messages`, draft.value); draft.value = { to: draft.value.to, text: '' }; notice.value = 'Mensaje enviado. El destinatario lo recibirá en su próximo sync.'; await loadMessages() }
   catch (e) { error.value = detail(e, 'No se pudo enviar el mensaje.') }
+  finally { sending.value = false }
 }
 
 async function loadPermissions() {
@@ -351,9 +354,9 @@ async function loadPermissions() {
 }
 
 watch(tab, value => { if (value === 'trace') loadTrace(); if (value === 'messages') loadMessages() })
-watch(group, () => { tab.value = 'summary'; loadedOnce = false; refresh() })
+watch(group, () => { tab.value = 'summary'; loadedOnce = false; board.value = null; focusTask.value = null; newTask.value = null; tasks.value = []; sessions.value = []; messages.value = []; trace.value = []; notice.value = ''; refresh() })
 let timer = null, loadedOnce = false
-onMounted(() => { refresh(); loadPermissions(); timer = setInterval(refresh, 15000) })
+onMounted(() => { refresh(); loadPermissions(); timer = setInterval(() => { if (!document.hidden) refresh() }, 15000) })
 onBeforeUnmount(() => clearInterval(timer))
 </script>
 

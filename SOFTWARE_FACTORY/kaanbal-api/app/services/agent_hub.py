@@ -268,6 +268,7 @@ def public_task(task: Mapping[str, Any], index: Mapping[str, Mapping[str, Any]] 
         "assignee_agent": task.get("assignee_agent"), "assignee_session": task.get("assignee_session"),
         "branch": task.get("branch"), "pr_url": task.get("pr_url"), "notes": task.get("notes") or [],
         "created_by": task.get("created_by"), "updated_at": task.get("updated_at"),
+        "reviewed_by": task.get("reviewed_by"), "reviewed_at": task.get("reviewed_at"),
     }
     if index is not None:
         data["waiting_on"] = pending_dependencies(task, index)
@@ -345,6 +346,8 @@ def work_settings(raw: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
     settings["objective"] = str(settings["objective"] or "")[:500]
     settings["scope_phases"] = [str(p)[:40] for p in settings["scope_phases"] or []][:20]
     settings["scope_tasks"] = [k for k in (task_key(t) for t in settings["scope_tasks"] or []) if k][:100]
+    if settings["mode"] == "guided":
+        settings.update(done_by="person", auto_accept=False)
     return settings
 
 
@@ -358,8 +361,14 @@ def in_scope(task: Mapping[str, Any], settings: Mapping[str, Any]) -> bool:
 def objective_progress(tasks: List[Mapping[str, Any]], settings: Mapping[str, Any]) -> Dict[str, Any]:
     scoped = [t for t in tasks if in_scope(t, settings) and t.get("status") not in ("dropped", "proposed")]
     done = sum(1 for t in scoped if t.get("status") == "done")
+    index = index_tasks(tasks)
+    external = {p["ref"]: p for t in scoped for p in pending_dependencies(t, index)
+                if not in_scope(index.get(p["ref"], {}), settings) or p["status"] == "missing"}
     return {"text": settings.get("objective") or "", "phases": list(settings.get("scope_phases") or []),
             "tasks": list(settings.get("scope_tasks") or []), "done": done, "total": len(scoped),
+            "ready": sum(t.get("status") == "todo" and not pending_dependencies(t, index) for t in scoped),
+            "review": sum(t.get("status") == "review" for t in scoped),
+            "external_dependencies": list(external.values()),
             "remaining": [task_label(t) for t in scoped if t.get("status") != "done"][:20],
             "complete": bool(scoped) and done == len(scoped)}
 
@@ -381,11 +390,54 @@ def done_check(task: Mapping[str, Any], session: Optional[Mapping[str, Any]],
     if done_by == "person":
         return "En este proyecto una persona cierra las tareas: márcala review con su rama/PR."
     if done_by == "peer":
-        if task.get("assignee_session") == session.get("_id"):
+        if (task.get("assignee_session") == session.get("_id")
+                or task.get("assignee_agent") == session.get("agent")):
             return "Revisión entre agentes: márcala review y pide a otro agente que la revise y la cierre."
         if task.get("status") != "review":
             return "Solo se cierra una tarea que está en review."
+    if done_by == "self" and (task.get("assignee_session") != session.get("_id")
+                              or task.get("status") not in ("in_progress", "review")):
+        return "Toma la tarea con hub_claim_task antes de cerrarla. Solo puedes cerrar tus tareas."
     return None
+
+
+def validate_dependencies(task: Mapping[str, Any], tasks: List[Mapping[str, Any]]) -> None:
+    """Validate edits as well as imports; references may be a key or an id."""
+    graph = [t for t in tasks if t["_id"] != task["_id"]] + [task]
+    index = index_tasks(graph)
+    visiting, visited = set(), set()
+
+    def visit(item):
+        ident = item["_id"]
+        if ident in visiting:
+            raise HubError("Las dependencias forman un ciclo. Revisa las tareas que deben terminar primero.")
+        if ident in visited:
+            return
+        visiting.add(ident)
+        for ref in item.get("depends_on") or []:
+            if ref not in index:
+                raise HubError(f"La dependencia {ref} no existe en este proyecto.")
+            visit(index[ref])
+        visiting.remove(ident)
+        visited.add(ident)
+
+    visit(task)
+
+
+def coordination_state(project, tasks, sessions, now):
+    """Authoritative current state, independent of manually authored board text."""
+    index = index_tasks(tasks)
+    counts = {s: sum(t.get("status") == s for t in tasks) for s in TASK_STATUSES}
+    waiting = [t for t in tasks if t.get("status") in ("todo", "blocked")
+               and pending_dependencies(t, index)]
+    latest = max((t["updated_at"] for t in tasks if isinstance(t.get("updated_at"), datetime)), default=None)
+    board_at = project.get("board_updated_at")
+    return {"counts": counts, "ready": len(available_tasks(tasks)), "waiting": len(waiting),
+            "blocked": len({t["_id"] for t in waiting} | {t["_id"] for t in tasks if t.get("status") == "blocked"}),
+            "active": sum(presence(s, now) == "online" for s in sessions),
+            "quiet": sum(presence(s, now) == "idle" for s in sessions),
+            "board_stale": bool(project.get("board") and latest and (not board_at or latest > board_at)),
+            "tasks_updated_at": latest, "as_of": now}
 
 
 def compact_task(task: Mapping[str, Any]) -> Dict[str, Any]:
@@ -442,7 +494,8 @@ def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], t
     blocked = [public_task(t, index) for t in open_tasks
                if t.get("status") == "blocked" or (t.get("status") == "todo" and pending_dependencies(t, index))]
     # Con objetivo, solo se ofrece lo que está dentro: lo demás espera a otro objetivo.
-    available = [public_task(t) for t in available_tasks(tasks, specialty) if in_scope(t, settings)][:8]
+    available = [public_task(t) for t in available_tasks(tasks, specialty)
+                 if settings["mode"] != "autonomous" or in_scope(t, settings)][:8]
     done = sum(1 for t in tasks if t.get("status") == "done")
     alone = not team
     return {
@@ -452,6 +505,8 @@ def briefing(project: Mapping[str, Any], *, sessions: List[Mapping[str, Any]], t
                       "para quien llegue.") if alone else
                      f"Hay {len(team)} agente(s) trabajando: coordina con ellos antes de tomar algo que cruce su área.",
         "board": project.get("board") or "",
+        "coordination": coordination_state(project, tasks, sessions, now),
+        "board_notice": "El tablero es contexto manual. Para el estado actual usa coordination y tasks.",
         "team": team,
         "progress": {"done": done, "open": len(open_tasks), "total": len(tasks)},
         "work_mode": {"mode": settings["mode"], "done_by": settings["done_by"], "auto_accept": settings["auto_accept"]},
