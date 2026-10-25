@@ -74,6 +74,14 @@ by_area:
     read:
       - SOFTWARE_FACTORY/docs/TEMPLATE_SPEC.md
 
+  agent_hub:
+    trigger: "hub de agentes, coordinación multiagente, sesiones, traza, tareas con dependencias, fases, kaanbal.hub.json, secretario"
+    globs: ["SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", "SOFTWARE_FACTORY/kaanbal-api/app/services/agent_hub*.py",
+            "SOFTWARE_FACTORY/kaanbal-api/app/mcp/hub_tools.py", "SOFTWARE_FACTORY/kaanbal-console/src/views/Hub*.vue",
+            "SOFTWARE_FACTORY/kaanbal-console/src/components/hub/**"]
+    read:
+      - SOFTWARE_FACTORY/docs/AGENT_HUB.md
+
   mcp:
     trigger: "MCP, agentes conectados a la plataforma, /mcp, diagnóstico de apps, planes (dry_run/plan_id), vínculos"
     globs: ["SOFTWARE_FACTORY/kaanbal-api/app/mcp/**", "SOFTWARE_FACTORY/kaanbal-api/app/routers/mcp.py",

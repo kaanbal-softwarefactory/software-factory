@@ -40,6 +40,16 @@ const router = createRouter({
             component: () => import('../views/Systems.vue')
         },
         {
+            path: '/hub',
+            name: 'hub',
+            component: () => import('../views/Hub.vue')
+        },
+        {
+            path: '/hub/:group',
+            name: 'hub-project',
+            component: () => import('../views/HubProject.vue')
+        },
+        {
             path: '/templates',
             name: 'templates',
             component: () => import('../views/Templates.vue')

@@ -80,6 +80,11 @@ PERMISSIONS: Tuple[PermissionDef, ...] = (
     permission("apps.variables.manage", "Agregar o cambiar variables de entorno de una app (sin ver sus valores).", risk=RISK_HIGH),
     permission("apps.secrets.request", "Pedir a una persona que capture el valor de una variable secreta."),
     permission("apps.releases.manage", "Volver a una versión anterior o promover una imagen entre ambientes.", risk=RISK_HIGH),
+    # Hub de agentes: coordinación de varios agentes (Codex, Claude, Cursor…) en un proyecto
+    permission("hub.projects.view", "Ver tablero, agentes, tareas, traza y archivos de los proyectos."),
+    permission("hub.sessions.participate", "Entrar como agente: latido, traza, tareas, mensajes, notas en live/ y lecciones."),
+    permission("hub.files.manage", "Subir, reemplazar y quitar la fuente de un proyecto (ZIP de fases) e importar su plan."),
+    permission("hub.digest.run", "Pedir al secretario el resumen del proyecto (puede usar la IA configurada)."),
     # Datos de las bases
     permission("data.backups.view", "Ver los respaldos de las bases de datos."),
     permission("data.backups.create", "Respaldar una base de datos.", risk=RISK_HIGH),
@@ -184,6 +189,20 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("GET", rf"{_V1}/groups", "apps.apps.view"),
     rule("GET", rf"{_V1}/groups/owners", "apps.apps.expose"),
     rule("PUT", rf"{_V1}/groups/{_SEG}", "apps.apps.expose"),
+    # Hub de agentes
+    rule("GET", rf"{_V1}/hub/(projects|guides|lessons)", "hub.projects.view"),
+    rule("GET", rf"{_V1}/hub/projects/{_SEG}", "hub.projects.view"),
+    rule("GET", rf"{_V1}/hub/projects/{_SEG}/(briefing|tasks|messages|trace|files)", "hub.projects.view"),
+    rule("GET", rf"{_V1}/hub/projects/{_SEG}/files/content", "hub.projects.view"),
+    rule("PUT", rf"{_V1}/hub/projects/{_SEG}/board", "hub.sessions.participate"),
+    rule("POST", rf"{_V1}/hub/projects/{_SEG}/(sessions|tasks|messages|lessons|notes)", "hub.sessions.participate"),
+    rule("POST", rf"{_V1}/hub/projects/{_SEG}/files", "hub.files.manage"),
+    rule("DELETE", rf"{_V1}/hub/projects/{_SEG}/files", "hub.files.manage"),
+    rule("POST", rf"{_V1}/hub/projects/{_SEG}/plan/import", "hub.files.manage"),
+    rule("POST", rf"{_V1}/hub/projects/{_SEG}/digest", "hub.digest.run"),
+    rule("POST", rf"{_V1}/hub/sessions/{_SEG}/(heartbeat|events|leave)", "hub.sessions.participate"),
+    rule("POST", rf"{_V1}/hub/tasks/{_SEG}/claim", "hub.sessions.participate"),
+    rule("PATCH", rf"{_V1}/hub/tasks/{_SEG}", "hub.sessions.participate"),
     rule("POST", rf"{_V1}/apps", "apps.apps.create"),
     rule("GET", rf"{_V1}/apps/argocd/all", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/maintenance/{_SEG}", "apps.maintenance.run"),
@@ -407,7 +426,7 @@ AGENT_PERMISSIONS = (
     "apps.apps.view", "apps.apps.diagnose", "stacks.catalog.view", "domains.domains.view",
     "clients.clients.view", "templates.catalog.view", "links.links.view", "sites.sites.view",
     "core.updates.view", "core.vault.view", "system.health.view", "system.cluster.view",
-    "logs.records.view", "data.backups.view", "apps.secrets.request",
+    "logs.records.view", "data.backups.view", "apps.secrets.request", "hub.projects.view",
 )
 
 OPERATOR_PERMISSIONS = AGENT_PERMISSIONS + (
@@ -416,6 +435,7 @@ OPERATOR_PERMISSIONS = AGENT_PERMISSIONS + (
     "stacks.stacks.launch", "domains.domains.manage", "clients.clients.manage",
     "templates.custom.manage", "links.links.manage", "system.sync.run",
     "logs.records.export", "admin.settings.view", "security.tokens.self",
+    "hub.sessions.participate", "hub.files.manage", "hub.digest.run",
 )
 
 SYSTEM_ROLES: Tuple[dict, ...] = (
@@ -423,7 +443,7 @@ SYSTEM_ROLES: Tuple[dict, ...] = (
         "slug": "agente-ingeniero", "name": "Agente ingeniero",
         "description": "Prepara cambios y PRs en los recursos autorizados por la política.",
         "superadmin": False, "system": True,
-        "permissions": sorted(set(AGENT_PERMISSIONS) | {"autonomy.workspaces.manage", "autonomy.core.contribute", "autonomy.changes.propose", "security.tokens.self"}),
+        "permissions": sorted(set(AGENT_PERMISSIONS) | {"autonomy.workspaces.manage", "autonomy.core.contribute", "autonomy.changes.propose", "security.tokens.self", "hub.sessions.participate"}),
     },
     {
         "slug": "owner",

@@ -194,6 +194,26 @@ def _code_change(args: Mapping[str, Any]) -> str:
     ])
 
 
+def _join_project(args: Mapping[str, Any]) -> str:
+    group = args.get("proyecto")
+    agent = args.get("agente") or "<tu nombre corto>"
+    return "\n".join([
+        f"Vamos a trabajar en el proyecto '{group}' coordinado en el Hub de agentes de Kaanbal"
+        + _opt(args.get("especialidad"), ", con especialidad en {}") + ".",
+        "",
+        f"1. hub_join(group='{group}', agent='{agent}', harness=<codex|claude|cursor>"
+        + _opt(args.get("especialidad"), ", specialty='{}'") + ", focus=<qué harás>). Guarda session_id.",
+        "2. Resúmeme el briefing: quién está en línea y en qué, tareas disponibles para ti, bloqueos y el último relevo.",
+        "3. Propón una tarea y por qué. Si la apruebo, tómala con hub_claim_task; si depende de algo, pídelo con "
+        "hub_message al agente que lo tiene y propón otra mientras tanto.",
+        "4. Lee solo la fuente de esa tarea (hub_read_file con sus sources). Trabaja en tu rama; hub_sync cada ~2 min "
+        "o tras cada paso y hub_log para decisiones, bloqueos y preguntas.",
+        "5. Al terminar: PR pequeño, hub_update_task (review, rama, PR, pruebas) y hub_leave con un relevo útil.",
+        "",
+        "No toques archivos del área de otra tarea en curso. En tu primera respuesta no codifiques: solo el plan.",
+    ])
+
+
 PROMPTS: List[Dict[str, Any]] = [
     {
         "name": "lanzar-sitio",
@@ -289,6 +309,17 @@ PROMPTS: List[Dict[str, Any]] = [
             _arg("ambiente", "Rama de partida: dev (por defecto), staging o prod."),
         ],
         "render": _code_change,
+    },
+    {
+        "name": "unirse-a-proyecto",
+        "title": "Unirse a un proyecto como agente",
+        "description": "Entrar al Hub del proyecto, ver quién trabaja en qué, tomar una tarea y coordinarse con los demás agentes.",
+        "arguments": [
+            _arg("proyecto", "Grupo del proyecto en Kaanbal.", required=True),
+            _arg("agente", "Tu nombre corto de agente (p. ej. astra-agustin)."),
+            _arg("especialidad", "En qué eres bueno: diseño, frontend, APIs, seguridad…"),
+        ],
+        "render": _join_project,
     },
 ]
 

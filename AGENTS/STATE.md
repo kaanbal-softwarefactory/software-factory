@@ -14,6 +14,15 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Hub de agentes** — rama `claude/agent-hub`: coordinación de Codex/Claude/Cursor/ChatGPT
+  por grupo (sesiones con latido, traza proyecto → día → agente, tareas con dependencias y
+  toma atómica, mensajes, tablero, drive `fuente/` + `live/` en GridFS, plan
+  `kaanbal.hub.json`, secretario con y sin IA). 19 herramientas `hub_*` en el MCP, vistas
+  `/hub` y `/hub/:group`, permisos `hub.*`. Pruebas offline: API 615+ con recorrido de dos
+  agentes sobre Mongo en memoria y extracción de ZIP reales de fases; consola build. Falta:
+  célula real (subida grande por el ingress) y probarlo con el proyecto piloto. Guía:
+  `SOFTWARE_FACTORY/docs/AGENT_HUB.md`.
+
 - **Business Base módulos y calendario** — rama `codex/business-base-modules-calendar`:
   selector consola/MCP para contacto, catálogo y citas; citas incluye catálogo.
   Selección persistida por organización y aplicada en API; `[]` deja solo la base.

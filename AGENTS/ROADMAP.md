@@ -88,3 +88,15 @@ que retoma la próxima sesión: mueve cada fila de estado en el mismo PR que la 
 | Flujos guiados nuevos: auditar, volver versión, cuidar datos, cambiar código | ✅ Desarrollado | `app/mcp/prompts.py` | — |
 | Página «Conectar»: URL real de la célula y fragmentos por cliente | ✅ Desarrollado | `app/services/mcp_connection.py`, `Connect.vue` | Abrirla en una célula y confirmar que el Ingress da la URL. |
 | Avisar al cliente que cambió la lista de herramientas (`listChanged`) | 💡 Idea | — | Requiere sesión/SSE en el MCP. |
+
+## Coordinación multiagente (Hub)
+
+| Capacidad | Estado | Dónde | Falta |
+|---|---|---|---|
+| Sesiones con latido, presencia y relevo | ✅ Desarrollado | `app/routers/hub.py`, `app/services/agent_hub.py` | Probar con dos agentes reales en una célula. |
+| Tareas con dependencias, toma atómica y plan `kaanbal.hub.json` | ✅ Desarrollado | idem | — |
+| Drive del proyecto (`fuente/` + `live/`) con ZIP de fases | ✅ Desarrollado | idem, `HubFiles.vue` | Confirmar el límite de tamaño del ingress para ZIP de 100 MB. |
+| Secretario (señales sin IA + resumen con la IA configurada) | ✅ Desarrollado | `agent_hub.digest_*`, `ai_service.ask` | Probar con DeepSeek configurado. |
+| Herramientas `hub_*` en el MCP (imagen adjunta en `hub_read_file`) | ✅ Desarrollado | `app/mcp/hub_tools.py` | Probar desde ChatGPT con conector MCP. |
+| Hook de Claude Code/Codex que sincroniza solo | 💡 Idea | — | Script SessionStart/Stop que llame a `/hub/sessions/{id}/heartbeat`. |
+| Avisos a personas (mensajes a `people`, tareas en review) | 💡 Idea | — | Canal de notificación (correo o chat). |

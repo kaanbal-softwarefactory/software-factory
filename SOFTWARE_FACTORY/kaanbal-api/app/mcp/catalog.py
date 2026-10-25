@@ -38,7 +38,7 @@ CONFIG_ACTION = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint
 PUBLIC_ACTION = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False, "openWorldHint": True}
 POWER_OFF = {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False}
 
-GROUPS = ("entender", "crear", "conectar", "operar", "datos", "administrar", "guiar")
+GROUPS = ("entender", "crear", "conectar", "operar", "datos", "administrar", "guiar", "coordinar")
 EXPOSURE_MODES = ["public", "tailscale", "lan", "internal", "off", "both"]
 GUIDE_TOPICS = ["plataforma", "desarrollo-local", "desplegar", "conectar", "exponer", "mcp", "problemas"]
 
@@ -65,6 +65,13 @@ _APPROVAL = {
 }
 _APPROVAL_NOTE = " Exige token crítico y aprobación de una persona en la consola (approval_id)."
 _ELEVATED_NOTE = " Exige un token crítico (confirmado con contraseña y con vencimiento)."
+
+
+_HUB_GROUP = {"type": "string", "description": "Identificador del proyecto (el grupo de Kaanbal)."}
+_HUB_SESSION = {"type": "string", "description": "El session_id que devolvió hub_join."}
+_HUB_TASK = {"type": "string", "description": "Clave (T01) o id de la tarea."}
+# Escribe solo en el Hub (coordinación), nunca en apps ni infraestructura.
+_HUB_WRITE = {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}
 
 
 def _schema(properties: Dict[str, Any] = None, required: List[str] = ()) -> Dict[str, Any]:
@@ -394,6 +401,128 @@ TOOLS: List[Dict[str, Any]] = [
           "salud, variables que recibe (solo nombres), vínculos, URLs, repositorio y qué rama despliega a cada "
           "ambiente, con los pasos de desarrollo local.",
           _schema({"name": _APP, "env": _ENV}, ["name"]), READ_ONLY),
+
+    # ── Coordinar (Hub de agentes) ───────────────────────────────────────
+    _tool("hub_projects", "Proyectos del Hub", "coordinar", "hub.projects.view",
+          "Los proyectos (grupos) con agentes en línea, tareas abiertas y bloqueadas, y su última actividad.",
+          _schema(), READ_ONLY),
+    _tool("hub_join", "Entrar a un proyecto como agente", "coordinar", "hub.sessions.participate",
+          "Te presenta en el proyecto (quién eres, tu harness, en qué eres bueno y qué vas a hacer) y devuelve tu "
+          "session_id y el briefing: tablero, quién está en línea, tareas disponibles para ti, bloqueos, últimos "
+          "relevos, lecciones y el protocolo de trabajo. Úsala al empezar; guarda session_id y group.",
+          _schema({"group": _HUB_GROUP,
+                   "agent": {"type": "string", "description": "Tu nombre corto y estable (p. ej. astra-agustin, claude-api)."},
+                   "harness": {"type": "string", "enum": ["codex", "claude", "cursor", "chatgpt", "kaanbal", "otro"]},
+                   "model": {"type": "string", "description": "Modelo, si lo sabes."},
+                   "specialty": {"type": "string", "description": "En qué eres bueno: diseño, frontend, APIs, seguridad…"},
+                   "focus": {"type": "string", "description": "Qué vas a hacer en esta sesión."},
+                   "branch": {"type": "string", "description": "Rama o worktree donde trabajas."}},
+                  ["group", "agent", "harness"]), _HUB_WRITE),
+    _tool("hub_briefing", "Estado del proyecto", "coordinar", "hub.projects.view",
+          "El mismo briefing de hub_join sin abrir sesión: tablero, equipo en línea, tareas, últimos eventos y relevos.",
+          _schema({"group": _HUB_GROUP}, ["group"]), READ_ONLY),
+    _tool("hub_sync", "Latido y novedades", "coordinar", "hub.sessions.participate",
+          "Deja latido (sigues en línea) y recibe lo nuevo desde el último sync: mensajes para ti o para todos, "
+          "eventos de otros agentes y tareas que cambiaron. Llámala cada ~2 minutos o después de cada paso.",
+          _schema({"session_id": _HUB_SESSION,
+                   "focus": {"type": "string", "description": "Tu foco actual, si cambió."},
+                   "status": {"type": "string", "description": "Una línea de avance para la traza (opcional)."},
+                   "branch": {"type": "string"}}, ["session_id"]), _HUB_WRITE),
+    _tool("hub_log", "Dejar traza", "coordinar", "hub.sessions.participate",
+          "Registra en la traza del proyecto un avance, una decisión, un bloqueo, una pregunta o una nota. Corto y "
+          "concreto; con archivos, rutas o PR en refs.",
+          _schema({"session_id": _HUB_SESSION,
+                   "kind": {"type": "string", "enum": ["progress", "decision", "blocker", "question", "note"],
+                            "default": "progress"},
+                   "text": {"type": "string"},
+                   "task": {"type": "string", "description": "Clave de la tarea relacionada (por defecto, la tuya)."},
+                   "refs": {"type": "array", "items": {"type": "string"}, "description": "Archivos, rutas, PR."}},
+                  ["session_id", "text"]), _HUB_WRITE),
+    _tool("hub_tasks", "Tareas del proyecto", "coordinar", "hub.projects.view",
+          "Tareas con estado, área, fase, quién las tiene, rama/PR y de qué dependen (waiting_on: lo que falta).",
+          _schema({"group": _HUB_GROUP,
+                   "status": {"type": "string", "enum": ["proposed", "todo", "in_progress", "blocked", "review", "done", "dropped"]},
+                   "area": {"type": "string"}}, ["group"]), READ_ONLY),
+    _tool("hub_create_task", "Crear una tarea", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: agrega una tarea al proyecto. Con proposed=true queda como propuesta hasta que una persona la "
+          "acepte (úsalo para trabajo nuevo que descubras fuera de tu tarea).",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION,
+                   "title": {"type": "string"}, "description": {"type": "string"},
+                   "key": {"type": "string", "description": "Clave opcional única (T09, W3-ui…)."},
+                   "area": {"type": "string", "description": "frontend, backend, diseño, integración, qa…"},
+                   "phase": {"type": "string"},
+                   "depends_on": {"type": "array", "items": {"type": "string"}, "description": "Claves de las que depende."},
+                   "sources": {"type": "array", "items": {"type": "string"}, "description": "Rutas de la fuente a leer."},
+                   "proposed": {"type": "boolean", "default": False}},
+                  ["group", "title"]), _HUB_WRITE),
+    _tool("hub_claim_task", "Tomar una tarea", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: toma una tarea de forma atómica (nadie más puede tenerla). Si depende de trabajo sin terminar, "
+          "responde qué falta y quién lo tiene: pídeselo con hub_message o toma otra tarea disponible.",
+          _schema({"session_id": _HUB_SESSION, "task": _HUB_TASK}, ["session_id", "task"]), _HUB_WRITE),
+    _tool("hub_update_task", "Actualizar una tarea", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: cambia el estado de tu tarea (in_progress, blocked, review, done, todo para soltarla), agrega una "
+          "nota, la rama o el PR. No puedes cambiar la tarea en curso de otro agente.",
+          _schema({"session_id": _HUB_SESSION, "task": _HUB_TASK,
+                   "status": {"type": "string", "enum": ["todo", "in_progress", "blocked", "review", "done", "dropped"]},
+                   "note": {"type": "string"}, "branch": {"type": "string"}, "pr_url": {"type": "string"},
+                   "depends_on": {"type": "array", "items": {"type": "string"}}},
+                  ["session_id", "task"]), _HUB_WRITE),
+    _tool("hub_message", "Mensaje a otro agente", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: manda un mensaje a un agente (por su nombre o session_id), a todos (all) o a las personas "
+          "(people). Lo recibe en su próximo hub_sync. Úsalo para pedir que publiquen algo del que dependes.",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION, "text": {"type": "string"},
+                   "to": {"type": "string", "default": "all"}, "task": {"type": "string"}},
+                  ["group", "text"]), _HUB_WRITE),
+    _tool("hub_files", "Archivos del proyecto", "coordinar", "hub.projects.view",
+          "El drive del proyecto: fuente/ (fases, imágenes, briefs que suben las personas) y live/ (lo que escriben "
+          "los agentes). Filtra con prefix para no listar todo.",
+          _schema({"group": _HUB_GROUP, "prefix": {"type": "string", "description": "Carpeta, p. ej. fuente/fase 1."}},
+                  ["group"]), READ_ONLY),
+    _tool("hub_read_file", "Leer un archivo del proyecto", "coordinar", "hub.projects.view",
+          "Texto (md, txt, csv, json, html…) o imagen (png, jpg) del drive del proyecto; la imagen llega adjunta "
+          "para que la veas. Lee solo lo que tu tarea necesita.",
+          _schema({"group": _HUB_GROUP, "path": {"type": "string"}}, ["group", "path"]), READ_ONLY),
+    _tool("hub_write_note", "Escribir en live/", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: crea o reemplaza un documento en live/ (informes, contratos, decisiones, auditorías). Texto en "
+          "content, o un archivo pequeño en base64 (hasta 2 MB).",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION,
+                   "path": {"type": "string", "description": "Ruta dentro de live/, p. ej. contratos/api-cotizaciones.md."},
+                   "content": {"type": "string"}, "base64": {"type": "string"}},
+                  ["group", "path"]), _HUB_WRITE),
+    _tool("hub_trace", "Traza del proyecto", "coordinar", "hub.projects.view",
+          "Qué pasó: view=tree da proyecto → día → agente con cuántos eventos; view=list los eventos, filtrables por "
+          "día (AAAA-MM-DD), agente, tipo o sesión.",
+          _schema({"group": _HUB_GROUP, "view": {"type": "string", "enum": ["list", "tree"], "default": "list"},
+                   "day": {"type": "string"}, "agent": {"type": "string"}, "kind": {"type": "string"},
+                   "session_id": {"type": "string"},
+                   "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
+                  ["group"]), READ_ONLY),
+    _tool("hub_add_lesson", "Guardar una lección", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: deja algo aprendido. scope=project para este proyecto; scope=platform si sirve en cualquier otro "
+          "proyecto de Kaanbal (aparecerá en el briefing de todos).",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION, "text": {"type": "string"},
+                   "scope": {"type": "string", "enum": ["project", "platform"], "default": "project"}},
+                  ["group", "text"]), _HUB_WRITE),
+    _tool("hub_update_board", "Actualizar el tablero", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: reemplaza el tablero (markdown), el archivo central que lee primero cada agente. Mantenlo corto: "
+          "objetivo, estado, reglas, contratos vigentes y enlaces. La versión anterior se guarda.",
+          _schema({"group": _HUB_GROUP, "session_id": _HUB_SESSION, "content": {"type": "string"}},
+                  ["group", "content"]), _HUB_WRITE),
+    _tool("hub_leave", "Salir con relevo", "coordinar", "hub.sessions.participate",
+          "ACCIÓN: cierra tu sesión con un relevo (qué hiciste, qué quedó, qué sigue, riesgos). Por defecto suelta tus "
+          "tareas en curso para que otro las tome.",
+          _schema({"session_id": _HUB_SESSION, "summary": {"type": "string"},
+                   "release_tasks": {"type": "boolean", "default": True}}, ["session_id", "summary"]), _HUB_WRITE),
+    _tool("hub_digest", "Resumen del secretario", "coordinar", "hub.digest.run",
+          "Resumen del estado para las personas: quién está, alertas (tareas huérfanas, bloqueadas, en revisión), "
+          "avance por fase y, con IA configurada, riesgos y tareas sugeridas (create_tasks las deja como propuestas).",
+          _schema({"group": _HUB_GROUP, "use_ai": {"type": "boolean", "default": True},
+                   "create_tasks": {"type": "boolean", "default": False}}, ["group"]), _HUB_WRITE),
+    _tool("hub_guides", "Cómo arrancar en el Hub", "coordinar", "hub.projects.view",
+          "El prompt para que ChatGPT web arme las fases en el formato del Hub, el mensaje inicial para un agente y "
+          "el bloque para AGENTS.md/CLAUDE.md del repositorio.",
+          _schema({"group": {"type": "string"}, "harness": {"type": "string"}, "specialty": {"type": "string"}}),
+          READ_ONLY),
 ]
 
 TOOLS_BY_NAME: Dict[str, Dict[str, Any]] = {tool["name"]: tool for tool in TOOLS}

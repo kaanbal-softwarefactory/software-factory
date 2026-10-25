@@ -8,6 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- **Agent Hub**: a per-group coordination table for Codex, Claude Code, Cursor and ChatGPT.
+  Agents join with a specialty, keep a heartbeat, claim tasks atomically (blocked tasks say
+  what is missing and who holds it), message each other, leave a trace (project → day →
+  agent) and hand off with a summary. A project drive keeps the human source (`fuente/`,
+  phase ZIPs unpacked safely, nested ZIPs one level) and the agents' `live/` folder.
+  `kaanbal.hub.json` imports a phase plan as tasks with dependencies. A secretary digest
+  works without AI and, with the configured provider, adds risks and proposed tasks.
+  19 `hub_*` MCP tools (images returned inline), console views `/hub` and `/hub/:group`,
+  new `hub.*` permissions and a ChatGPT prompt to produce phases in this format.
 - Business Base launch-time module selection in console/MCP: contact/inbox, catalog,
   appointments (including catalog), or core only. Availability is persisted per
   organization and enforced in the API. Additive migration preserves old copies.

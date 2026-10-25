@@ -396,10 +396,12 @@ async def _app_contract(client: ApiClient, app: str, env: str) -> Dict[str, Any]
 async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
                     context: Optional[Dict[str, Any]] = None) -> Any:
     args = args or {}
-    from app.mcp import admin_tools
+    from app.mcp import admin_tools, hub_tools
 
     if name in admin_tools.HANDLED:
         return await admin_tools.call(client, name, args, context or {})
+    if name in hub_tools.HANDLED:
+        return await hub_tools.call(client, name, args, context or {})
 
     # Entender
     if name == "list_apps":

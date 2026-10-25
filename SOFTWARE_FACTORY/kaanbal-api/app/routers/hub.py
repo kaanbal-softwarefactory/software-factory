@@ -1,0 +1,808 @@
+"""Hub de agentes: sesiones, traza, tareas, mensajes y archivos por proyecto (grupo).
+
+La lógica vive en app/services/agent_hub.py; aquí solo se guarda y se lee. Quien
+escribe es siempre el principal de la petición: una sesión de agente solo la puede
+usar la persona (o el token) que la abrió.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Literal, Optional
+from uuid import uuid4
+
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
+from pymongo import ReturnDocument
+
+from app.db import get_db
+from app.services import agent_hub as hub
+from app.services import agent_hub_guides as guides
+from app.services.activity_log import activity_log, CATEGORY_APP
+
+router = APIRouter()
+
+PROJECTS, SESSIONS, EVENTS, TASKS = "hub_projects", "hub_sessions", "hub_events", "hub_tasks"
+MESSAGES, LESSONS, BOARDS, BUCKET = "hub_messages", "hub_lessons", "hub_board_history", "hub_files"
+
+
+# ── Utilidades ───────────────────────────────────────────────────────────
+def _now() -> datetime:
+    return datetime.utcnow()
+
+
+def _new_id() -> str:
+    return uuid4().hex[:16]
+
+
+def _principal(request: Request) -> Any:
+    return request.state.principal
+
+
+def _group(slug: str) -> str:
+    if not hub.valid_group(slug):
+        raise HTTPException(422, "Proyecto inválido: usa el identificador del grupo (minúsculas, números y guiones).")
+    return slug
+
+
+def _bad(exc: hub.HubError) -> HTTPException:
+    return HTTPException(422, str(exc))
+
+
+def _bucket():
+    from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+
+    return AsyncIOMotorGridFSBucket(get_db(), bucket_name=BUCKET)
+
+
+def _files():
+    return get_db()[f"{BUCKET}.files"]
+
+
+async def _project(group: str) -> Dict[str, Any]:
+    """El proyecto del Hub; si todavía no existe, uno vacío con el nombre del grupo."""
+    db = get_db()
+    project = await db[PROJECTS].find_one({"_id": group})
+    meta = await db.app_groups.find_one({"_id": group}) or {}
+    base = {"_id": group, "name": meta.get("name") or group, "description": meta.get("description") or "",
+            "owner": meta.get("owner"), "board": ""}
+    return {**base, **(project or {})}
+
+
+async def _touch_project(group: str, **fields: Any) -> None:
+    await get_db()[PROJECTS].update_one(
+        {"_id": group}, {"$set": {"updated_at": _now(), **fields}, "$setOnInsert": {"created_at": _now()}}, upsert=True)
+
+
+async def _event(group: str, kind: str, text: str, *, session: Optional[Dict[str, Any]] = None,
+                 person: Optional[str] = None, task_ref: Optional[str] = None, refs: Optional[List[str]] = None,
+                 agent: Optional[str] = None) -> Dict[str, Any]:
+    doc = {"_id": _new_id(), "group": group, "kind": kind, "text": text[:4000], "created_at": _now(),
+           "session_id": (session or {}).get("_id"), "agent": agent or (session or {}).get("agent"),
+           "harness": (session or {}).get("harness"), "person": person or (session or {}).get("person"),
+           "task_ref": task_ref, "refs": refs or []}
+    await get_db()[EVENTS].insert_one(doc)
+    await _touch_project(group, last_activity=doc["created_at"])
+    return doc
+
+
+async def _own_session(request: Request, session_id: str) -> Dict[str, Any]:
+    if not hub.valid_id(session_id):
+        raise HTTPException(422, "session_id inválido: usa el que devolvió hub_join.")
+    session = await get_db()[SESSIONS].find_one({"_id": session_id})
+    if not session:
+        raise HTTPException(404, "Esa sesión no existe. Vuelve a entrar con hub_join.")
+    principal = _principal(request)
+    if session.get("person") != principal.username and not principal.superadmin:
+        raise HTTPException(403, "Esa sesión es de otra persona: abre la tuya con hub_join.")
+    if session.get("left_at"):
+        raise HTTPException(409, "Esa sesión ya se cerró con hub_leave. Abre otra con hub_join.")
+    return session
+
+
+async def _optional_session(request: Request, session_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    return await _own_session(request, session_id) if session_id else None
+
+
+async def _group_tasks(group: str) -> List[Dict[str, Any]]:
+    return await get_db()[TASKS].find({"group": group}).sort("created_at", 1).to_list(None)
+
+
+async def _group_sessions(group: str, days: int = 7) -> List[Dict[str, Any]]:
+    since = _now() - timedelta(days=days)
+    return await get_db()[SESSIONS].find({"group": group, "last_seen": {"$gte": since}}).sort("last_seen", -1).to_list(200)
+
+
+async def _recent_events(group: str, limit: int = 30) -> List[Dict[str, Any]]:
+    return await get_db()[EVENTS].find({"group": group}).sort("created_at", -1).limit(limit).to_list(limit)
+
+
+async def _lessons(group: str) -> List[Dict[str, Any]]:
+    query = {"$or": [{"group": group}, {"scope": "platform"}]}
+    return await get_db()[LESSONS].find(query).sort("created_at", -1).limit(20).to_list(20)
+
+
+async def _file_rows(group: str) -> List[Dict[str, Any]]:
+    rows = await _files().find({"metadata.group": group}).sort("filename", 1).to_list(None)
+    return [{"path": row["filename"], "size": row.get("length", 0),
+             "content_type": (row.get("metadata") or {}).get("content_type"),
+             "uploaded_by": (row.get("metadata") or {}).get("uploaded_by"),
+             "uploaded_at": row.get("uploadDate")} for row in rows]
+
+
+async def _briefing(group: str, me: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    db = get_db()
+    handoffs = await db[EVENTS].find({"group": group, "kind": "handoff"}).sort("created_at", -1).limit(3).to_list(3)
+    return hub.briefing(await _project(group), sessions=await _group_sessions(group), tasks=await _group_tasks(group),
+                        events=await _recent_events(group, 15), handoffs=handoffs, lessons=await _lessons(group),
+                        files=await _file_rows(group), now=_now(), me=me)
+
+
+async def _store_file(group: str, path: str, data: bytes, actor: str, origin: str) -> Dict[str, Any]:
+    """Guarda (o reemplaza) un archivo del drive del proyecto en GridFS."""
+    for old in await _files().find({"metadata.group": group, "filename": path}, {"_id": 1}).to_list(None):
+        await _bucket().delete(old["_id"])
+    ctype = hub.content_type(path)
+    await _bucket().upload_from_stream(path, data, metadata={
+        "group": group, "content_type": ctype, "sha256": hashlib.sha256(data).hexdigest(),
+        "uploaded_by": actor, "origin": origin})
+    return {"path": path, "size": len(data), "content_type": ctype}
+
+
+async def _read_file(group: str, path: str) -> tuple[Dict[str, Any], bytes]:
+    row = await _files().find_one({"metadata.group": group, "filename": path})
+    if not row:
+        raise HTTPException(404, f"No existe '{path}' en el proyecto. hub_files lista lo que hay.")
+    stream = await _bucket().open_download_stream(row["_id"])
+    return row, await stream.read()
+
+
+# ── Proyectos ────────────────────────────────────────────────────────────
+@router.get("/projects")
+async def list_projects():
+    """Vista general: cada grupo con su actividad en el Hub."""
+    db = get_db()
+    now = _now()
+    groups = {item["_id"]: item for item in await db.app_groups.find({}).to_list(None)}
+    projects = {item["_id"]: item for item in await db[PROJECTS].find({}).to_list(None)}
+    active = await db[SESSIONS].find({"last_seen": {"$gte": now - hub.IDLE}, "left_at": None}).to_list(None)
+    open_tasks = await db[TASKS].find({"status": {"$in": list(hub.OPEN_STATUSES)}}, {"group": 1, "status": 1}).to_list(None)
+    rows = []
+    for slug in sorted(set(groups) | set(projects)):
+        meta, project = groups.get(slug) or {}, projects.get(slug) or {}
+        agents = [hub.public_session(s, now) for s in active if s.get("group") == slug]
+        rows.append({
+            "group": slug, "name": meta.get("name") or slug, "owner": meta.get("owner"),
+            "stage": meta.get("stage", "active"), "description": meta.get("description") or "",
+            "agents_online": [a for a in agents if a["presence"] in ("online", "idle")],
+            "open_tasks": sum(1 for t in open_tasks if t.get("group") == slug),
+            "blocked_tasks": sum(1 for t in open_tasks if t.get("group") == slug and t.get("status") == "blocked"),
+            "last_activity": project.get("last_activity"), "in_hub": slug in projects,
+        })
+    rows.sort(key=lambda r: r["last_activity"] or datetime.min, reverse=True)
+    return {"projects": rows, "total": len(rows)}
+
+
+@router.get("/projects/{group}")
+async def project_overview(group: str):
+    group = _group(group)
+    now = _now()
+    project = await _project(group)
+    sessions = await _group_sessions(group)
+    tasks = await _group_tasks(group)
+    events = await _recent_events(group, 200)
+    index = hub.index_tasks(tasks)
+    return {
+        "project": {k: project.get(k) for k in ("_id", "name", "description", "owner", "board", "board_updated_by",
+                                                 "board_updated_at", "last_digest", "last_activity")},
+        "sessions": [hub.public_session(s, now) for s in sessions],
+        "tasks": [hub.public_task(t, index) for t in tasks],
+        "events": [{**hub.compact_event(e), "id": e["_id"], "person": e.get("person"), "harness": e.get("harness")}
+                   for e in events[:60]],
+        "signals": hub.digest_signals(sessions=sessions, tasks=tasks, events=events, now=now),
+        "files": hub.files_summary(await _file_rows(group)),
+        "lessons": [{"scope": l.get("scope"), "text": l.get("text"), "agent": l.get("agent"), "at": l.get("created_at")}
+                    for l in await _lessons(group)],
+    }
+
+
+@router.get("/projects/{group}/briefing")
+async def project_briefing(group: str):
+    return await _briefing(_group(group))
+
+
+class BoardUpdate(BaseModel):
+    content: str = Field(max_length=20_000)
+    session_id: Optional[str] = None
+
+
+@router.put("/projects/{group}/board")
+async def update_board(group: str, body: BoardUpdate, request: Request):
+    group = _group(group)
+    session = await _optional_session(request, body.session_id)
+    actor = (session or {}).get("agent") or _principal(request).username
+    previous = (await _project(group)).get("board") or ""
+    await get_db()[BOARDS].insert_one({"group": group, "content": previous, "replaced_by": actor, "at": _now()})
+    await _touch_project(group, board=body.content.strip(), board_updated_by=actor, board_updated_at=_now())
+    await _event(group, "board", f"Actualizó el tablero ({len(previous)} → {len(body.content.strip())} caracteres).",
+                 session=session, person=_principal(request).username, agent=actor)
+    return {"group": group, "board": body.content.strip(), "updated_by": actor}
+
+
+# ── Sesiones ─────────────────────────────────────────────────────────────
+class JoinBody(BaseModel):
+    agent: str
+    harness: str = "otro"
+    model: str = Field(default="", max_length=60)
+    specialty: str = Field(default="", max_length=200)
+    focus: str = Field(default="", max_length=500)
+    branch: str = Field(default="", max_length=120)
+
+
+@router.post("/projects/{group}/sessions")
+async def join(group: str, body: JoinBody, request: Request):
+    group = _group(group)
+    try:
+        agent = hub.agent_name(body.agent)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    principal = _principal(request)
+    now = _now()
+    session = {"_id": _new_id(), "group": group, "agent": agent, "harness": hub.harness(body.harness),
+               "model": body.model.strip(), "specialty": body.specialty.strip(), "focus": body.focus.strip(),
+               "branch": body.branch.strip() or None, "person": principal.username, "token": principal.token_name,
+               "started_at": now, "last_seen": now, "cursor": now, "left_at": None, "task": None}
+    await get_db()[SESSIONS].insert_one(session)
+    await _event(group, "join", f"Entró como {session['harness']}" + (f" ({session['specialty']})" if session["specialty"] else "")
+                 + (f". Foco: {session['focus']}" if session["focus"] else "."), session=session)
+    await activity_log.log("hub.session.joined", category=CATEGORY_APP, actor=principal.username, target=group,
+                           detail={"agent": agent, "harness": session["harness"]})
+    return {"session_id": session["_id"], "briefing": await _briefing(group, session)}
+
+
+class SyncBody(BaseModel):
+    focus: Optional[str] = Field(default=None, max_length=500)
+    status: Optional[str] = Field(default=None, max_length=300)
+    branch: Optional[str] = Field(default=None, max_length=120)
+
+
+@router.post("/sessions/{session_id}/heartbeat")
+async def heartbeat(session_id: str, body: SyncBody, request: Request):
+    """Latido: actualiza presencia y devuelve lo nuevo desde el último sync."""
+    session = await _own_session(request, session_id)
+    db = get_db()
+    now = _now()
+    cursor = session.get("cursor") or session["started_at"]
+    updates: Dict[str, Any] = {"last_seen": now, "cursor": now}
+    if body.focus is not None:
+        updates["focus"] = body.focus.strip()
+    if body.branch is not None:
+        updates["branch"] = body.branch.strip() or None
+    await db[SESSIONS].update_one({"_id": session_id}, {"$set": updates})
+    if body.status:
+        await _event(session["group"], "progress", body.status.strip(), session=session, task_ref=session.get("task"))
+    inbox_query = {"group": session["group"], "from_session": {"$ne": session_id}, "read_by": {"$ne": session_id},
+                   "to": {"$in": ["all", session_id, session["agent"]]},
+                   "created_at": {"$gte": session["started_at"] - timedelta(hours=24)}}
+    inbox = await db[MESSAGES].find(inbox_query).sort("created_at", 1).limit(50).to_list(50)
+    if inbox:
+        await db[MESSAGES].update_many({"_id": {"$in": [m["_id"] for m in inbox]}}, {"$addToSet": {"read_by": session_id}})
+    news = await db[EVENTS].find({"group": session["group"], "session_id": {"$ne": session_id},
+                                  "created_at": {"$gt": cursor}}).sort("created_at", 1).limit(30).to_list(30)
+    changed = await db[TASKS].find({"group": session["group"], "updated_at": {"$gt": cursor}}).limit(20).to_list(20)
+    team = [hub.public_session(s, now) for s in await _group_sessions(session["group"], days=1)
+            if s["_id"] != session_id and hub.presence(s, now) in ("online", "idle")]
+    return {
+        "messages": [{"id": m["_id"], "from": m.get("from_agent") or m.get("person"), "to": m.get("to"),
+                      "text": m.get("text"), "at": m.get("created_at"), "task": m.get("task_ref")} for m in inbox],
+        "events": [hub.compact_event(e) for e in news],
+        "tasks_changed": [hub.public_task(t) for t in changed],
+        "team": team,
+        "next_sync_seconds": hub.HEARTBEAT_HINT_SECONDS,
+    }
+
+
+class LogBody(BaseModel):
+    kind: str = "progress"
+    text: str = Field(min_length=1, max_length=4000)
+    task: Optional[str] = Field(default=None, max_length=32)
+    refs: List[str] = Field(default_factory=list, max_length=10)
+
+
+@router.post("/sessions/{session_id}/events")
+async def log_event(session_id: str, body: LogBody, request: Request):
+    session = await _own_session(request, session_id)
+    if body.kind not in hub.AGENT_EVENT_KINDS:
+        raise HTTPException(422, f"kind va en: {', '.join(hub.AGENT_EVENT_KINDS)}.")
+    refs = [str(ref)[:300] for ref in body.refs]
+    event = await _event(session["group"], body.kind, body.text.strip(), session=session,
+                         task_ref=body.task or session.get("task"), refs=refs)
+    await get_db()[SESSIONS].update_one({"_id": session_id}, {"$set": {"last_seen": _now()}})
+    return {"id": event["_id"], "kind": body.kind, "at": event["created_at"]}
+
+
+class LeaveBody(BaseModel):
+    summary: str = Field(min_length=1, max_length=6000)
+    release_tasks: bool = True
+
+
+@router.post("/sessions/{session_id}/leave")
+async def leave(session_id: str, body: LeaveBody, request: Request):
+    """Cierra la sesión con un relevo: lo primero que leerá el siguiente agente."""
+    session = await _own_session(request, session_id)
+    db = get_db()
+    released = []
+    if body.release_tasks:
+        for task in await db[TASKS].find({"assignee_session": session_id, "status": "in_progress"}).to_list(None):
+            await db[TASKS].update_one({"_id": task["_id"]}, {
+                "$set": {"status": "todo", "assignee_session": None, "assignee_agent": None, "updated_at": _now()},
+                "$push": {"notes": {"at": _now(), "by": session["agent"], "text": "Liberada al cerrar sesión."}}})
+            released.append(task.get("key") or task["_id"])
+    await db[SESSIONS].update_one({"_id": session_id}, {"$set": {"left_at": _now(), "last_seen": _now(),
+                                                                 "summary": body.summary.strip()}})
+    await _event(session["group"], "handoff", body.summary.strip(), session=session, task_ref=session.get("task"))
+    return {"closed": True, "released_tasks": released}
+
+
+# ── Tareas ───────────────────────────────────────────────────────────────
+@router.get("/projects/{group}/tasks")
+async def list_tasks(group: str, status: Optional[str] = None, area: Optional[str] = None):
+    group = _group(group)
+    tasks = await _group_tasks(group)
+    index = hub.index_tasks(tasks)
+    rows = [t for t in tasks if (not status or t.get("status") == status)
+            and (not area or str(t.get("area") or "").lower() == area.lower())]
+    return {"tasks": [hub.public_task(t, index) for t in rows], "total": len(rows)}
+
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=4000)
+    key: Optional[str] = None
+    area: str = Field(default="", max_length=40)
+    phase: str = Field(default="", max_length=40)
+    depends_on: List[str] = Field(default_factory=list, max_length=20)
+    sources: List[str] = Field(default_factory=list, max_length=20)
+    session_id: Optional[str] = None
+    proposed: bool = False
+
+
+@router.post("/projects/{group}/tasks")
+async def create_task(group: str, body: TaskCreate, request: Request):
+    group = _group(group)
+    session = await _optional_session(request, body.session_id)
+    try:
+        key = hub.task_key(body.key)
+        depends = [k for k in (hub.task_key(d) for d in body.depends_on) if k]
+        sources = [hub.normalize_path(s) for s in body.sources]
+    except hub.HubError as exc:
+        raise _bad(exc)
+    db = get_db()
+    if key and await db[TASKS].find_one({"group": group, "key": key}, {"_id": 1}):
+        raise HTTPException(409, f"Ya existe la tarea {key} en este proyecto.")
+    now = _now()
+    # Lo que crea un agente queda como propuesta si él lo pide; lo que crea el plan o una persona, listo.
+    task = {"_id": _new_id(), "group": group, "key": key, "title": body.title.strip(),
+            "description": body.description.strip(), "area": body.area.strip(), "phase": body.phase.strip(),
+            "depends_on": depends, "sources": sources, "status": "proposed" if body.proposed else "todo",
+            "assignee_session": None, "assignee_agent": None, "branch": None, "pr_url": None, "notes": [],
+            "created_by": (session or {}).get("agent") or _principal(request).username,
+            "created_at": now, "updated_at": now}
+    await db[TASKS].insert_one(task)
+    await _event(group, "task", f"Creó {hub.task_label(task)}" + (" (propuesta)" if body.proposed else "") + ".",
+                 session=session, person=_principal(request).username, task_ref=key or task["_id"],
+                 agent=(session or {}).get("agent"))
+    return hub.public_task(task)
+
+
+async def _task(ref: str, group: Optional[str] = None) -> Dict[str, Any]:
+    """Por id; con el proyecto conocido (la sesión), también por clave del plan (T01)."""
+    if hub.valid_id(ref):
+        query: Dict[str, Any] = {"_id": ref}
+    else:
+        try:
+            key = hub.task_key(ref)
+        except hub.HubError as exc:
+            raise _bad(exc)
+        if not key or not group:
+            raise HTTPException(422, "Usa el id de la tarea, o su clave junto con session_id.")
+        query = {"group": group, "key": key}
+    task = await get_db()[TASKS].find_one(query)
+    if not task:
+        raise HTTPException(404, f"No existe la tarea {ref}. hub_tasks lista las del proyecto.")
+    return task
+
+
+class ClaimBody(BaseModel):
+    session_id: str
+
+
+@router.post("/tasks/{task_id}/claim")
+async def claim_task(task_id: str, body: ClaimBody, request: Request):
+    """Toma una tarea de forma atómica; si depende de algo pendiente, dice qué y de quién."""
+    session = await _own_session(request, body.session_id)
+    task = await _task(task_id, session["group"])
+    task_id = task["_id"]
+    if task["group"] != session["group"]:
+        raise HTTPException(422, "La tarea es de otro proyecto.")
+    index = hub.index_tasks(await _group_tasks(task["group"]))
+    problem = hub.claim_check(task, index, session)
+    if problem:
+        raise HTTPException(409, {"message": f"{problem['reason']} {problem.get('hint', '')}".strip(), **problem})
+    db = get_db()
+    now = _now()
+    claimed = await db[TASKS].find_one_and_update(
+        {"_id": task_id, "status": {"$in": ["todo", "blocked", "in_progress"]},
+         "$or": [{"assignee_session": None}, {"assignee_session": session["_id"]}]},
+        {"$set": {"status": "in_progress", "assignee_session": session["_id"], "assignee_agent": session["agent"],
+                  "updated_at": now, "branch": task.get("branch") or session.get("branch")}},
+        return_document=ReturnDocument.AFTER)
+    if not claimed:
+        raise HTTPException(409, {"message": "Otro agente la tomó un instante antes. Elige otra tarea disponible.",
+                                  "pending": []})
+    await db[SESSIONS].update_one({"_id": session["_id"]}, {"$set": {"task": task.get("key") or task_id, "last_seen": now}})
+    await _event(task["group"], "task", f"Tomó {hub.task_label(task)}.", session=session, task_ref=task.get("key") or task_id)
+    return hub.public_task(claimed, index)
+
+
+class TaskUpdate(BaseModel):
+    session_id: Optional[str] = None
+    status: Optional[Literal["proposed", "todo", "in_progress", "blocked", "review", "done", "dropped"]] = None
+    note: str = Field(default="", max_length=2000)
+    branch: Optional[str] = Field(default=None, max_length=120)
+    pr_url: Optional[str] = Field(default=None, max_length=300)
+    title: Optional[str] = Field(default=None, min_length=1, max_length=160)
+    description: Optional[str] = Field(default=None, max_length=4000)
+    area: Optional[str] = Field(default=None, max_length=40)
+    phase: Optional[str] = Field(default=None, max_length=40)
+    depends_on: Optional[List[str]] = Field(default=None, max_length=20)
+
+
+@router.patch("/tasks/{task_id}")
+async def update_task(task_id: str, body: TaskUpdate, request: Request):
+    session = await _optional_session(request, body.session_id)
+    task = await _task(task_id, (session or {}).get("group"))
+    task_id = task["_id"]
+    if session and task["group"] != session["group"]:
+        raise HTTPException(422, "La tarea es de otro proyecto.")
+    holder = task.get("assignee_session")
+    # Un agente no le cambia la tarea en curso a otro; una persona (sin sesión) sí puede: es quien integra.
+    if session and holder and holder != session["_id"] and task.get("status") == "in_progress":
+        raise HTTPException(409, f"{hub.task_label(task)} la tiene {task.get('assignee_agent')}: mándale un mensaje.")
+    values: Dict[str, Any] = {"updated_at": _now()}
+    try:
+        if body.depends_on is not None:
+            values["depends_on"] = [k for k in (hub.task_key(d) for d in body.depends_on) if k]
+    except hub.HubError as exc:
+        raise _bad(exc)
+    for field in ("title", "description", "area", "phase", "branch", "pr_url"):
+        value = getattr(body, field)
+        if value is not None:
+            values[field] = (value.strip() or None) if field in ("branch", "pr_url") else value.strip()
+    if body.status:
+        values["status"] = body.status
+        if body.status in ("todo", "proposed", "dropped"):
+            values.update(assignee_session=None, assignee_agent=None)
+    actor = (session or {}).get("agent") or _principal(request).username
+    change: Dict[str, Any] = {"$set": values}
+    if body.note.strip():
+        change["$push"] = {"notes": {"at": _now(), "by": actor, "text": body.note.strip()}}
+    updated = await get_db()[TASKS].find_one_and_update({"_id": task_id}, change, return_document=ReturnDocument.AFTER)
+    if body.status in hub.CLOSED_STATUSES + ("review",) and session and session.get("task") in (task.get("key"), task_id):
+        await get_db()[SESSIONS].update_one({"_id": session["_id"]}, {"$set": {"task": None}})
+    parts = []
+    if body.status:
+        parts.append(f"estado {body.status}")
+    if values.get("pr_url"):
+        parts.append(f"PR {values['pr_url']}")
+    if body.note.strip():
+        parts.append(body.note.strip()[:200])
+    summary = f"{hub.task_label(task)}: " + (", ".join(parts) or "editada")
+    await _event(task["group"], "task", summary, session=session, person=_principal(request).username,
+                 task_ref=task.get("key") or task_id, agent=actor)
+    return hub.public_task(updated)
+
+
+# ── Mensajes ─────────────────────────────────────────────────────────────
+class MessageBody(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+    to: str = Field(default="all", max_length=48)
+    session_id: Optional[str] = None
+    task: Optional[str] = Field(default=None, max_length=32)
+
+
+@router.post("/projects/{group}/messages")
+async def send_message(group: str, body: MessageBody, request: Request):
+    """De un agente a otro (por nombre o sesión), a todos, o a las personas ('people')."""
+    group = _group(group)
+    session = await _optional_session(request, body.session_id)
+    to = body.to.strip() or "all"
+    if to not in ("all", "people") and not hub.valid_id(to):
+        try:
+            to = hub.agent_name(to)
+        except hub.HubError as exc:
+            raise _bad(exc)
+    doc = {"_id": _new_id(), "group": group, "to": to, "text": body.text.strip(), "task_ref": body.task,
+           "from_session": (session or {}).get("_id"), "from_agent": (session or {}).get("agent"),
+           "person": _principal(request).username, "created_at": _now(), "read_by": []}
+    await get_db()[MESSAGES].insert_one(doc)
+    sender = doc["from_agent"] or doc["person"]
+    await _event(group, "message", f"{sender} → {to}: {doc['text'][:300]}", session=session,
+                 person=doc["person"], task_ref=body.task, agent=doc["from_agent"])
+    return {"id": doc["_id"], "to": to, "at": doc["created_at"]}
+
+
+@router.get("/projects/{group}/messages")
+async def list_messages(group: str, limit: int = Query(default=50, ge=1, le=200)):
+    group = _group(group)
+    rows = await get_db()[MESSAGES].find({"group": group}).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"messages": [{"id": m["_id"], "from": m.get("from_agent") or m.get("person"), "to": m.get("to"),
+                          "text": m.get("text"), "at": m.get("created_at"), "task": m.get("task_ref"),
+                          "read": len(m.get("read_by") or [])} for m in rows]}
+
+
+# ── Traza ────────────────────────────────────────────────────────────────
+@router.get("/projects/{group}/trace")
+async def trace(group: str, view: Literal["tree", "list"] = "list", day: Optional[str] = None,
+                agent: Optional[str] = None, kind: Optional[str] = None, session_id: Optional[str] = None,
+                limit: int = Query(default=100, ge=1, le=500)):
+    group = _group(group)
+    query: Dict[str, Any] = {"group": group}
+    if day:
+        try:
+            start = datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(422, "day va como AAAA-MM-DD.")
+        query["created_at"] = {"$gte": start, "$lt": start + timedelta(days=1)}
+    if agent:
+        query["agent"] = agent
+    if kind:
+        query["kind"] = kind
+    if session_id:
+        query["session_id"] = session_id
+    db = get_db()
+    if view == "tree":
+        rows = await db[EVENTS].find(query, {"created_at": 1, "agent": 1, "person": 1, "kind": 1, "session_id": 1}) \
+            .sort("created_at", -1).limit(3000).to_list(3000)
+        return {"group": group, "tree": hub.trace_tree(rows)}
+    rows = await db[EVENTS].find(query).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"group": group, "events": [{**hub.compact_event(e), "id": e["_id"], "session_id": e.get("session_id"),
+                                        "harness": e.get("harness"), "person": e.get("person"), "refs": e.get("refs") or []}
+                                       for e in rows]}
+
+
+# ── Lecciones ────────────────────────────────────────────────────────────
+class LessonBody(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    scope: Literal["project", "platform"] = "project"
+    session_id: Optional[str] = None
+
+
+@router.post("/projects/{group}/lessons")
+async def add_lesson(group: str, body: LessonBody, request: Request):
+    group = _group(group)
+    session = await _optional_session(request, body.session_id)
+    doc = {"_id": _new_id(), "group": group, "scope": body.scope, "text": body.text.strip(),
+           "agent": (session or {}).get("agent"), "person": _principal(request).username, "created_at": _now()}
+    await get_db()[LESSONS].insert_one(doc)
+    await _event(group, "lesson", f"Lección ({body.scope}): {doc['text'][:300]}", session=session,
+                 person=doc["person"], agent=doc["agent"])
+    return {"id": doc["_id"], "scope": body.scope}
+
+
+@router.get("/lessons")
+async def list_lessons(scope: Optional[Literal["project", "platform"]] = None, limit: int = Query(default=100, ge=1, le=500)):
+    query = {"scope": scope} if scope else {}
+    rows = await get_db()[LESSONS].find(query).sort("created_at", -1).limit(limit).to_list(limit)
+    return {"lessons": [{"id": l["_id"], "group": l.get("group"), "scope": l.get("scope"), "text": l.get("text"),
+                         "agent": l.get("agent"), "person": l.get("person"), "at": l.get("created_at")} for l in rows]}
+
+
+# ── Archivos ─────────────────────────────────────────────────────────────
+@router.get("/projects/{group}/files")
+async def list_files(group: str, prefix: str = ""):
+    group = _group(group)
+    rows = await _file_rows(group)
+    if prefix:
+        try:
+            clean = hub.normalize_path(prefix)
+        except hub.HubError as exc:
+            raise _bad(exc)
+        rows = [r for r in rows if r["path"] == clean or r["path"].startswith(clean + "/")]
+    return {"group": group, "files": rows, "summary": hub.files_summary(rows)}
+
+
+@router.get("/projects/{group}/files/content")
+async def file_content(group: str, path: str, format: Literal["raw", "json"] = "raw"):
+    """`raw` para la consola (vista previa, descarga); `json` para el MCP: texto o imagen en base64."""
+    group = _group(group)
+    try:
+        path = hub.normalize_path(path)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    row, data = await _read_file(group, path)
+    ctype = (row.get("metadata") or {}).get("content_type") or hub.content_type(path)
+    if format == "raw":
+        return Response(content=data, media_type=ctype, headers={
+            "Content-Disposition": f"inline; filename=\"{path.rsplit('/', 1)[-1].encode('ascii', 'ignore').decode() or 'archivo'}\"",
+            "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
+    result: Dict[str, Any] = {"path": path, "content_type": ctype, "size": len(data)}
+    if hub.is_text(path) or ctype.startswith("text/"):
+        text = data.decode("utf-8", errors="replace")
+        result.update(text=text[:hub.MAX_TEXT_CHARS], truncated=len(text) > hub.MAX_TEXT_CHARS)
+    elif ctype in hub.IMAGE_TYPES and len(data) <= hub.MAX_INLINE_IMAGE_BYTES:
+        result["base64"] = base64.b64encode(data).decode("ascii")
+    else:
+        result["note"] = "Archivo binario o demasiado grande para mostrarlo aquí; ábrelo desde la consola."
+    return result
+
+
+@router.post("/projects/{group}/files")
+async def upload_files(group: str, request: Request, file: UploadFile = File(...), dest: str = Form(hub.SOURCE_ROOT),
+                       extract: bool = Form(True)):
+    """Sube un archivo o un ZIP (se descomprime en `dest`, abriendo los ZIP internos un nivel)."""
+    group = _group(group)
+    data = await file.read(hub.MAX_UPLOAD_BYTES + 1)
+    if len(data) > hub.MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"El archivo pasa de {hub.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+    actor = _principal(request).username
+    name = (file.filename or "archivo").replace("\\", "/").rsplit("/", 1)[-1]
+    try:
+        if extract and name.lower().endswith(".zip"):
+            entries = hub.extract_zip(data, dest)
+        else:
+            entries = [(hub.normalize_path(f"{dest}/{name}"), data)]
+    except hub.HubError as exc:
+        raise _bad(exc)
+    stored = [await _store_file(group, path, content, actor, origin=name) for path, content in entries]
+    await _touch_project(group)
+    await _event(group, "file", f"Subió {name}: {len(stored)} archivo(s) en {dest}/.", person=actor)
+    await activity_log.log("hub.files.uploaded", category=CATEGORY_APP, actor=actor, target=group,
+                           detail={"name": name, "files": len(stored)})
+    plan = hub.find_plan(p for p, _ in entries)
+    return {"stored": len(stored), "bytes": sum(item["size"] for item in stored), "dest": dest,
+            "plan_found": plan, "files": stored[:200]}
+
+
+class NoteBody(BaseModel):
+    path: str
+    content: str = ""
+    base64: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+@router.post("/projects/{group}/notes")
+async def write_note(group: str, body: NoteBody, request: Request):
+    """Lo que escribe un agente: siempre bajo live/ (fuente/ es de las personas)."""
+    group = _group(group)
+    session = await _optional_session(request, body.session_id)
+    try:
+        path = hub.normalize_path(body.path)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    if not hub.is_live_path(path):
+        path = f"{hub.LIVE_ROOT}/{path}"
+    if body.base64:
+        try:
+            data = base64.b64decode(body.base64, validate=True)
+        except ValueError:
+            raise HTTPException(422, "base64 inválido.")
+    else:
+        data = body.content.encode("utf-8")
+    if len(data) > hub.MAX_NOTE_BYTES:
+        raise HTTPException(413, "La nota pasa de 2 MB: divídela o súbela desde la consola.")
+    actor = (session or {}).get("agent") or _principal(request).username
+    stored = await _store_file(group, path, data, actor, origin="nota")
+    await _event(group, "file", f"Escribió {path}.", session=session, person=_principal(request).username,
+                 refs=[path], agent=(session or {}).get("agent"))
+    return stored
+
+
+@router.delete("/projects/{group}/files")
+async def delete_files(group: str, path: str, request: Request):
+    """Quita un archivo o una carpeta completa del drive del proyecto."""
+    group = _group(group)
+    try:
+        clean = hub.normalize_path(path)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    rows = [r for r in await _files().find({"metadata.group": group}, {"_id": 1, "filename": 1}).to_list(None)
+            if r["filename"] == clean or r["filename"].startswith(clean + "/")]
+    for row in rows:
+        await _bucket().delete(row["_id"])
+    if rows:
+        await _event(group, "file", f"Quitó {clean} ({len(rows)} archivo(s)).", person=_principal(request).username)
+    return {"deleted": len(rows)}
+
+
+class PlanImport(BaseModel):
+    path: Optional[str] = None
+    replace_board: bool = False
+
+
+@router.post("/projects/{group}/plan/import")
+async def import_plan(group: str, body: PlanImport, request: Request):
+    """Crea o actualiza las tareas del kaanbal.hub.json del drive (por key; no toca su estado)."""
+    group = _group(group)
+    rows = await _file_rows(group)
+    path = body.path or hub.find_plan(r["path"] for r in rows)
+    if not path:
+        raise HTTPException(404, f"No hay {hub.PLAN_FILE} en el proyecto. Súbelo con las fases o indica path.")
+    try:
+        _, data = await _read_file(group, hub.normalize_path(path))
+        plan = hub.parse_plan(data)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    db = get_db()
+    created = updated = 0
+    actor = _principal(request).username
+    for item in plan["tasks"]:
+        existing = await db[TASKS].find_one({"group": group, "key": item["key"]})
+        if existing:
+            await db[TASKS].update_one({"_id": existing["_id"]}, {"$set": {**item, "updated_at": _now()}})
+            updated += 1
+        else:
+            await db[TASKS].insert_one({"_id": _new_id(), "group": group, **item, "status": "todo",
+                                        "assignee_session": None, "assignee_agent": None, "branch": None,
+                                        "pr_url": None, "notes": [], "created_by": f"plan:{path}",
+                                        "created_at": _now(), "updated_at": _now()})
+            created += 1
+    project = await _project(group)
+    board_set = bool(plan["board"]) and (body.replace_board or not project.get("board"))
+    if board_set:
+        await _touch_project(group, board=plan["board"], board_updated_by=f"plan:{path}", board_updated_at=_now())
+    await _event(group, "task", f"Importó el plan {path}: {created} nuevas, {updated} actualizadas.", person=actor)
+    return {"path": path, "created": created, "updated": updated, "board_set": board_set}
+
+
+# ── Secretario ───────────────────────────────────────────────────────────
+class DigestBody(BaseModel):
+    use_ai: bool = True
+    create_tasks: bool = False
+
+
+@router.post("/projects/{group}/digest")
+async def digest(group: str, body: DigestBody, request: Request):
+    """Resumen del estado para las personas; con IA, además, riesgos y tareas sugeridas (como propuestas)."""
+    from app.services.ai_service import ai_service
+
+    group = _group(group)
+    now = _now()
+    project = await _project(group)
+    sessions, tasks = await _group_sessions(group), await _group_tasks(group)
+    events = await _recent_events(group, 200)
+    signals = hub.digest_signals(sessions=sessions, tasks=tasks, events=events, now=now)
+    written: Dict[str, Any] = {}
+    ai_used = False
+    if body.use_ai and await ai_service.configured():
+        answer = await ai_service.ask(hub.digest_prompt(project, signals, events), json_mode=True, max_tokens=900,
+                                      system="Eres el secretario de un equipo de agentes de código. Respondes en JSON.")
+        written = hub.parse_digest(answer)
+        ai_used = bool(written)
+    proposed = []
+    if body.create_tasks:
+        for item in written.get("suggested_tasks") or []:
+            task = {"_id": _new_id(), "group": group, "key": None, "title": item["title"], "description": item["why"],
+                    "area": item["area"], "phase": "", "depends_on": [], "sources": [], "status": "proposed",
+                    "assignee_session": None, "assignee_agent": None, "branch": None, "pr_url": None, "notes": [],
+                    "created_by": "secretario", "created_at": now, "updated_at": now}
+            await get_db()[TASKS].insert_one(task)
+            proposed.append(task["_id"])
+    result = {"at": now, "ai": ai_used, "signals": signals, **written, "proposed_task_ids": proposed}
+    await _touch_project(group, last_digest=result)
+    text = written.get("summary") or (f"{len(signals['online'])} agente(s) en línea, {len(signals['alerts'])} alerta(s), "
+                                      f"{len(signals['ready_to_start'])} tarea(s) lista(s) para empezar.")
+    await _event(group, "digest", text, agent="secretario", person=_principal(request).username)
+    return result
+
+
+# ── Guías ────────────────────────────────────────────────────────────────
+@router.get("/guides")
+async def hub_guides(group: str = "", harness: str = "", specialty: str = ""):
+    """Textos para arrancar: prompt de fases para ChatGPT, mensaje inicial de un agente y bloque para AGENTS.md."""
+    slug = group if hub.valid_group(group) else "<grupo>"
+    return {"chatgpt_phases": guides.CHATGPT_PHASES_PROMPT, "agent_start": guides.agent_start_prompt(
+        slug, harness[:30], specialty[:120]), "repo_snippet": guides.REPO_SNIPPET, "protocol": hub.PROTOCOL,
+        "plan_file": hub.PLAN_FILE}

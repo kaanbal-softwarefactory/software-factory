@@ -61,6 +61,9 @@ def is_supported_version(value: Optional[str]) -> bool:
 
 
 def tool_result(payload: Any, *, is_error: bool = False) -> Dict[str, Any]:
+    # Una herramienta puede devolver bloques propios (p. ej. texto + imagen de hub_read_file).
+    if isinstance(payload, dict) and isinstance(payload.get("__mcp_content__"), list):
+        return {"content": payload["__mcp_content__"], "isError": is_error}
     text = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False, indent=2, default=str)
     return {"content": [{"type": "text", "text": text}], "isError": is_error}
 

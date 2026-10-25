@@ -92,7 +92,10 @@ PLANNED = ["create_app", "launch_stack", "link_apps", "unlink_apps", "set_exposu
 IRREVERSIBLE = ["delete_app", "restore_database"]
 WRITERS = sorted(PLANNED + ["start_app", "stop_app", "scale_app", "sync_app", "repair_db_bindings", "set_app_variable",
                             "restart_app", "request_secret", "invoke_platform_tool", "backup_database",
-                            "set_app_group", "set_display_name"])
+                            "set_app_group", "set_display_name"]
+                 # Hub de agentes: escriben solo coordinación (sesiones, traza, tareas, notas en live/).
+                 + ["hub_join", "hub_sync", "hub_log", "hub_create_task", "hub_claim_task", "hub_update_task",
+                    "hub_message", "hub_write_note", "hub_add_lesson", "hub_update_board", "hub_leave", "hub_digest"])
 
 
 class CatalogTests(unittest.TestCase):

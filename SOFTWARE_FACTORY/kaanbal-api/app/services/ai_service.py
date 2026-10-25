@@ -133,10 +133,19 @@ Responde solo con el resumen, sin formato adicional."""
         else:
             return f"Status: {status}, Pipeline: {p_state}"
     
-    async def _call_ai(self, prompt: str, json_mode: bool = False) -> dict | str:
+    async def configured(self) -> bool:
+        return bool((await self._load_config()).get("api_key"))
+
+    async def ask(self, prompt: str, *, system: str, json_mode: bool = False, max_tokens: int = 500) -> dict | str:
+        """Una pregunta con rol propio (p. ej. el secretario del Hub de agentes)."""
+        return await self._call_ai(prompt, json_mode=json_mode, system=system, max_tokens=max_tokens)
+
+    async def _call_ai(self, prompt: str, json_mode: bool = False,
+                       system: str = "Eres un experto en DevOps y CI/CD. Responde de forma concisa y técnica.",
+                       max_tokens: int = 500) -> dict | str:
         """Llama a la API de IA configurada"""
         config = await self._load_config()
-        
+
         headers = {
             "Authorization": f"Bearer {config['api_key']}",
             "Content-Type": "application/json"
@@ -145,11 +154,11 @@ Responde solo con el resumen, sin formato adicional."""
         body = {
             "model": config["model"],
             "messages": [
-                {"role": "system", "content": "Eres un experto en DevOps y CI/CD. Responde de forma concisa y técnica."},
+                {"role": "system", "content": system},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.3,
-            "max_tokens": 500
+            "max_tokens": max_tokens
         }
         
         if json_mode and config["provider"] in ["deepseek", "openai"]:
