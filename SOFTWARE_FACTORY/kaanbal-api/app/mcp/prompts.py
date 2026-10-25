@@ -316,7 +316,7 @@ PROMPTS: List[Dict[str, Any]] = [
         "description": "Entrar al Hub del proyecto, ver quién trabaja en qué, tomar una tarea y coordinarse con los demás agentes.",
         "arguments": [
             _arg("proyecto", "Grupo del proyecto en Kaanbal.", required=True),
-            _arg("agente", "Tu nombre corto de agente (p. ej. astra-agustin)."),
+            _arg("agente", "Tu nombre corto de agente (p. ej. astra-ana)."),
             _arg("especialidad", "En qué eres bueno: diseño, frontend, APIs, seguridad…"),
         ],
         "render": _join_project,

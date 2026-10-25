@@ -411,7 +411,7 @@ TOOLS: List[Dict[str, Any]] = [
           "session_id y el briefing: tablero, quién está en línea, tareas disponibles para ti, bloqueos, últimos "
           "relevos, lecciones y el protocolo de trabajo. Úsala al empezar; guarda session_id y group.",
           _schema({"group": _HUB_GROUP,
-                   "agent": {"type": "string", "description": "Tu nombre corto y estable (p. ej. astra-agustin, claude-api)."},
+                   "agent": {"type": "string", "description": "Tu nombre corto y estable (p. ej. astra-ana, claude-api)."},
                    "harness": {"type": "string", "enum": ["codex", "claude", "cursor", "chatgpt", "kaanbal", "otro"]},
                    "model": {"type": "string", "description": "Modelo, si lo sabes."},
                    "specialty": {"type": "string", "description": "En qué eres bueno: diseño, frontend, APIs, seguridad…"},
