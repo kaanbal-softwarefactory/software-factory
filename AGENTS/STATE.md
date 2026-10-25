@@ -14,6 +14,8 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **GitHub personal y repos propios por MCP** — en `main` (2026-10-25), sin instalar en la célula todavía. Cada persona conecta su GitHub en Conectar → Tu GitHub; sus agentes usan `github_repos`, `open_repo_workspace` y `push_workspace` (rama nueva, o la principal con «Push directo» en la política). Pruebas offline en verde; falta probarlo en la célula con un repo real. Guía: `SOFTWARE_FACTORY/docs/MCP_AUTONOMY.md`.
+
 - **HUB2: continuidad entre proveedores y Dev** — contexto y prompts guardados en main; código todavía WIP en `codex/hub-dev-workflow` (`6ea71a0`). Leer [punto de continuación](../docs/guides/HUB_CONTINUITY.md) antes de tocar Hub/ambientes. Incluye nuevos requisitos de workers Kubernetes vía MCP, GitHub por usuario y archivos fuente. Checkpoint: 48 pruebas Hub, 2 errores; UI aún sin montar; nada desplegado. Actualización del core manual.
 
 - **Hub de agentes** — en `main` (5f25d32) e instalado en la célula de laboratorio: coordinación de Codex/Claude/Cursor/ChatGPT

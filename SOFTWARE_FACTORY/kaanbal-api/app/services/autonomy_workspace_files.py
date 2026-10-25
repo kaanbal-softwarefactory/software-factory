@@ -133,6 +133,11 @@ def dispatch(payload, root=Path("/workspace/repo")):
         return {"path": payload["path"], "deleted": content is None}
     if action == "snapshot":
         return snapshot(root, payload["baseline"])
+    if action == "rebaseline":
+        # Tras un push, lo publicado pasa a ser la nueva base para el siguiente diff.
+        git(root, "add", "--all")
+        git(root, "-c", "user.name=Kaanbal", "-c", "user.email=agent@localhost", "commit", "--quiet", "--allow-empty", "-m", "Workspace baseline")
+        return {"baseline": git(root, "rev-parse", "HEAD").decode().strip()}
     if action == "list":
         names = git(root, "ls-files", "--cached", "--others", "--exclude-standard", "-z").decode().split("\x00")
         return {"files": sorted({n for n in names if n and allowed(n)})[:10000]}

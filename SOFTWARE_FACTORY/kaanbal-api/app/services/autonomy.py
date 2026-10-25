@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -15,7 +16,7 @@ from uuid import uuid4
 from app.db import get_db
 from app.services import approvals, autonomy_cluster as cluster
 from app.services.autonomy_github import GitHubBroker, repository, validate_changes, contains_credential
-from app.services.autonomy_policy import AutonomyError, authorize, digest, redact, require_elevated, require_permission, resource_name, node_name, safe_path
+from app.services.autonomy_policy import AutonomyError, authorize, digest, enabled, redact, require_elevated, require_permission, resource_name, node_name, safe_path
 
 FILE_PROTOCOL = Path(__file__).with_name("autonomy_workspace_files.py").read_text(encoding="utf-8")
 
@@ -28,6 +29,21 @@ def broker(config):
     return GitHubBroker(config.get("github_token") or config.get("git_token") or "")
 
 
+async def broker_for(ws, config):
+    """Un workspace de repo personal usa la conexión GitHub de quien lo abrió; los demás, la de la plataforma."""
+    if ws.get("credential") == "personal":
+        from app.services import github_accounts
+        return GitHubBroker(await github_accounts.token_for(ws["actor"]))
+    return broker(config)
+
+
+async def secrets_for(ws, config):
+    values = [config.get("github_token"), config.get("git_token")]
+    if ws.get("credential") == "personal":
+        values.append((await broker_for(ws, config)).token)
+    return values
+
+
 def image(policy):
     value = policy.get("workbench_image", "")
     if not value or ":" not in value or value.endswith(":latest"):
@@ -36,7 +52,7 @@ def image(policy):
 
 
 def public_workspace(ws):
-    result = {k: ws.get(k) for k in ("id", "target", "app", "env", "repo", "push_repo", "base_sha", "base_branch", "branch", "state", "expires_at", "pull_request", "published_sha")}
+    result = {k: ws.get(k) for k in ("id", "target", "app", "env", "repo", "push_repo", "base_sha", "base_branch", "default_branch", "branch", "state", "expires_at", "pull_request", "published_sha", "credential", "pushes")}
     if isinstance(result.get("expires_at"), datetime):
         result["expires_at"] = result["expires_at"].isoformat() + "Z"
     return result
@@ -147,12 +163,18 @@ async def operation(principal, identifier):
 ENV_BRANCHES = {"dev": "develop", "staging": "staging", "prod": "main"}
 
 
-async def open_workspace(principal, *, target, app, env, reason, base_branch=None):
+async def open_workspace(principal, *, target, app, env, reason, base_branch=None, repo=None):
     require_permission(principal, "autonomy.workspaces.manage")
     if target == "core":
         require_permission(principal, "autonomy.core.contribute")
     cfg = await configuration()
     policy = cfg.get("autonomy", {})
+    if target == "repo":
+        # El límite es lo que la cuenta GitHub de la persona puede tocar: no hace falta concesión por app.
+        enabled(policy, "workspace")
+        return await _open(principal, cfg, policy, target=target, app="", env="", reason=reason,
+                           repo=repository(repo), github=await broker_for({"credential": "personal", "actor": principal.username}, cfg),
+                           branch=base_branch, credential="personal")
     authorize(policy, principal, feature="workspace", app=app if target == "app" else "", env=env, core=target == "core")
     if target == "app":
         record = await registered_app(app, env)
@@ -163,15 +185,27 @@ async def open_workspace(principal, *, target, app, env, reason, base_branch=Non
     else:
         from app.services.core_release import get_upstream
         repo = "/".join(await get_upstream(cfg))
-    github = broker(cfg)
     branch = base_branch or (ENV_BRANCHES.get(env) if target == "app" and env != "prod" else None)
+    return await _open(principal, cfg, policy, target=target, app=app if target == "app" else "", env=env,
+                       reason=reason, repo=repo, github=broker(cfg), branch=branch, credential="platform")
+
+
+async def _open(principal, cfg, policy, *, target, app, env, reason, repo, github, branch, credential):
     base = await github.base(repo, branch)
-    push_repo = await github.contribution_target(repo, policy.get("core_fork", "") if target == "core" else "")
+    extra = {}
+    if credential == "personal":
+        info = await github.repo(repo)
+        # Sin escritura se puede leer y probar; empujar se rechaza con un mensaje claro.
+        push_repo = repo if (info.get("permissions") or {}).get("push") else ""
+        extra["default_branch"] = info.get("default_branch") or base["base_branch"]
+    else:
+        push_repo = await github.contribution_target(repo, policy.get("core_fork", "") if target == "core" else "")
     identifier = uuid4().hex
     lifetime = policy.get("workspace_lifetime_seconds", 3600)
     ws = {"_id": identifier, "id": identifier, "actor": principal.username, "credential_id": principal.token_id,
-          "target": target, "app": app if target == "app" else "", "env": env, "repo": repo,
-          "push_repo": push_repo, **base, "branch": f"codex/kaanbal-{identifier[:16]}",
+          "target": target, "app": app, "env": env, "repo": repo, "credential": credential,
+          "push_repo": push_repo, **base, **extra,
+          "branch": f"kaanbal/{identifier[:16]}" if credential == "personal" else f"codex/kaanbal-{identifier[:16]}",
           "pod": f"work-{identifier}", "state": "pending", "expires_at": datetime.utcnow() + timedelta(seconds=lifetime)}
     async with audit(principal, "workspace.create", repo, reason):
         await get_db()["autonomy_workspaces"].insert_one(ws)
@@ -191,7 +225,10 @@ async def workspace(principal, identifier, *, live=True):
     if ws["target"] == "core":
         require_permission(principal, "autonomy.core.contribute")
     cfg = await configuration()
-    authorize(cfg.get("autonomy", {}), principal, feature="workspace", app=ws["app"], env=ws["env"], core=ws["target"] == "core")
+    if ws["target"] == "repo":
+        enabled(cfg.get("autonomy", {}), "workspace")
+    else:
+        authorize(cfg.get("autonomy", {}), principal, feature="workspace", app=ws["app"], env=ws["env"], core=ws["target"] == "core")
     if live and (ws["expires_at"] <= datetime.utcnow() or ws["state"] in {"closed", "expired", "failed"}):
         raise AutonomyError("El workspace expiró o fue cerrado. Crea otro.", 410)
     return ws, cfg
@@ -220,7 +257,7 @@ async def initialize(principal, identifier):
         if ws["state"] != "pending" or await asyncio.to_thread(cluster.workspace_phase, ws["pod"]) != "Running":
             raise AutonomyError("El contenedor todavía no está listo; consulta su estado y reintenta.")
         async with audit(principal, "workspace.initialize", identifier, "Preparar código fuente"):
-            archive = await broker(cfg).archive(ws["repo"], ws["base_sha"])
+            archive = await (await broker_for(ws, cfg)).archive(ws["repo"], ws["base_sha"])
             try:
                 result = await asyncio.to_thread(cluster.workspace_python, ws["pod"], FILE_PROTOCOL, {"action": "initialize", "archive": base64.b64encode(archive).decode()})
             except Exception:
@@ -245,7 +282,7 @@ async def files(principal, identifier, *, path=None, content=None, write=False):
     if path:
         safe_path(path)
     payload = {"action": "write" if write else "read" if path else "list", "path": path, "content": content}
-    if write and content is not None and contains_credential(content, [cfg.get("github_token"), cfg.get("git_token")]):
+    if write and content is not None and contains_credential(content, await secrets_for(ws, cfg)):
         raise AutonomyError("Posible credencial en el contenido; retírala antes de guardar.", 422)
     async with locked(ws):
         ready(ws, mutable=write)
@@ -257,7 +294,7 @@ async def changes(ws, cfg):
     result = await asyncio.to_thread(cluster.workspace_python, ws["pod"], FILE_PROTOCOL, {"action": "snapshot", "baseline": ws["baseline"]})
     items = result["changes"]
     if items:
-        items = validate_changes(items, secrets=[cfg.get("github_token"), cfg.get("git_token")])
+        items = validate_changes(items, secrets=await secrets_for(ws, cfg))
     return items
 
 
@@ -287,13 +324,13 @@ async def publish(principal, identifier, title, body, expected_digest):
     require_permission(principal, "autonomy.changes.propose")
     ws, cfg = await workspace(principal, identifier)
     ready(ws)
-    if contains_credential(title + body, [cfg.get("github_token"), cfg.get("git_token")]):
+    if contains_credential(title + body, await secrets_for(ws, cfg)):
         raise AutonomyError("Posible credencial en el título o descripción del PR.", 422)
     async with locked(ws):
         ready(ws)
         if ws.get("pull_request"):
             return public_workspace(ws)
-        github = broker(cfg)
+        github = await broker_for(ws, cfg)
         if not ws.get("published_sha"):
             items = await changes(ws, cfg)
             if not items or digest(items) != expected_digest:
@@ -307,6 +344,48 @@ async def publish(principal, identifier, title, body, expected_digest):
             ws.update(pull_request=pr, state="published")
             await get_db()["autonomy_workspaces"].update_one({"_id": identifier}, {"$set": {"pull_request": pr, "state": "published"}})
         return public_workspace(ws)
+
+
+async def push(principal, identifier, message, expected_digest, branch=None):
+    """Commit directo de un workspace personal: a su rama base (si la política lo permite) o a una rama nueva.
+
+    Después del push el workspace sigue vivo sobre el commit nuevo, así que el
+    agente puede seguir editando y volver a empujar sin abrir otro contenedor.
+    """
+    require_permission(principal, "autonomy.changes.propose")
+    ws, cfg = await workspace(principal, identifier)
+    if ws.get("credential") != "personal":
+        raise AutonomyError("El push directo es para workspaces de tus repos (open_repo_workspace); en apps usa un PR.", 403)
+    ready(ws, mutable=True)
+    target = branch or ws["base_branch"]
+    if not re.fullmatch(r"[A-Za-z0-9._/-]{1,100}", target) or ".." in target or target.startswith("/") or target.endswith("/"):
+        raise AutonomyError("Nombre de rama inválido.", 422)
+    # La política protege la rama principal del repo; las demás ramas son del trabajo del agente.
+    if target == ws.get("default_branch") and not cfg.get("autonomy", {}).get("direct_push_enabled"):
+        raise AutonomyError(f"La política no permite empujar directo a {target}, la rama principal. Usa branch='kaanbal/…' "
+                            "o publica un PR, o pide al owner encender «Push directo» en Acceso → Autonomía.", 403)
+    if not ws.get("push_repo"):
+        raise AutonomyError("Tu cuenta de GitHub no tiene escritura en este repo.", 403)
+    if contains_credential(message, await secrets_for(ws, cfg)):
+        raise AutonomyError("Posible credencial en el mensaje del commit.", 422)
+    async with locked(ws):
+        ready(ws, mutable=True)
+        items = await changes(ws, cfg)
+        if not items or digest(items) != expected_digest:
+            raise AutonomyError("Los archivos cambiaron o están vacíos. Lee el diff y usa su digest antes de empujar.")
+        github = await broker_for(ws, cfg)
+        async with audit(principal, "workspace.push", identifier, message, branch=target, change_digest=expected_digest) as op:
+            result = await github.push(ws, items, message, target)
+            pushes = (ws.get("pushes") or []) + [{"sha": result["sha"], "branch": target, "at": datetime.utcnow().isoformat() + "Z"}]
+            # Primero lo que ya está en GitHub: si la base local falla después, el próximo push parte del commit real.
+            update = {"base_sha": result["sha"], "base_tree": result["tree"], "base_branch": target, "pushes": pushes[-20:]}
+            ws.update(update)
+            await get_db()["autonomy_workspaces"].update_one({"_id": identifier}, {"$set": update})
+            ws["baseline"] = (await asyncio.to_thread(cluster.workspace_python, ws["pod"], FILE_PROTOCOL, {"action": "rebaseline"}))["baseline"]
+            await get_db()["autonomy_workspaces"].update_one({"_id": identifier}, {"$set": {"baseline": ws["baseline"]}})
+            op["state"] = "succeeded"
+    return {**public_workspace(ws), "commit": result["sha"], "branch": target, "created_branch": result["created"],
+            "commit_url": f"https://github.com/{ws['push_repo']}/commit/{result['sha']}"}
 
 
 async def merge(principal, identifier, expected_sha, approval_id=None):
@@ -323,7 +402,7 @@ async def merge(principal, identifier, expected_sha, approval_id=None):
                             approval_id=approval_id, policy=cfg.get("autonomy", {}))
     async with locked(ws):
         async with audit(principal, "workspace.merge", identifier, "Integrar PR de app", expected_sha=expected_sha):
-            return await broker(cfg).merge(ws, expected_sha)
+            return await (await broker_for(ws, cfg)).merge(ws, expected_sha)
 
 
 async def close(principal, identifier):

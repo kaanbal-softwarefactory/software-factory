@@ -19,9 +19,13 @@ def require_permission(principal, permission: str) -> None:
         raise AutonomyError(f"Falta el permiso {permission}.", 403)
 
 
-def authorize(policy: dict, principal, *, feature: str, app: str = "", env: str = "", node: str = "", core: bool = False) -> None:
+def enabled(policy: dict, feature: str) -> None:
     if not policy.get("enabled") or not policy.get(f"{feature}_enabled"):
         raise AutonomyError(f"La capacidad {feature} no está habilitada en la política de autonomía.", 403)
+
+
+def authorize(policy: dict, principal, *, feature: str, app: str = "", env: str = "", node: str = "", core: bool = False) -> None:
+    enabled(policy, feature)
     now = datetime.now(timezone.utc)
     for grant in policy.get("grants", []):
         if grant.get("username") != principal.username:

@@ -235,6 +235,39 @@ Límites de esta versión:
   incluido hash, expiración y cambio obligatorio de la contraseña temporal cuando
   corresponda. No modificar usuarios sin entender ese esquema.
 
+## GitHub personal y repos propios (1.4.0)
+
+Cada persona conecta su cuenta GitHub una vez en **Conectar → Tu GitHub** (consola).
+Pega un token fine-grained (Contents y Pull requests de lectura/escritura sobre los
+repos que quiera) o uno clásico con `repo`. La API lo valida contra GitHub, lo guarda
+cifrado con una clave derivada de `SECRET_KEY` y solo muestra login, alcance y los
+últimos cuatro caracteres. Un token de agente no puede conectarlo ni cambiarlo; si
+`SECRET_KEY` cambia, la conexión deja de leerse y la persona la vuelve a pegar.
+
+Con eso, cualquier agente que use un token de esa persona (Claude, Codex, Cursor,
+o el celular) trabaja sobre sus repos sin configurar GitHub en su equipo:
+
+1. `github_account` confirma la conexión; `github_repos` (con `q`) lista los repos.
+2. `open_repo_workspace` con `repo` (`owner/repo`) y, si hace falta, `base_branch`
+   (cualquier rama). No requiere concesión por app: el límite es lo que la cuenta
+   GitHub de la persona puede tocar, más la política (`workspace_enabled`).
+3. `get_workspace` → `initialize_workspace` → archivos/comandos → `workspace_diff`,
+   igual que en los workspaces de apps.
+4. `push_workspace` con `message` y el `digest` del diff:
+   - con `branch`, hace commit en esa rama (la crea si no existe);
+   - sin `branch`, en la rama base del workspace (la última a la que empujó).
+   Empujar a la rama principal del repo (`default_branch`, p. ej. `main`) exige
+   que el owner encienda **Push directo** (`direct_push_enabled`) en la política.
+   Nunca fuerza: si la rama avanzó fuera del workspace, se rechaza y hay que abrir
+   otro workspace desde ella. Tras el push, lo empujado pasa a ser la base: el
+   agente sigue editando y vuelve a empujar en el mismo contenedor. `pushes`
+   guarda los últimos commits del workspace.
+5. `publish_workspace_pr` sigue disponible para quien prefiera PR.
+
+Los commits los crea la API con el token de la persona (autor = su cuenta). El
+token no entra al pod, se redacta de salidas y se rechaza si aparece en archivos o
+mensajes. Las protecciones de rama de GitHub siguen mandando.
+
 ## Preparación de infraestructura por el owner
 
 Ninguna capacidad se activa durante esta implementación. Política inicial: todas

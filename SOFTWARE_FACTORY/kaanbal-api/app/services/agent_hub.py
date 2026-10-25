@@ -483,7 +483,7 @@ def compact_task(task: Mapping[str, Any]) -> Dict[str, Any]:
 PROTOCOL = [
     "Preséntate con hub_join y guarda tu session_id: es tu identidad en este proyecto.",
     "Lee el tablero y los últimos relevos antes de tocar código; no leas todo el histórico.",
-    "Antes de tomar código, comprueba que puedes leer el repositorio y abrir un PR; si no, hub_log kind=blocker.",
+    "Antes de tomar código, comprueba que puedes leer el repositorio y publicar; si tu entorno no llega al repo, usa open_repo_workspace con la GitHub conectada de la persona (github_account). Si tampoco, hub_log kind=blocker.",
     "Toma una tarea con hub_claim_task antes de editar. Si depende de algo sin terminar, el Hub te dice quién lo "
     "tiene: pídeselo con hub_message o toma otra tarea disponible.",
     f"Llama a hub_sync cada ~{HEARTBEAT_HINT_SECONDS // 60} minutos o después de cada paso importante: deja latido, "

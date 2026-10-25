@@ -180,6 +180,24 @@ class GitHubContracts(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["number"], 5)
         self.assertTrue(all(call.args[0] == "GET" for call in gh.request.await_args_list))
 
+    async def test_push_never_forces_a_branch_that_moved(self):
+        gh = GitHubBroker("test-credential")
+        ws = {"push_repo": "owner/app", "base_sha": "a" * 40, "base_tree": "b" * 40}
+        change = [{"path": "app.py", "mode": "100644", "content": "x"}]
+        gh.request = AsyncMock(return_value=[{"ref": "refs/heads/main", "object": {"sha": "f" * 40}}])
+        with self.assertRaises(AutonomyError):
+            await gh.push(ws, change, "change", "main")
+        self.assertEqual(gh.request.await_count, 1)  # nada se escribió
+        gh.request = AsyncMock(side_effect=[[{"ref": "refs/heads/main", "object": {"sha": "a" * 40}}], {"sha": "c" * 40}, {"sha": "d" * 40}, {}])
+        result = await gh.push(ws, change, "change", "main")
+        self.assertEqual((result["sha"], result["tree"], result["created"]), ("d" * 40, "c" * 40, False))
+        method, path = gh.request.await_args_list[-1].args
+        self.assertEqual((method, path), ("PATCH", "/repos/owner/app/git/refs/heads/main"))
+        self.assertIs(gh.request.await_args_list[-1].kwargs["body"]["force"], False)
+        gh.request = AsyncMock(side_effect=[[], {"sha": "c" * 40}, {"sha": "d" * 40}, {}])
+        self.assertTrue((await gh.push(ws, change, "change", "kaanbal/x"))["created"])
+        self.assertEqual(gh.request.await_args_list[-1].args, ("POST", "/repos/owner/app/git/refs"))
+
 
 if __name__ == "__main__":
     unittest.main()
