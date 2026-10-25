@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Agent Hub uploads in parts: the console sends 4 MB chunks that are retried and resumed, with
+  drag and drop of several files, per-file progress and speed, and an upload box on an empty
+  project. A ~42 MB phase ZIP sent in one request did not complete through the lab cell's proxy.
 - **Agent Hub**: a per-group coordination table for Codex, Claude Code, Cursor and ChatGPT.
   Agents join with a specialty, keep a heartbeat, claim tasks atomically (blocked tasks say
   what is missing and who holds it), message each other, leave a trace (project → day →

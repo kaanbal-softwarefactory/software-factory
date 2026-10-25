@@ -64,6 +64,9 @@ MAX_ENTRIES = 3000
 MAX_NOTE_BYTES = 2 * 1024 * 1024
 MAX_TEXT_CHARS = 60_000
 MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024
+# Subida por partes: cada parte cabe holgada en un documento de Mongo y en una petición corta.
+CHUNK_BYTES = 4 * 1024 * 1024
+UPLOAD_TTL = timedelta(hours=24)
 SKIPPED_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 
 TEXT_EXTENSIONS = {".md", ".txt", ".csv", ".json", ".yaml", ".yml", ".html", ".htm", ".css", ".js",
@@ -155,6 +158,15 @@ def content_type(path: str) -> str:
 def is_text(path: str) -> bool:
     lowered = path.lower()
     return any(lowered.endswith(ext) for ext in TEXT_EXTENSIONS)
+
+
+def chunk_count(size: int) -> int:
+    return max(1, -(-size // CHUNK_BYTES))
+
+
+def chunk_length(size: int, index: int) -> int:
+    """Lo que debe medir la parte `index` de un archivo de `size` bytes."""
+    return min(CHUNK_BYTES, size - index * CHUNK_BYTES)
 
 
 # ── Presencia ────────────────────────────────────────────────────────────

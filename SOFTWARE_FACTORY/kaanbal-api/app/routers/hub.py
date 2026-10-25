@@ -26,6 +26,7 @@ router = APIRouter()
 
 PROJECTS, SESSIONS, EVENTS, TASKS = "hub_projects", "hub_sessions", "hub_events", "hub_tasks"
 MESSAGES, LESSONS, BOARDS, BUCKET = "hub_messages", "hub_lessons", "hub_board_history", "hub_files"
+UPLOADS, UPLOAD_PARTS = "hub_uploads", "hub_upload_parts"
 
 
 # ── Utilidades ───────────────────────────────────────────────────────────
@@ -642,13 +643,17 @@ async def file_content(group: str, path: str, format: Literal["raw", "json"] = "
 @router.post("/projects/{group}/files")
 async def upload_files(group: str, request: Request, file: UploadFile = File(...), dest: str = Form(hub.SOURCE_ROOT),
                        extract: bool = Form(True)):
-    """Sube un archivo o un ZIP (se descomprime en `dest`, abriendo los ZIP internos un nivel)."""
+    """Sube un archivo o un ZIP en una sola petición (para lo grande, mejor /uploads por partes)."""
     group = _group(group)
     data = await file.read(hub.MAX_UPLOAD_BYTES + 1)
     if len(data) > hub.MAX_UPLOAD_BYTES:
         raise HTTPException(413, f"El archivo pasa de {hub.MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
-    actor = _principal(request).username
-    name = (file.filename or "archivo").replace("\\", "/").rsplit("/", 1)[-1]
+    return await _ingest(group, file.filename or "archivo", data, dest, extract, _principal(request).username)
+
+
+async def _ingest(group: str, filename: str, data: bytes, dest: str, extract: bool, actor: str) -> Dict[str, Any]:
+    """Guarda un archivo subido; un ZIP se descomprime en `dest` (los ZIP internos, un nivel)."""
+    name = filename.replace("\\", "/").rsplit("/", 1)[-1] or "archivo"
     try:
         if extract and name.lower().endswith(".zip"):
             entries = hub.extract_zip(data, dest)
@@ -664,6 +669,86 @@ async def upload_files(group: str, request: Request, file: UploadFile = File(...
     plan = hub.find_plan(p for p, _ in entries)
     return {"stored": len(stored), "bytes": sum(item["size"] for item in stored), "dest": dest,
             "plan_found": plan, "files": stored[:200]}
+
+
+# ── Subida por partes ────────────────────────────────────────────────────
+# Una petición larga la corta el proxy (túnel, ingress) en conexiones lentas. Por partes,
+# cada petición es corta, se ve el avance y una parte que falla se reintenta sola.
+class UploadStart(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    size: int = Field(ge=1, le=hub.MAX_UPLOAD_BYTES)
+    dest: str = Field(default=hub.SOURCE_ROOT, max_length=200)
+    extract: bool = True
+
+
+@router.post("/projects/{group}/uploads")
+async def start_upload(group: str, body: UploadStart, request: Request):
+    group = _group(group)
+    try:
+        dest = hub.normalize_path(body.dest)
+    except hub.HubError as exc:
+        raise _bad(exc)
+    db = get_db()
+    stale = await db[UPLOADS].find({"created_at": {"$lt": _now() - hub.UPLOAD_TTL}}, {"_id": 1}).to_list(None)
+    for old in stale:
+        await db[UPLOAD_PARTS].delete_many({"upload": old["_id"]})
+        await db[UPLOADS].delete_one({"_id": old["_id"]})
+    chunks = hub.chunk_count(body.size)
+    upload = {"_id": _new_id(), "group": group, "name": body.name, "size": body.size, "dest": dest,
+              "extract": body.extract, "chunks": chunks, "person": _principal(request).username, "created_at": _now()}
+    await db[UPLOADS].insert_one(upload)
+    return {"upload_id": upload["_id"], "chunk_bytes": hub.CHUNK_BYTES, "chunks": chunks}
+
+
+async def _own_upload(request: Request, upload_id: str) -> Dict[str, Any]:
+    if not hub.valid_id(upload_id):
+        raise HTTPException(422, "upload_id inválido.")
+    upload = await get_db()[UPLOADS].find_one({"_id": upload_id})
+    if not upload:
+        raise HTTPException(404, "Esa subida no existe o venció: vuelve a empezarla.")
+    if upload.get("person") != _principal(request).username:
+        raise HTTPException(403, "Esa subida es de otra persona.")
+    return upload
+
+
+@router.get("/uploads/{upload_id}")
+async def upload_status(upload_id: str, request: Request):
+    """Qué partes ya llegaron: para reanudar sin volver a mandarlas."""
+    upload = await _own_upload(request, upload_id)
+    parts = await get_db()[UPLOAD_PARTS].find({"upload": upload_id}, {"index": 1}).to_list(None)
+    return {"upload_id": upload_id, "chunks": upload["chunks"], "received": sorted(p["index"] for p in parts)}
+
+
+@router.put("/uploads/{upload_id}/chunks/{index}")
+async def upload_chunk(upload_id: str, index: int, request: Request):
+    upload = await _own_upload(request, upload_id)
+    if not 0 <= index < upload["chunks"]:
+        raise HTTPException(422, f"La parte {index} no existe: van de 0 a {upload['chunks'] - 1}.")
+    data = await request.body()
+    if len(data) != hub.chunk_length(upload["size"], index):
+        raise HTTPException(422, f"La parte {index} debe medir {hub.chunk_length(upload['size'], index)} bytes.")
+    await get_db()[UPLOAD_PARTS].update_one({"_id": f"{upload_id}:{index}"}, {"$set": {
+        "upload": upload_id, "index": index, "data": data, "at": _now()}}, upsert=True)
+    return {"index": index, "bytes": len(data)}
+
+
+@router.post("/uploads/{upload_id}/complete")
+async def complete_upload(upload_id: str, request: Request):
+    """Une las partes y guarda el archivo como en una subida normal (un ZIP se descomprime)."""
+    upload = await _own_upload(request, upload_id)
+    db = get_db()
+    parts = await db[UPLOAD_PARTS].find({"upload": upload_id}).sort("index", 1).to_list(None)
+    missing = sorted(set(range(upload["chunks"])) - {p["index"] for p in parts})
+    if missing:
+        raise HTTPException(409, {"message": f"Faltan {len(missing)} parte(s); reenvíalas y vuelve a completar.",
+                                  "missing": missing[:50]})
+    data = b"".join(bytes(p["data"]) for p in parts)
+    if len(data) != upload["size"]:
+        raise HTTPException(409, "El archivo unido no mide lo anunciado: vuelve a empezar la subida.")
+    result = await _ingest(upload["group"], upload["name"], data, upload["dest"], upload["extract"], upload["person"])
+    await db[UPLOAD_PARTS].delete_many({"upload": upload_id})
+    await db[UPLOADS].delete_one({"_id": upload_id})
+    return result
 
 
 class NoteBody(BaseModel):

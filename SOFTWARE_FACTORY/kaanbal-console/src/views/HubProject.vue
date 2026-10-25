@@ -36,6 +36,13 @@
       </button>
     </div>
 
+    <!-- Primer paso: sin fuente todavía -->
+    <section v-if="tab === 'summary' && starter && can.files" class="space-y-2">
+      <h2 class="text-white font-semibold">Empieza aquí: sube las fases del proyecto</h2>
+      <p class="text-sm text-slate-400">Los ZIP se descomprimen en fuente/ y son la fuente de los agentes. Si traen un kaanbal.hub.json, se ofrece importarlo como tareas.</p>
+      <HubUploader :group="group" @uploaded="refresh" @import-plan="importPlan" />
+    </section>
+
     <!-- Resumen -->
     <div v-if="tab === 'summary'" class="grid xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-4">
       <div class="space-y-4">
@@ -215,6 +222,7 @@ import { useRoute } from 'vue-router'
 import api from '../services/api'
 import HubFiles from '../components/hub/HubFiles.vue'
 import HubConnect from '../components/hub/HubConnect.vue'
+import HubUploader from '../components/hub/HubUploader.vue'
 import { PRESENCE, STATUS, KIND, harnessOf, ago, detail, renderMarkdown } from '../components/hub/hubUi'
 
 const route = useRoute()
@@ -226,6 +234,8 @@ const messages = ref([]), draft = ref({ to: 'all', text: '' })
 const newTask = ref(null), taskError = ref(''), taskFilter = ref(''), focusTask = ref(null)
 const digesting = ref(false), digestTasks = ref(false)
 const can = ref({ participate: false, files: false, digest: false })
+// Se decide al abrir el proyecto: si se ocultara al llegar el primer archivo, cortaría la cola de subida.
+const starter = ref(false)
 
 const columns = ['proposed', 'todo', 'in_progress', 'blocked', 'review', 'done']
 const alertTone = { orphan: 'text-amber-300', stale: 'text-amber-300', blocked: 'text-red-300', review: 'text-cyan-300', proposed: 'text-violet-300' }
@@ -266,6 +276,7 @@ async function refresh() {
     const { data } = await api.get(`/hub/projects/${group.value}`)
     project.value = data.project; sessions.value = data.sessions; tasks.value = data.tasks
     events.value = data.events; signals.value = data.signals; files.value = data.files; lessons.value = data.lessons
+    if (!loadedOnce) { starter.value = !data.files.total; loadedOnce = true }
   } catch (e) { error.value = detail(e, 'No se pudo cargar el proyecto.') }
   finally { loading.value = false }
   if (tab.value === 'messages') loadMessages()
@@ -332,8 +343,8 @@ async function loadPermissions() {
 }
 
 watch(tab, value => { if (value === 'trace') loadTrace(); if (value === 'messages') loadMessages() })
-watch(group, () => { tab.value = 'summary'; refresh() })
-let timer = null
+watch(group, () => { tab.value = 'summary'; loadedOnce = false; refresh() })
+let timer = null, loadedOnce = false
 onMounted(() => { refresh(); loadPermissions(); timer = setInterval(refresh, 15000) })
 onBeforeUnmount(() => clearInterval(timer))
 </script>

@@ -54,6 +54,12 @@ Hub → proyecto → Conectar (`GET /api/v1/hub/guides`).
 
 Se rechazan claves repetidas, dependencias a claves que no existen y ciclos.
 
+La consola sube **por partes** (`POST /hub/projects/{grupo}/uploads`, `PUT /hub/uploads/{id}/chunks/{n}`
+de 4 MB, `POST /hub/uploads/{id}/complete`): cada petición es corta, así que el proxy no la corta en
+conexiones lentas; una parte que falla se reintenta y la subida se reanuda con `GET /hub/uploads/{id}`.
+Se pueden arrastrar varios archivos a la vez y cada uno muestra su avance. Las subidas sin terminar
+vencen a las 24 h. `POST /hub/projects/{grupo}/files` (una sola petición) sigue disponible.
+
 Al subir: los ZIP se abren en la carpeta destino (por defecto `fuente/`), los ZIP internos se abren
 un nivel y no se guardan duplicados; se ignoran `__MACOSX`, `.DS_Store` y similares. Límites:
 120 MB por subida, 400 MB descomprimidos, 3000 archivos, 40 MB por archivo; nombres con `..`,
@@ -89,4 +95,3 @@ base64 (hasta 2 MB) en `live/`; los ZIP con imágenes los sube una persona desde
 
 - Hook opcional para Claude Code/Codex que haga `hub_sync` solo (SessionStart/Stop) sin depender del agente.
 - Notificaciones (correo/chat) cuando un mensaje va a `people` o una tarea pasa a review.
-- Validación en una célula real: subida de ZIP grandes por el ingress (límite de tamaño del proxy).
