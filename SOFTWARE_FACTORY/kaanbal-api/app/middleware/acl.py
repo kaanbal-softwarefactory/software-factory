@@ -56,6 +56,21 @@ def _bearer(request) -> Optional[str]:
     return None
 
 
+def mcp_auth_problem(authorization: str) -> str:
+    """Por qué el MCP no reconoció la credencial, sin repetir nunca su valor."""
+    value = (authorization or "").strip()
+    if not value:
+        return ("Falta el token: agrega el encabezado 'Authorization: Bearer kbl_...' con un token "
+                "personal (Acceso → Tokens en la consola).")
+    if not value.lower().startswith("bearer "):
+        return "El encabezado Authorization debe tener la forma 'Bearer kbl_...'."
+    if value[7:].strip().lower().startswith("bearer "):
+        return ("El encabezado repite 'Bearer': si tu cliente ya lo agrega, guarda en el secreto solo el token "
+                "(kbl_...).")
+    return ("El token no es válido, venció o fue revocado. Crea uno nuevo en Acceso → Tokens y revisa que "
+            "lo copiaste completo.")
+
+
 async def _principal_from_jwt(token: str) -> Optional[access.Principal]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
@@ -118,8 +133,7 @@ class AccessControlMiddleware(BaseHTTPMiddleware):
             if is_mcp:
                 return _deny(
                     401,
-                    "Falta el token: agrega el encabezado 'Authorization: Bearer kbl_...' con un token "
-                    "personal (Acceso → Tokens en la consola).",
+                    mcp_auth_problem(request.headers.get("authorization", "")),
                     headers={"WWW-Authenticate": 'Bearer realm="kaanbal"'},
                     code="not_authenticated",
                 )

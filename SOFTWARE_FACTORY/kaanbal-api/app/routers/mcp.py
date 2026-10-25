@@ -50,8 +50,37 @@ def _public_base(request: Request) -> str:
     Detrás del túnel o del ingress, el host real viene en X-Forwarded-*.
     """
     host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
-    return f"{scheme}://{host.split(',')[0].strip()}"
+    return f"{forwarded_scheme(request.headers, request.url.scheme)}://{host.split(',')[0].strip()}"
+
+
+def forwarded_scheme(headers, default: str) -> str:
+    """El esquema con el que llegó el cliente.
+
+    Con un túnel delante del ingress, X-Forwarded-Proto puede decir http aunque el agente usó https;
+    el túnel lo deja dicho en otras cabeceras. Basta que una diga https.
+    """
+    hints = [
+        (headers.get("x-forwarded-proto") or "").split(",")[0],
+        "https" if '"https"' in (headers.get("cf-visitor") or "") else "",
+        "https" if (headers.get("x-forwarded-ssl") or "").lower() == "on" else "",
+        "https" if (headers.get("x-forwarded-port") or "").split(",")[0].strip() == "443" else "",
+        "https" if "proto=https" in (headers.get("forwarded") or "").lower() else "",
+    ]
+    hints = [h.strip().lower() for h in hints if h and h.strip()]
+    if "https" in hints:
+        return "https"
+    return hints[0] if hints else default
+
+
+async def _instance_url(request: Request) -> str:
+    """URL pública de esta célula para whoami: la del Ingress si es el mismo host por el que llegó."""
+    import asyncio
+    from urllib.parse import urlparse
+
+    base = _public_base(request)
+    config = await get_db().system_config.find_one({"_id": "main"}) or {}
+    known, _source, _reach = await asyncio.to_thread(connection.resolve_api_url, config, base)
+    return known if urlparse(known).hostname == urlparse(base).hostname else base
 
 
 @router.post("/mcp")
@@ -79,6 +108,8 @@ async def mcp_messages(request: Request):
     context = {"api_url": _public_base(request), "discovered": dynamic}
 
     async def run_tool(name, arguments):
+        if name == "whoami":
+            context["api_url"] = await _instance_url(request)
         if name in dynamic and name not in catalog.TOOLS_BY_NAME:
             return await tools.call_discovered_tool(client, dynamic[name], arguments)
         tool = catalog.TOOLS_BY_NAME[name]

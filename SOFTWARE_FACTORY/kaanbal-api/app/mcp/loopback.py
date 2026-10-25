@@ -75,4 +75,27 @@ def _detail(response: httpx.Response) -> str:
     detail = payload.get("detail") if isinstance(payload, dict) else None
     if isinstance(detail, dict):
         return str(detail.get("message") or detail)
+    if isinstance(detail, list):
+        return validation_message(detail)
     return str(detail or "")
+
+
+def validation_message(errors: list) -> str:
+    """Los errores de validación de FastAPI, en una frase por campo que el agente pueda corregir."""
+    parts = []
+    for error in errors[:5]:
+        if not isinstance(error, dict):
+            continue
+        field = ".".join(str(p) for p in (error.get("loc") or []) if p not in ("body", "query", "path")) or "petición"
+        context, kind = error.get("ctx") or {}, error.get("type", "")
+        if kind == "string_too_long":
+            parts.append(f"{field}: máximo {context.get('max_length')} caracteres")
+        elif kind == "string_too_short":
+            parts.append(f"{field}: mínimo {context.get('min_length')} caracteres")
+        elif kind == "missing":
+            parts.append(f"{field}: falta")
+        elif kind in ("literal_error", "enum"):
+            parts.append(f"{field}: valor no admitido ({context.get('expected', '')})".rstrip(" ()"))
+        else:
+            parts.append(f"{field}: {error.get('msg', 'valor inválido')}")
+    return "Revisa los datos: " + "; ".join(parts) + "." if parts else "Revisa los datos enviados."

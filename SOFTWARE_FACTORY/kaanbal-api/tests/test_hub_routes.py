@@ -98,11 +98,12 @@ class Collection:
         for doc in self.docs:
             if _matches(doc, query):
                 _apply(doc, change)
-                return
+                return SimpleNamespace(matched_count=1)
         if upsert:
             doc = {k: v for k, v in query.items() if not k.startswith("$")}
             _apply(doc, change, insert=True)
             self.docs.append(doc)
+        return SimpleNamespace(matched_count=0)
 
     async def update_many(self, query, change):
         for doc in self.docs:
@@ -242,7 +243,7 @@ class HubFlowTests(HubCase):
         with self.assertRaises(HTTPException):
             await routes.update_task("T03", routes.TaskUpdate(session_id=claude, status="done"), self.beto)
 
-        await routes.update_task("T03", routes.TaskUpdate(session_id=astra, status="done", pr_url="https://example.com/pr/7"),
+        await routes.update_task("T03", routes.TaskUpdate(session_id=astra, status="done", pr_url="https://github.com/example/app/pull/7"),
                                  self.ana)
         await routes.update_task("T01", routes.TaskUpdate(session_id=claude, status="done"), self.beto)
         await routes.claim_task("T02", routes.ClaimBody(session_id=claude), self.beto)
