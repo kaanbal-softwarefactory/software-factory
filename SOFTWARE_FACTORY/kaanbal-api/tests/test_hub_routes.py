@@ -98,11 +98,12 @@ class Collection:
         for doc in self.docs:
             if _matches(doc, query):
                 _apply(doc, change)
-                return
+                return SimpleNamespace(matched_count=1)
         if upsert:
             doc = {k: v for k, v in query.items() if not k.startswith("$")}
             _apply(doc, change, insert=True)
             self.docs.append(doc)
+        return SimpleNamespace(matched_count=0)
 
     async def update_many(self, query, change):
         for doc in self.docs:

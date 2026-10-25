@@ -52,6 +52,27 @@ class SessionHandoverTests(HubCase):
             await routes.claim_task("T03", routes.ClaimBody(session_id=other), self.beto)
         self.assertIn("La tiene codex-uiux", caught.exception.detail["message"])
 
+    async def test_leaving_does_not_clear_a_task_reassigned_in_the_meantime(self):
+        """Carrera señalada por codex-uiux: entre leer y soltar, otra sesión toma la tarea."""
+        await self.upload_phases()
+        first = await self.join("codex-uiux", self.ana)
+        await routes.claim_task("T03", routes.ClaimBody(session_id=first), self.ana)
+        tasks = self.db["hub_tasks"]
+        original = tasks.update_one
+
+        async def reassign_then_update(query, change, upsert=False):
+            if change.get("$push", {}).get("notes", {}).get("text") == "Liberada al cerrar sesión.":
+                doc = next(d for d in tasks.docs if d.get("key") == "T03")
+                doc.update(assignee_session="f" * 16, assignee_agent="claude-api", updated_at=doc["updated_at"].replace(year=2099))
+            return await original(query, change, upsert)
+
+        tasks.update_one = reassign_then_update
+        left = await routes.leave(first, routes.LeaveBody(summary="Me voy"), self.ana)
+        tasks.update_one = original
+        self.assertEqual(left["released_tasks"], [])
+        doc = next(d for d in tasks.docs if d.get("key") == "T03")
+        self.assertEqual((doc["assignee_agent"], doc["status"]), ("claude-api", "in_progress"))
+
     async def test_claiming_does_not_copy_the_session_branch_into_the_task(self):
         await self.upload_phases()
         session = await self.join("claude-api", self.beto, branch="claude/t03-api-contract")

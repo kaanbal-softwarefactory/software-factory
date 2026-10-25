@@ -407,10 +407,14 @@ async def leave(session_id: str, body: LeaveBody, request: Request):
                                           "status": {"$in": ["in_progress", "blocked"]}}).to_list(None):
             # Una bloqueada sigue bloqueada (su nota explica por qué); solo deja de tener dueño.
             status = "todo" if task["status"] == "in_progress" else task["status"]
-            await db[TASKS].update_one({"_id": task["_id"]}, {
-                "$set": {"status": status, "assignee_session": None, "assignee_agent": None, "updated_at": _now()},
-                "$push": {"notes": {"at": _now(), "by": session["agent"], "text": "Liberada al cerrar sesión."}}})
-            released.append(task.get("key") or task["_id"])
+            # Solo si nadie la cambió entre la lectura y aquí: si una persona la reasignó, no se pisa al dueño nuevo.
+            result = await db[TASKS].update_one(
+                {"_id": task["_id"], "assignee_session": session_id, "status": task["status"],
+                 "updated_at": task.get("updated_at")},
+                {"$set": {"status": status, "assignee_session": None, "assignee_agent": None, "updated_at": _now()},
+                 "$push": {"notes": {"at": _now(), "by": session["agent"], "text": "Liberada al cerrar sesión."}}})
+            if result.matched_count:
+                released.append(task.get("key") or task["_id"])
     await db[SESSIONS].update_one({"_id": session_id}, {"$set": {"left_at": _now(), "last_seen": _now(),
                                                                  "summary": body.summary.strip()}})
     await _event(session["group"], "handoff", body.summary.strip(), session=session, task_ref=session.get("task"))
