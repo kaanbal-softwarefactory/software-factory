@@ -402,9 +402,13 @@ async def leave(session_id: str, body: LeaveBody, request: Request):
     db = get_db()
     released = []
     if body.release_tasks:
-        for task in await db[TASKS].find({"assignee_session": session_id, "status": "in_progress"}).to_list(None):
+        # También las bloqueadas: si no, quedan a nombre de una sesión cerrada y nadie las puede retomar.
+        for task in await db[TASKS].find({"assignee_session": session_id,
+                                          "status": {"$in": ["in_progress", "blocked"]}}).to_list(None):
+            # Una bloqueada sigue bloqueada (su nota explica por qué); solo deja de tener dueño.
+            status = "todo" if task["status"] == "in_progress" else task["status"]
             await db[TASKS].update_one({"_id": task["_id"]}, {
-                "$set": {"status": "todo", "assignee_session": None, "assignee_agent": None, "updated_at": _now()},
+                "$set": {"status": status, "assignee_session": None, "assignee_agent": None, "updated_at": _now()},
                 "$push": {"notes": {"at": _now(), "by": session["agent"], "text": "Liberada al cerrar sesión."}}})
             released.append(task.get("key") or task["_id"])
     await db[SESSIONS].update_one({"_id": session_id}, {"$set": {"left_at": _now(), "last_seen": _now(),
@@ -508,16 +512,22 @@ async def claim_task(task_id: str, body: ClaimBody, request: Request):
     settings = hub.work_settings((await _project(task["group"])).get("settings"))
     if settings["mode"] == "autonomous" and not hub.in_scope(task, settings):
         raise HTTPException(409, "Esta tarea está fuera del objetivo activo. Toma una del briefing o pide ampliar el alcance.")
-    problem = hub.claim_check(task, index, session)
+    db = get_db()
+    holder = task.get("assignee_session")
+    holder_left = bool(holder and holder != session["_id"]
+                       and ((await db[SESSIONS].find_one({"_id": holder}, {"left_at": 1})) or {}).get("left_at"))
+    problem = hub.claim_check(task, index, session, holder_left=holder_left)
     if problem:
         raise HTTPException(409, {"message": f"{problem['reason']} {problem.get('hint', '')}".strip(), **problem})
-    db = get_db()
     now = _now()
+    free = [{"assignee_session": None}, {"assignee_session": session["_id"]}]
+    if holder_left:
+        free.append({"assignee_session": holder})
+    # La rama es de la tarea: no se hereda de la sesión (un agente pasa por varias tareas).
     claimed = await db[TASKS].find_one_and_update(
-        {"_id": task_id, "status": {"$in": ["todo", "blocked", "in_progress"]},
-         "$or": [{"assignee_session": None}, {"assignee_session": session["_id"]}]},
+        {"_id": task_id, "status": {"$in": ["todo", "blocked", "in_progress"]}, "$or": free},
         {"$set": {"status": "in_progress", "assignee_session": session["_id"], "assignee_agent": session["agent"],
-                  "updated_at": now, "branch": task.get("branch") or session.get("branch")}},
+                  "updated_at": now}},
         return_document=ReturnDocument.AFTER)
     if not claimed:
         raise HTTPException(409, {"message": "Otro agente la tomó un instante antes. Elige otra tarea disponible.",

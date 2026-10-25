@@ -227,14 +227,22 @@ def index_tasks(tasks: Iterable[Mapping[str, Any]]) -> Dict[str, Mapping[str, An
 
 
 def claim_check(task: Mapping[str, Any], tasks_by_ref: Mapping[str, Mapping[str, Any]],
-                session: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
-    """None si la sesión puede tomar la tarea; si no, por qué y qué hacer mientras."""
-    if task.get("assignee_session") == session["_id"] and task.get("status") == "in_progress":
+                session: Mapping[str, Any], holder_left: bool = False) -> Optional[Dict[str, Any]]:
+    """None si la sesión puede tomar la tarea; si no, por qué y qué hacer mientras.
+
+    `holder_left`: la sesión que la tenía ya cerró (hub_leave), así que la tarea está libre aunque
+    conserve su nombre; si no, una sesión nueva del mismo agente no podría retomarla.
+    """
+    holder_session = task.get("assignee_session")
+    if holder_session == session["_id"] and task.get("status") == "in_progress":
         return None
     if task.get("status") not in ("todo", "blocked"):
         holder = task.get("assignee_agent")
         return {"reason": f"La tarea está en '{task.get('status')}'" + (f" con {holder}" if holder else "") + ".",
                 "pending": []}
+    if holder_session and holder_session != session["_id"] and not holder_left:
+        return {"reason": f"La tiene {task.get('assignee_agent') or 'otro agente'} (en '{task.get('status')}').",
+                "pending": [], "hint": "Pídele con hub_message que la suelte (status todo) o toma otra tarea."}
     pending = pending_dependencies(task, tasks_by_ref)
     if pending:
         names = ", ".join(f"{item['ref']} ({item['status']}{', ' + item['holder'] if item['holder'] else ''})"

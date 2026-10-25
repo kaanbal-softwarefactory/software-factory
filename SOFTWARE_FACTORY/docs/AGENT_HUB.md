@@ -50,6 +50,9 @@ Reglas del servidor:
 - Las dependencias se validan también al crear o editar: claves inexistentes y ciclos se rechazan.
 - Si dos cambian la misma tarea a la vez, el segundo recibe 409 y vuelve a leerla.
 - Al cerrar queda `reviewed_by`/`reviewed_at`. Los agentes solo escriben en `live/`.
+- `hub_leave` suelta las tareas en curso (vuelven a *por hacer*) y las bloqueadas (siguen bloqueadas, sin
+  dueño). Una tarea a nombre de una sesión ya cerrada se puede retomar con `hub_claim_task`.
+- La rama es de la tarea: tomar una tarea no le copia la rama de la sesión; se fija con `hub_update_task`.
 
 El tablero (en la consola, **Contexto y acuerdos**) es texto escrito a mano. El estado real lo calcula
 el Hub en `coordination` (listas, esperando, bloqueadas, en revisión, latidos) y avisa cuando las tareas
