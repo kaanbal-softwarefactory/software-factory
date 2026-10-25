@@ -1,0 +1,84 @@
+SECRET_KEY no está definida (o es la clave de desarrollo histórica): se usa una clave efímera. Las sesiones se cierran al reiniciar; define SECRET_KEY para conservarlas.
+..................E.E...........................
+======================================================================
+ERROR: test_a_cross_reviewed_task_starts_its_integration_when_closed (test_hub_integration.SettingsAndTriggerTests.test_a_cross_reviewed_task_starts_its_integration_when_closed)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/tests/test_hub_integration.py", line 157, in test_a_cross_reviewed_task_starts_its_integration_when_closed
+    author = (await routes.join("app-x", routes.JoinBody(agent="claude-api", harness="claude"), self.beto))["session_id"]
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 372, in join
+    return {"session_id": session["_id"], "briefing": await _briefing(group, session)}
+                                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 156, in _briefing
+    result["workspace"] = await _workspace_context(group)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 166, in _workspace_context
+    apps = [{**app, "domain": (await domain_service.resolve_for_app(app)).get("fqdn") or config.get("domain") or ""}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 166, in <listcomp>
+    apps = [{**app, "domain": (await domain_service.resolve_for_app(app)).get("fqdn") or config.get("domain") or ""}
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/services/domain_service.py", line 140, in resolve_for_app
+    config = await get_system_config()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/services/domain_service.py", line 129, in get_system_config
+    return await db.system_config.find_one({"_id": "main"}) or {}
+                 ^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'system_config'
+
+======================================================================
+ERROR: test_turning_on_integration_needs_the_critical_permission_and_cross_review (test_hub_integration.SettingsAndTriggerTests.test_turning_on_integration_needs_the_critical_permission_and_cross_review)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/unittest/async_case.py", line 90, in _callTestMethod
+    if self._callMaybeAsync(method) is not None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/unittest/async_case.py", line 112, in _callMaybeAsync
+    return self._asyncioRunner.run(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/.python/cpython-3.11.17-linux-x86_64-gnu/lib/python3.11/asyncio/base_events.py", line 654, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/tests/test_hub_integration.py", line 151, in test_turning_on_integration_needs_the_critical_permission_and_cross_review
+    brief = await routes.project_briefing("app-x")
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 265, in project_briefing
+    return await _briefing(_group(group))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 156, in _briefing
+    result["workspace"] = await _workspace_context(group)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 166, in _workspace_context
+    apps = [{**app, "domain": (await domain_service.resolve_for_app(app)).get("fqdn") or config.get("domain") or ""}
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/routers/hub.py", line 166, in <listcomp>
+    apps = [{**app, "domain": (await domain_service.resolve_for_app(app)).get("fqdn") or config.get("domain") or ""}
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/services/domain_service.py", line 140, in resolve_for_app
+    config = await get_system_config()
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/software-factory/SOFTWARE_FACTORY/kaanbal-api/app/services/domain_service.py", line 129, in get_system_config
+    return await db.system_config.find_one({"_id": "main"}) or {}
+                 ^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'system_config'
+
+----------------------------------------------------------------------
+Ran 48 tests in 0.217s
+
+FAILED (errors=2)
