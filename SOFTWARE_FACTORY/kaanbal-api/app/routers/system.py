@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import httpx
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Header, BackgroundTasks
 from pydantic import BaseModel
 from app.models import (
     SystemConfig, SystemConfigUpdate, 
@@ -15,6 +15,7 @@ from app.models import (
 )
 from app.db import get_db
 from app.routers.auth import get_current_active_user
+from app.services import autonomy as autonomy_service
 from app.defaults import VAULT_ADDR, VAULT_HOSTNAME, TAILSCALE_DNS_SUFFIX
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
@@ -299,7 +300,7 @@ async def list_vault_secrets(env: Optional[str] = None, current_user = Depends(g
 
 
 @router.get("/vault/secrets/{env}/{app_name}")
-async def get_vault_secret(env: str, app_name: str, reveal: bool = False, current_user = Depends(get_current_active_user)):
+async def get_vault_secret(env: str, app_name: str, request: Request, reveal: bool = False, current_user = Depends(get_current_active_user)):
     """Reads a specific secret in Vault KV v2: secret/{env}/{app_name}."""
     if env not in {"dev", "staging", "prod"}:
         raise HTTPException(status_code=400, detail="env must be one of: dev, staging, prod")
@@ -329,7 +330,15 @@ async def get_vault_secret(env: str, app_name: str, reveal: bool = False, curren
     data_values = payload.get("data", {})
     metadata = payload.get("metadata", {})
 
-    if not reveal:
+    if reveal:
+        # Ver valores deja huella: quién, dónde y qué claves (nunca los valores). Si no se puede
+        # registrar, no se revelan. AccessControlMiddleware ya fijó el principal y exigió system.secrets.view.
+        async with autonomy_service.audit(
+            request.state.principal, "vault.secret.reveal", f"{env}/{app_name}",
+            "Revelar valores de secretos desde la consola", keys=sorted(data_values),
+        ):
+            pass
+    else:
         data_values = {k: _mask_secret_value(v) for k, v in data_values.items()}
 
     return {
