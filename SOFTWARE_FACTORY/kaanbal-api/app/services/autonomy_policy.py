@@ -26,6 +26,11 @@ def enabled(policy: dict, feature: str) -> None:
 
 def authorize(policy: dict, principal, *, feature: str, app: str = "", env: str = "", node: str = "", core: bool = False) -> None:
     enabled(policy, feature)
+    # El modo de intervención crítica es opt-in y se mantiene detrás del token
+    # elevado. Así el token no se convierte en una llave maestra por accidente:
+    # siguen aplicando ACL, capacidad habilitada y approval_id.
+    if policy.get("elevated_tokens_bypass_grants") and principal.via_token and principal.elevated:
+        return
     now = datetime.now(timezone.utc)
     for grant in policy.get("grants", []):
         if grant.get("username") != principal.username:

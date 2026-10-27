@@ -47,6 +47,15 @@ class AuthorizationTests(unittest.TestCase):
         with self.assertRaises(AutonomyError):
             authorize(policy(), actor(), feature="host", node="lab-2")
 
+    def test_elevated_laboratory_token_can_bypass_resource_grants(self):
+        cfg = policy()
+        cfg["grants"] = []
+        cfg["elevated_tokens_bypass_grants"] = True
+        authorize(cfg, actor(elevated=True), feature="runtime", app="another-app", env="prod")
+        authorize(cfg, actor(elevated=True), feature="host", node="any-authorized-node")
+        with self.assertRaises(AutonomyError):
+            authorize(cfg, actor(), feature="runtime", app="another-app", env="prod")
+
     def test_token_constraint_and_expiry_are_enforced(self):
         cfg = policy()
         cfg["grants"][0]["token_id"] = "token-b"

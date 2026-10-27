@@ -125,8 +125,8 @@ cambio de RBAC.
 | Capacidad | Control requerido |
 |---|---|
 | Descubrir herramientas nuevas | `autonomy.tools.view` |
-| Comandos en la app registrada | `autonomy.apps.execute`, token crítico y concesión app + ambiente |
-| Comandos root en nodo | `autonomy.host.execute`, token crítico y concesión de nodo exacto |
+| Comandos en la app registrada | `autonomy.apps.execute`, token crítico y concesión app + ambiente; en laboratorio puede habilitarse el bypass explícito para tokens críticos |
+| Comandos root en nodo | `autonomy.host.execute`, token crítico y concesión de nodo exacto; en laboratorio puede habilitarse el bypass explícito para tokens críticos |
 | Contenedor temporal para cambios | `autonomy.workspaces.manage`, política workspace y recurso autorizado |
 | Contribución al core | Además `autonomy.core.contribute` y concesión `core` |
 | Rama y PR | Además `autonomy.changes.propose` |
@@ -146,6 +146,13 @@ permite eludir el flujo de contribución al core.
 permisos críticos se conceden por separado a roles/personas autorizados. La opción
 de token crítico captura todos los permisos actuales de quien lo emite; un token
 viejo no recibe automáticamente los permisos nuevos de una futura versión.
+
+Para una célula de desarrollo existe la opción de política
+`elevated_tokens_bypass_grants`. Al activarla, un token crítico puede operar apps,
+ambientes y nodos sin registrar una concesión por recurso. Continúan aplicando las
+ACL del token, las banderas `runtime_enabled`/`host_enabled`, la validación del
+recurso y la aprobación humana. Está desactivada por defecto y debe apagarse antes
+del primer lanzamiento público.
 
 ## Tokens y confirmación
 

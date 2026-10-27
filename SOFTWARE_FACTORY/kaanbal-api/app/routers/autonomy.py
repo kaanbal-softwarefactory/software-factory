@@ -88,6 +88,10 @@ class Policy(StrictModel):
     direct_push_enabled: bool = False
     # Ejecutar, integrar, restaurar, borrar y actualizar el core esperan a una persona.
     approval_required: bool = True
+    # Solo para una célula de desarrollo controlada: un token crítico puede operar
+    # cualquier app/ambiente/nodo sin una concesión individual. No desactiva ACL,
+    # las banderas de capacidad ni la aprobación humana.
+    elevated_tokens_bypass_grants: bool = False
     workbench_image: str = Field(default="", max_length=300)
     core_fork: str = Field(default="", max_length=150)
     workspace_lifetime_seconds: int = Field(default=3600, ge=300, le=14400)
