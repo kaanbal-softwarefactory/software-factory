@@ -218,5 +218,35 @@ class LinkPlanTests(unittest.TestCase):
         self.assertEqual(plan["remove"], {"prod": ["PAGOS_API_HOST", "PAGOS_API_URL"]})
 
 
+class VariableAndSecretCleanupPlanTests(unittest.TestCase):
+    def test_removing_a_variable_lists_environments_and_warns_about_the_lost_value(self):
+        plan = cp.remove_variable_plan("mi-app", "VIEJA_KEY", {"prod": "eliminada", "dev": "no_existe"})
+        self.assertEqual(plan["action"], "delete_app_variable")
+        self.assertEqual(plan["environments"], {"prod": "eliminada", "dev": "no_existe"})
+        self.assertTrue(any("se pierde" in w for w in plan["warnings"]))
+        self.assertNotIn("value", str(plan))
+
+    def test_nothing_to_remove_is_a_conflict(self):
+        with self.assertRaises(cp.ChangeError) as caught:
+            cp.remove_variable_plan("mi-app", "VIEJA_KEY", {"prod": "no_existe"})
+        self.assertEqual(caught.exception.status, 409)
+
+    def test_cleanup_plan_lists_only_names_per_environment(self):
+        plan = cp.cleanup_secrets_plan({"enabled": True, "orphans": {"prod": ["b", "a"], "dev": []}})
+        self.assertEqual(plan["orphans"], {"prod": ["a", "b"]})
+        self.assertEqual(plan["total"], 2)
+
+    def test_cleanup_without_vault_or_orphans_is_a_conflict(self):
+        for report in ({"enabled": False, "orphans": {}}, {"enabled": True, "orphans": {"prod": []}}):
+            with self.assertRaises(cp.ChangeError):
+                cp.cleanup_secrets_plan(report)
+
+    def test_the_same_orphans_give_the_same_plan_id(self):
+        from app.services import plans
+        a = cp.cleanup_secrets_plan({"enabled": True, "orphans": {"prod": ["x", "y"]}})
+        b = cp.cleanup_secrets_plan({"enabled": True, "orphans": {"prod": ["y", "x"]}})
+        self.assertEqual(plans.plan_id("cleanup_orphan_secrets", a), plans.plan_id("cleanup_orphan_secrets", b))
+
+
 if __name__ == "__main__":
     unittest.main()

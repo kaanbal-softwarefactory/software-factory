@@ -14,6 +14,12 @@ aprobación humana para lo irreversible. El avance por capacidad vive en
 
 ## En curso
 
+- **Limpieza de Vault y contrato de la central de llamadas** — en `main` local (2026-10-27), sin subir. MCP:
+  `delete_app_variable` y `cleanup_orphan_secrets` (plan, token crítico y aprobación humana), `audit_platform`
+  deja de marcar como huérfanas las bases que una app usa por `<BASE>_URI`. Nueva guía
+  `SOFTWARE_FACTORY/docs/COMMS_HUB.md`. API: 695 pruebas verdes (1 omitida). Falta publicar la release y
+  probarlo en una célula con aprobación real; las rutas nuevas no tienen prueba de integración con Mongo/Vault.
+
 - **GitHub personal y repos propios por MCP** — en `main` (2026-10-25), sin instalar en la célula todavía. Cada persona conecta su GitHub en Conectar → Tu GitHub; sus agentes usan `github_repos`, `open_repo_workspace` y `push_workspace` (rama nueva, o la principal con «Push directo» en la política). Pruebas offline en verde; falta probarlo en la célula con un repo real. Guía: `SOFTWARE_FACTORY/docs/MCP_AUTONOMY.md`.
 
 - **HUB2: continuidad entre proveedores y Dev** — contexto y prompts guardados en main; código todavía WIP en `codex/hub-dev-workflow` (`6ea71a0`). Leer [punto de continuación](../docs/guides/HUB_CONTINUITY.md) antes de tocar Hub/ambientes. Incluye nuevos requisitos de workers Kubernetes vía MCP, GitHub por usuario y archivos fuente. Checkpoint: 48 pruebas Hub, 2 errores; UI aún sin montar; nada desplegado. Actualización del core manual.

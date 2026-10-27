@@ -237,6 +237,7 @@ ACL_RULES: Tuple[AclRule, ...] = (
     rule("GET", rf"{_V1}/apps/{_SEG}/env-vars", "apps.apps.diagnose"),
     rule("GET", rf"{_V1}/apps/{_SEG}/diagnosis", "apps.apps.diagnose"),
     rule("PUT", rf"{_V1}/apps/{_SEG}/variables/{_SEG}", "apps.variables.manage"),
+    rule("DELETE", rf"{_V1}/apps/{_SEG}/variables/{_SEG}", "apps.variables.manage"),
     rule("POST", rf"{_V1}/apps/{_SEG}/bindings/repair", "apps.apps.deploy"),
     rule("GET", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.view"),
     rule("POST", rf"{_V1}/apps/{_SEG}/environments/{_SEG}", "apps.apps.deploy"),

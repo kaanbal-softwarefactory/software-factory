@@ -87,9 +87,9 @@ TIENDA_DB = {"name": "tienda-db", "template": "mongodb", "environments": ["prod"
 
 PLAN_ID = "0123456789abcdef"
 PLANNED = ["create_app", "launch_stack", "link_apps", "unlink_apps", "set_exposure", "attach_domain", "set_homepage",
-           "rollback_app", "promote_app", "restore_database", "delete_app"]
+           "rollback_app", "promote_app", "restore_database", "delete_app", "delete_app_variable", "cleanup_orphan_secrets"]
 # Lo irreversible: plan, token crítico y aprobación de una persona.
-IRREVERSIBLE = ["delete_app", "restore_database"]
+IRREVERSIBLE = ["delete_app", "restore_database", "delete_app_variable", "cleanup_orphan_secrets"]
 WRITERS = sorted(PLANNED + ["start_app", "stop_app", "scale_app", "sync_app", "repair_db_bindings", "set_app_variable",
                             "restart_app", "request_secret", "invoke_platform_tool", "backup_database",
                             "set_app_group", "set_display_name"]
@@ -179,7 +179,8 @@ class CatalogTests(unittest.TestCase):
             for word in ("purge", "upgrade", "borrar"):
                 self.assertNotIn(word, tool["name"])
         managers = sorted(t["name"] for t in catalog.TOOLS if (t["permission"] or "").endswith(".manage"))
-        self.assertEqual(managers, ["link_apps", "promote_app", "rollback_app", "set_app_variable", "unlink_apps"])
+        self.assertEqual(managers, ["delete_app_variable", "link_apps", "promote_app", "rollback_app", "set_app_variable",
+                                    "unlink_apps"])
 
     def test_the_client_sees_the_permission_each_tool_needs(self):
         for definition in catalog.definitions():
@@ -504,6 +505,50 @@ class GuideTests(unittest.TestCase):
         result = run(tools.call_tool(client, "app_contract", {"name": "tienda-db"}))
         self.assertIn("Imagen oficial", result["deploy"]["how"])
         self.assertIn("apps.apps.diagnose", result["variables"]["unavailable"])
+
+
+class VariableCleanupToolTests(unittest.TestCase):
+    """Quitar una variable y limpiar secretos huérfanos: plan primero, nunca sin plan_id, nunca valores."""
+
+    def test_removing_a_variable_shows_the_plan_and_applies_nothing(self):
+        client = FakeClient()
+        answer = run(tools.call_tool(client, "delete_app_variable", {"name": "mi-app", "variable": "VIEJA_KEY"}))
+        self.assertFalse(answer["applied"])
+        self.assertEqual(answer["plan_id"], PLAN_ID)
+        self.assertEqual(client.calls, [("DELETE", "/apps/mi-app/variables/VIEJA_KEY", {"dry_run": "true"}, None)])
+
+    def test_removing_with_plan_and_approval_sends_both_and_the_environments(self):
+        client = FakeClient()
+        answer = run(tools.call_tool(client, "delete_app_variable", {
+            "name": "mi-app", "variable": "VIEJA_KEY", "environments": ["dev", "prod"],
+            "plan_id": PLAN_ID, "approval_id": "0123456789abcdef0123",
+        }))
+        self.assertTrue(answer["applied"])
+        method, path, params, _ = client.calls[0]
+        self.assertEqual((method, path), ("DELETE", "/apps/mi-app/variables/VIEJA_KEY"))
+        self.assertEqual(params, {"environments": "dev,prod", "approval_id": "0123456789abcdef0123", "plan_id": PLAN_ID})
+
+    def test_removing_refuses_names_that_could_escape_the_path(self):
+        for variable in ("../../X", "minuscula", "A B", ""):
+            with self.assertRaises(ToolError):
+                run(tools.call_tool(FakeClient(), "delete_app_variable", {"name": "mi-app", "variable": variable}))
+
+    def test_cleanup_shows_the_plan_first_and_never_returns_secret_values(self):
+        client = FakeClient({("POST", "/apps/maintenance/cleanup-orphans"): {
+            "status": "success", "report": {"deleted": ["secret/prod/vieja"], "failed": [], "orphans": {"prod": ["vieja"]}}}})
+        shown = run(tools.call_tool(client, "cleanup_orphan_secrets", {}))
+        self.assertFalse(shown["applied"])
+        done = run(tools.call_tool(client, "cleanup_orphan_secrets", {"plan_id": PLAN_ID}))
+        self.assertEqual(done, {"applied": True, "deleted": ["secret/prod/vieja"], "failed": []})
+        self.assertEqual(client.calls[0][2], {"dry_run": "true"})
+        self.assertEqual(client.calls[1][2], {"plan_id": PLAN_ID})
+
+    def test_both_tools_are_destructive_and_need_a_critical_token_and_a_person(self):
+        for name in ("delete_app_variable", "cleanup_orphan_secrets"):
+            tool = catalog.TOOLS_BY_NAME[name]
+            self.assertTrue(tool["plan_first"] and tool["elevated"] and tool["approval"], name)
+            self.assertTrue(tool["annotations"]["destructiveHint"], name)
+            self.assertFalse(tool["annotations"]["readOnlyHint"], name)
 
 
 if __name__ == "__main__":

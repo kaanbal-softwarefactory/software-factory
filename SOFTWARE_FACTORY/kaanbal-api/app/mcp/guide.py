@@ -259,11 +259,12 @@ se pide dos veces:
 Si algo cambió entre medias, el plan ya no coincide y no se toca nada. Aplica a
 `create_app`, `launch_stack`, `link_apps`, `unlink_apps`, `set_exposure`,
 `attach_domain`, `set_homepage`, `rollback_app`, `promote_app`,
-`restore_database` y `delete_app`.
+`restore_database`, `delete_app`, `delete_app_variable` y `cleanup_orphan_secrets`.
 
 ## Aprobación humana para lo irreversible
 
-Restaurar una base, borrar una app, ejecutar comandos en una app o en un nodo,
+Restaurar una base, borrar una app, quitar una variable (su valor no se recupera), limpiar
+secretos huérfanos de Vault, ejecutar comandos en una app o en un nodo,
 integrar un PR y actualizar el core exigen un **token crítico** y, además, que una
 persona lo apruebe:
 
@@ -284,7 +285,8 @@ persona lo apruebe:
 El MCP nunca muestra el valor de un secreto. Para contraseñas internas,
 `set_app_variable` con `generate=true`. Para una credencial que solo tiene una
 persona (la clave de un proveedor), `request_secret`: la persona la pega en la
-consola y el agente nunca la ve.
+consola y el agente nunca la ve. Para ordenar Vault, `audit_platform` (nombres, nunca valores),
+`delete_app_variable` y `cleanup_orphan_secrets`.
 
 ## Por dónde empezar
 

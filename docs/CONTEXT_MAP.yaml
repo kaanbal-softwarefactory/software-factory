@@ -30,6 +30,12 @@ by_area:
       - SOFTWARE_FACTORY/business-base/EMAIL_PROFILES.md
       - SOFTWARE_FACTORY/business-base/STARTER.md
 
+  comms_hub:
+    trigger: "central de llamadas, Comms Lab, agentes de voz, SMS, Twilio, integrar un negocio por API"
+    globs: ["SOFTWARE_FACTORY/docs/COMMS_HUB.md"]
+    read:
+      - SOFTWARE_FACTORY/docs/COMMS_HUB.md
+
   installer:
     globs: ["SOFTWARE_FACTORY/installer/**", "install.sh", "SOFTWARE_FACTORY/install.sh"]
     read:

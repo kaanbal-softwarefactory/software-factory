@@ -336,6 +336,46 @@ def link_plan(app_name: str, provider_name: str, *, kind: str, alias: str,
     }
 
 
+def remove_variable_plan(app_name: str, variable: str, report: Mapping[str, str]) -> Dict[str, Any]:
+    """Qué pasa al quitar una variable (solo su nombre y en qué ambientes: el valor no sale nunca)."""
+    environments = dict(report)
+    if "eliminada" not in environments.values():
+        raise ChangeError(f"'{app_name}' no tiene la variable {variable} en ningún ambiente: no hay nada que quitar.", 409)
+    return {
+        "action": "delete_app_variable",
+        "app": app_name,
+        "variable": variable,
+        "environments": environments,
+        "warnings": [
+            f"El valor de {variable} se pierde: si lo necesitas después, tendrás que volver a capturarlo.",
+            f"Si el código de '{app_name}' todavía lee {variable}, dejará de arrancar o de funcionar: revisa antes de quitarla.",
+        ],
+        "steps": [
+            f"Quitar {variable} del overlay de cada ambiente en infra-gitops.",
+            "ArgoCD reinicia la app sin ella.",
+        ],
+    }
+
+
+def cleanup_secrets_plan(report: Mapping[str, Any]) -> Dict[str, Any]:
+    """Qué secretos de Vault no pertenecen a ninguna app activa (solo sus nombres)."""
+    orphans = {env: sorted(names) for env, names in (report.get("orphans") or {}).items() if names}
+    if not report.get("enabled"):
+        raise ChangeError("Vault no está configurado en esta instalación: no hay secretos que revisar.", 409)
+    if not orphans:
+        raise ChangeError("No hay secretos huérfanos en Vault: todo pertenece a una app activa.", 409)
+    return {
+        "action": "cleanup_orphan_secrets",
+        "orphans": orphans,
+        "total": sum(len(names) for names in orphans.values()),
+        "warnings": [
+            "Se borran de Vault los secretos listados y sus versiones: no se pueden recuperar.",
+            "Solo se borran los que no pertenecen a ninguna app activa; si una app nueva todavía no se registró, espera a que termine.",
+        ],
+        "steps": ["Borrar cada secreto huérfano de Vault (secret/<ambiente>/<nombre>)."],
+    }
+
+
 def unlink_plan(app_name: str, provider_name: str, names_by_env: Mapping[str, List[str]]) -> Dict[str, Any]:
     """Qué variables se quitan al deshacer un vínculo."""
     environments = {env: sorted(set(names or [])) for env, names in names_by_env.items()}

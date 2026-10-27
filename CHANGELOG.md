@@ -8,6 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Vault housekeeping from the MCP: `delete_app_variable` removes an environment variable from an app's
+  overlays and `cleanup_orphan_secrets` deletes Vault secrets that belong to no active app (the existing
+  `POST /apps/maintenance/cleanup-orphans`, now with a plan). Both show their plan first (names only, never
+  values), refuse platform-managed variables (database connection, `APP_SECRET`) and, from a token, need a
+  critical token and human approval. New `DELETE /apps/{app}/variables/{variable}`.
+- `docs/COMMS_HUB.md`: how the standalone calls product (Comms Lab) is deployed on Kaanbal and integrated
+  with any business through API contracts.
+
+### Fixed
+- `audit_platform` no longer reports a database as orphan when an app reaches it through its `<BASE>_URI`
+  variables (what stack launches inject, without a registered link). It reads variable names only.
+
+### Added
 - Agent Hub shared context (HUB2, first slice): `hub_checkpoint` keeps one living summary per agent
   (decisions and next steps) for whoever resumes from another provider; `hub_report_feedback` files a
   platform friction in the global `software-factory` project with its origin and a link in both traces;

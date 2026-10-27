@@ -303,6 +303,19 @@ TOOLS: List[Dict[str, Any]] = [
               "overwrite": {"type": "boolean", "description": "Reemplazar el valor si la variable ya existe.", "default": False},
               "environments": {"type": "array", "items": {"type": "string"}, "description": "Por defecto, todos los de la app."},
           }, ["name", "variable"]), CONFIG_ACTION),
+    _tool("delete_app_variable", "Quitar una variable de una app", "operar", "apps.variables.manage",
+          "ACCIÓN IRREVERSIBLE: quita una variable de entorno de una app en los ambientes que indiques. El valor se "
+          "pierde y la app se reinicia sin ella; el plan muestra en qué ambientes está. Nunca toca las que gestiona "
+          "la plataforma (la conexión a la base: para eso, unlink_apps) ni deja una app sin ninguna variable.",
+          _schema({
+              "name": _APP,
+              "variable": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$", "description": "Nombre de la variable."},
+              "environments": {"type": "array", "items": {"type": "string"}, "description": "Por defecto, todos los de la app."},
+          }, ["name", "variable"]), POWER_OFF | {"idempotentHint": False}, plan_first=True, approval=True),
+    _tool("cleanup_orphan_secrets", "Limpiar secretos huérfanos de Vault", "operar", "apps.maintenance.run",
+          "ACCIÓN IRREVERSIBLE: borra de Vault los secretos que no pertenecen a ninguna app activa (restos de apps "
+          "que ya no existen). El plan lista solo los nombres, por ambiente; no toca nada que una app use.",
+          _schema({}), POWER_OFF | {"idempotentHint": False}, plan_first=True, approval=True),
     _tool("restart_app", "Reiniciar un ambiente", "operar", "apps.apps.deploy",
           "ACCIÓN: reinicia los pods de un ambiente de a uno (como kubectl rollout restart), sin apagarlo y sin "
           "cambiar nada de GitOps. Útil tras rotar una credencial externa o cuando la app quedó en mal estado.",

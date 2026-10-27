@@ -3594,6 +3594,54 @@ secretGenerator:
 
         return report
 
+    async def remove_app_variable(self, app_name: str, variable: str, environments: list, *, dry_run: bool = False) -> dict:
+        """Quitar una variable de los overlays de una app (el valor se pierde: no hay cómo recuperarlo).
+
+        Con dry_run solo calcula qué pasaría en cada ambiente. Si un ambiente rechaza el
+        cambio, no se publica ninguno. ArgoCD reinicia la app sin la variable.
+        """
+        from app.services import app_variables
+
+        await self._load_credentials()
+        infra_path = os.path.join(self.workspace, "infra-gitops")
+        if os.path.exists(infra_path):
+            shutil.rmtree(infra_path)
+        subprocess.run(
+            ["git", "clone", self.provider.get_auth_clone_url("infra-gitops"), infra_path],
+            check=True, capture_output=True,
+        )
+
+        report: dict = {"app": app_name, "variable": variable, "environments": {}, "committed": False}
+        try:
+            planned = {}
+            for env in environments:
+                literals = self._read_overlay_literals(infra_path, app_name, env)
+                if literals is None:
+                    report["environments"][env] = "sin_overlay"
+                    continue
+                state, remaining = app_variables.plan_removal(literals, variable)
+                report["environments"][env] = state
+                if state == app_variables.REMOVED:
+                    if not remaining:
+                        # _patch_overlay_secrets no sabe dejar un secretGenerator vacío.
+                        raise app_variables.VariableError(
+                            f"Quitar {variable} dejaría a '{app_name}' sin ninguna variable en {env}: hazlo desde infra-gitops."
+                        )
+                    planned[env] = remaining
+
+            if not dry_run and planned:
+                for env, remaining in planned.items():
+                    self._patch_overlay_secrets(infra_path, app_name, env, {env: remaining})
+                await self._push_infra(
+                    infra_path, app_name, list(planned),
+                    message=f"chore({app_name}): quitar la variable {variable} en {', '.join(planned)}",
+                )
+                report["committed"] = True
+        finally:
+            shutil.rmtree(infra_path, ignore_errors=True)
+
+        return report
+
     async def _link_variables(self, consumer: dict, provider: dict, env: str, alias: str, kind: str, port: int) -> dict:
         """Variables que un vínculo le da a la app en un ambiente (con valores: no salen de aquí)."""
         from app.services import app_links

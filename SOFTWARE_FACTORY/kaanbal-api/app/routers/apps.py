@@ -977,8 +977,19 @@ async def delete_app(
 
 
 @router.post("/maintenance/cleanup-orphans")
-async def cleanup_orphan_artifacts(dry_run: bool = False, current_user: User = Depends(get_current_active_user)):
-    """Limpia secretos huérfanos en Vault que no pertenecen a apps activas en Mongo."""
+async def cleanup_orphan_artifacts(
+    request: Request,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
+    approval_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Limpia secretos huérfanos en Vault que no pertenecen a apps activas en Mongo.
+
+    Con dry_run solo lista qué se borraría (y devuelve `plan` y `plan_id`). Aplicar con
+    `plan_id` verifica que lo que se borra es lo que se mostró; desde un token (un agente)
+    exige además un token crítico y la aprobación de una persona.
+    """
     db = get_db()
     app_docs = await db.apps.find({}, {"name": 1, "environments": 1}).to_list(300)
 
@@ -989,6 +1000,32 @@ async def cleanup_orphan_artifacts(dry_run: bool = False, current_user: User = D
             envs.add(env)
 
     deployer = AppDeployer()
+    if dry_run or plan_id:
+        # Lo que se va a borrar, calculado ahora: así un plan_id viejo no borra otra cosa.
+        preview = await deployer.cleanup_orphan_vault_secrets(active_apps, sorted(envs), dry_run=True)
+        try:
+            plan = change_plans.cleanup_secrets_plan(preview)
+        except change_plans.ChangeError as exc:
+            if dry_run:
+                return {"status": "success", "dry_run": True, "active_apps": sorted(active_apps), "report": preview,
+                        "plan": None, "plan_id": None, "message": str(exc)}
+            raise _plan_error(exc)
+        if dry_run:
+            return {"status": "success", "dry_run": True, "active_apps": sorted(active_apps), "report": preview,
+                    **plans.dry_run_answer("cleanup_orphan_secrets", plan)}
+        try:
+            plans.verify("cleanup_orphan_secrets", plan, plan_id)
+        except plans.PlanMismatch as exc:
+            raise _plan_error(exc)
+
+    # Aquí ya no es un dry_run (esa rama respondió arriba): borrar exige aprobación desde un token.
+    from app.services import approvals
+    await approvals.gate(
+        request, action="maintenance.cleanup_orphans", target="vault",
+        payload={"dry_run": False}, summary="Borrar de Vault los secretos que no pertenecen a ninguna app activa.",
+        approval_id=approval_id,
+    )
+
     report = await deployer.cleanup_orphan_vault_secrets(active_apps, sorted(envs), dry_run=dry_run)
 
     await activity_log.log(
@@ -1703,6 +1740,81 @@ async def set_app_variable(app_name: str, variable: str, body: dict, current_use
         answer["value"] = wanted.value
         answer["message"] += " Copia el valor generado ahora: no se vuelve a mostrar."
     return answer
+
+
+@router.delete("/{app_name}/variables/{variable}")
+async def delete_app_variable(
+    app_name: str,
+    variable: str,
+    request: Request,
+    environments: Optional[str] = None,
+    dry_run: bool = False,
+    plan_id: Optional[str] = None,
+    approval_id: Optional[str] = None,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Quitar una variable de entorno de la app (el valor se pierde).
+
+    Sin dry_run aplica; desde un token (un agente) exige un token crítico y la
+    aprobación de una persona, igual que borrar una app. `environments` va separado
+    por comas; por defecto, todos los de la app. Nunca devuelve valores.
+    """
+    from app.services import app_variables
+
+    db = get_db()
+    app = await db.apps.find_one({"name": app_name}, {"name": 1, "environments": 1})
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    available = app.get("environments") or ["prod"]
+    wanted = [env.strip() for env in (environments or "").split(",") if env.strip()] or available
+    unknown = [env for env in wanted if env not in available]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"{app_name} no tiene ambiente(s): {', '.join(unknown)}")
+
+    deployer = AppDeployer()
+    try:
+        preview = await deployer.remove_app_variable(app_name, variable, wanted, dry_run=True)
+        plan = change_plans.remove_variable_plan(app_name, variable, preview["environments"])
+    except app_variables.VariableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except change_plans.ChangeError as exc:
+        raise _plan_error(exc)
+    except Exception as exc:
+        logger.error(f"Reading variable {variable} of {app_name} failed: {_safe_error(exc)}")
+        raise HTTPException(status_code=502, detail=f"No se pudo leer la configuración de la app: {_safe_error(exc)}")
+    if dry_run:
+        return JSONResponse(plans.dry_run_answer("delete_app_variable", plan))
+
+    try:
+        plans.verify("delete_app_variable", plan, plan_id)
+    except plans.PlanMismatch as exc:
+        raise _plan_error(exc)
+
+    from app.services import approvals
+    await approvals.gate(
+        request, action="app.variable.delete", target=app_name,
+        payload={"variable": variable, "environments": sorted(wanted)},
+        summary=f"Quitar la variable {variable} de {app_name} en {', '.join(sorted(wanted))}: el valor se pierde.",
+        approval_id=approval_id,
+    )
+
+    try:
+        report = await deployer.remove_app_variable(app_name, variable, wanted)
+    except app_variables.VariableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except Exception as exc:
+        logger.error(f"Removing variable {variable} from {app_name} failed: {_safe_error(exc)}")
+        raise HTTPException(status_code=502, detail=f"No se pudo quitar la variable: {_safe_error(exc)}")
+
+    await activity_log.log(
+        "app.variable.removed", category=CATEGORY_APP, actor=current_user.username, target=app_name,
+        detail={"variable": variable, "environments": report["environments"]},
+    )
+    return {
+        **report,
+        "message": (f"{variable} quitada. ArgoCD reiniciará la app sin ella." if report["committed"]
+                    else f"{variable} no estaba en ningún ambiente: no hubo cambios."),
+    }
 
 
 @router.post("/{app_name}/bindings/repair")

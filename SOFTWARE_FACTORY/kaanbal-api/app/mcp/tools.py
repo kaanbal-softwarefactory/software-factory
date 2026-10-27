@@ -692,6 +692,27 @@ async def call_tool(client: ApiClient, name: str, args: Dict[str, Any],
         body = {key: args[key] for key in ("value", "generate", "overwrite", "environments") if args.get(key) is not None}
         return await client.put(f"/apps/{app}/variables/{variable}", body)
 
+    if name == "delete_app_variable":
+        app = _app(args)
+        variable = str(args.get("variable") or "")
+        if not _VARIABLE.match(variable):
+            raise ToolError(f"'{variable}' no es un nombre de variable válido: mayúsculas, dígitos y guion bajo.")
+        params = {}
+        environments = _environments(args.get("environments"))
+        if environments:
+            params["environments"] = ",".join(environments)
+        applied, result = await _plan_or_apply(client, "DELETE", f"/apps/{app}/variables/{variable}", args, params=params)
+        if not applied:
+            return result
+        return {"applied": True, **{key: result.get(key) for key in ("app", "variable", "environments", "committed", "message")}}
+
+    if name == "cleanup_orphan_secrets":
+        applied, result = await _plan_or_apply(client, "POST", "/apps/maintenance/cleanup-orphans", args)
+        if not applied:
+            return result
+        report = result.get("report") or {}
+        return {"applied": True, "deleted": report.get("deleted"), "failed": report.get("failed")}
+
     # Guiar
     if name == "platform_guide":
         topic = str(args.get("topic") or guide.DEFAULT_TOPIC)

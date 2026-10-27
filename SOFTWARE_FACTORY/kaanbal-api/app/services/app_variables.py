@@ -33,6 +33,7 @@ SECRET_HINT = re.compile(r"(PASSWORD|PASSWD|SECRET|TOKEN|API_?KEY|PRIVATE_?KEY|S
 PLATFORM_OWNED = frozenset({"APP_SECRET"})
 
 CREATED, UPDATED, UNCHANGED = "creada", "actualizada", "sin_cambios"
+REMOVED, ABSENT = "eliminada", "no_existe"
 
 
 class VariableError(ValueError):
@@ -111,6 +112,24 @@ def resolve(variable: str, body: Mapping[str, Any]) -> VariableRequest:
         # Solo lo generado se puede ver, y solo en la respuesta que lo crea.
         reveal=generate and bool(body.get("reveal")),
     )
+
+
+def plan_removal(literals: Mapping[str, str], variable: str) -> Tuple[str, Dict[str, str]]:
+    """Qué pasaría al quitar una variable de un ambiente: (estado, variables que quedan).
+
+    Las que escribe la plataforma no se quitan por aquí: romperían el vínculo con la base.
+    """
+    if not NAME.match(variable or ""):
+        raise VariableError("El nombre debe ir en mayúsculas: letras, dígitos y guion bajo (ej. ADMIN_PASSWORD).")
+    if variable in managed_names(literals):
+        raise VariableError(
+            f"{variable} la gestiona la plataforma (conexión a la base o clave propia): no se quita a mano. "
+            "Para quitar una conexión usa unlink_apps."
+        )
+    if variable not in literals:
+        return ABSENT, dict(literals)
+    remaining = {key: value for key, value in literals.items() if key != variable}
+    return REMOVED, remaining
 
 
 def plan(literals: Mapping[str, str], variable: str, value: str, *, overwrite: bool) -> Tuple[str, Dict[str, str]]:

@@ -93,5 +93,28 @@ class HintTests(unittest.TestCase):
             self.assertFalse(av.looks_secret(name), name)
 
 
+class RemovalTests(unittest.TestCase):
+    def test_removing_an_own_variable_keeps_the_rest(self):
+        literals = {"APP_SECRET": "s", "ADMIN_EMAIL": "a@example.com", "VIEJA_KEY": "v"}
+        state, remaining = av.plan_removal(literals, "VIEJA_KEY")
+        self.assertEqual(state, av.REMOVED)
+        self.assertEqual(remaining, {"APP_SECRET": "s", "ADMIN_EMAIL": "a@example.com"})
+        self.assertIn("VIEJA_KEY", literals)  # no muta lo que recibe
+
+    def test_a_missing_variable_is_not_an_error(self):
+        state, remaining = av.plan_removal({"APP_SECRET": "s"}, "NO_ESTA")
+        self.assertEqual((state, remaining), (av.ABSENT, {"APP_SECRET": "s"}))
+
+    def test_platform_variables_cannot_be_removed(self):
+        literals = {"APP_SECRET": "s", "TIENDA_BD_URI": "mongodb://x/y", "TIENDA_BD_HOST": "h", "MONGO_URI": "mongodb://x/y"}
+        for name in ("APP_SECRET", "TIENDA_BD_URI", "TIENDA_BD_HOST", "MONGO_URI"):
+            with self.assertRaises(av.VariableError, msg=name):
+                av.plan_removal(literals, name)
+
+    def test_the_name_is_validated(self):
+        with self.assertRaises(av.VariableError):
+            av.plan_removal({}, "../../x")
+
+
 if __name__ == "__main__":
     unittest.main()

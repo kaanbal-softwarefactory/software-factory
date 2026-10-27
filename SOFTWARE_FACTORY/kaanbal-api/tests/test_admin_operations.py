@@ -318,5 +318,37 @@ class RestartDiagnosisTests(unittest.TestCase):
         self.assertEqual(diagnosis.analyze(self.bundle(restarts=0))["findings"], [])
 
 
+class DatabaseUsedByVariablesTests(unittest.TestCase):
+    """Un stack conecta la base por variables <BASE>_URI y no deja un vínculo registrado."""
+
+    APPS = [
+        {"name": "tienda-api", "template": "fastapi-api", "group": "tienda", "environments": ["prod"], "status": "running"},
+        {"name": "tienda-bd", "template": "postgres", "group": "tienda", "environments": ["prod"], "status": "running"},
+        {"name": "vieja-db", "template": "postgres", "group": "vieja", "environments": ["prod"], "status": "running"},
+    ]
+
+    def codes(self, **kwargs):
+        report = platform_audit.audit(self.APPS, [], **kwargs)
+        return [(f["code"], tuple(f["apps"])) for f in report["findings"]]
+
+    def test_a_database_an_app_reaches_through_its_variables_is_not_orphan(self):
+        found = self.codes(variable_names={"tienda-api": ["APP_SECRET", "TIENDA_BD_URI", "TIENDA_BD_HOST"]})
+        self.assertNotIn(("orphan_database", ("tienda-bd",)), found)
+        self.assertIn(("orphan_database", ("vieja-db",)), found)
+
+    def test_a_similar_name_is_not_enough(self):
+        found = self.codes(variable_names={"tienda-api": ["TIENDA_URI", "OTRA_BD_URI"]})
+        self.assertIn(("orphan_database", ("tienda-bd",)), found)
+
+    def test_an_app_cannot_make_its_own_database_look_used(self):
+        found = self.codes(variable_names={"tienda-bd": ["TIENDA_BD_URI"]})
+        self.assertIn(("orphan_database", ("tienda-bd",)), found)
+
+    def test_without_variable_names_it_still_flags_but_says_it_could_not_check(self):
+        report = platform_audit.audit(self.APPS, [])
+        detail = next(f["detail"] for f in report["findings"] if f["code"] == "orphan_database")
+        self.assertIn("No se pudieron leer los nombres de variables", detail)
+
+
 if __name__ == "__main__":
     unittest.main()

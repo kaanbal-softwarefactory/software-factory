@@ -13,6 +13,7 @@ agente proponga el cambio y una persona lo apruebe.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
@@ -37,6 +38,14 @@ def _distance(a: str, b: str) -> int:
     return previous[-1]
 
 
+DATABASE_TEMPLATES = ("postgres", "mongodb", "mysql", "redis")
+
+
+def _variable_prefix(name: str) -> str:
+    """El prefijo con el que Kaanbal nombra las variables de una base: comms-lab-db → COMMS_LAB_DB."""
+    return re.sub(r"[^A-Za-z0-9]+", "_", name).upper()
+
+
 def _stem(name: str) -> str:
     for suffix in ("-api", "-bd", "-db", "-backend", "-frontend", "-web"):
         if name.endswith(suffix):
@@ -57,8 +66,10 @@ def _parse(value: Any) -> Optional[datetime]:
 def audit(apps: List[Mapping[str, Any]], links: List[Mapping[str, Any]], *,
           health: Optional[Mapping[str, Optional[str]]] = None,
           backups: Optional[Mapping[str, Any]] = None,
+          variable_names: Optional[Mapping[str, Iterable[str]]] = None,
           now: Optional[datetime] = None) -> Dict[str, Any]:
-    """apps: como list_apps; links: {from_app, to_app}; health: {app: estado}; backups: {app: fecha|None}."""
+    """apps: como list_apps; links: {from_app, to_app}; health: {app: estado}; backups: {app: fecha|None};
+    variable_names: {app: nombres de sus variables} (nunca valores), para ver qué bases usa cada una."""
     now = now or datetime.now(timezone.utc)
     by_name = {app["name"]: app for app in apps}
     findings: List[Dict[str, Any]] = []
@@ -104,13 +115,23 @@ def audit(apps: List[Mapping[str, Any]], links: List[Mapping[str, Any]], *,
                                  "Sin grupo, la consola no las ordena junto a sus piezas.", without_group,
                                  "set_app_group."))
 
-    # Bases que nadie usa.
+    # Bases que nadie usa. Un vínculo registrado la usa; también una app que recibe <BASE>_URI (así llegan
+    # las credenciales cuando la base se conectó al lanzar un stack, que no deja un vínculo en la lista).
     used = {link.get("to_app") for link in links}
+    databases = {_variable_prefix(app["name"]): app["name"] for app in apps
+                 if str(app.get("template") or "") in DATABASE_TEMPLATES}
+    for consumer, names in (variable_names or {}).items():
+        for variable in names or []:
+            owner = databases.get(variable[:-4]) if variable.endswith("_URI") else None
+            if owner and owner != consumer:
+                used.add(owner)
+    unchecked = (" No se pudieron leer los nombres de variables de las apps: una que la use sin vínculo "
+                 "registrado aparecería aquí aunque esté en uso." if variable_names is None else "")
     for app in apps:
-        if str(app.get("template") or "") in ("postgres", "mongodb", "mysql", "redis") and app["name"] not in used:
+        if str(app.get("template") or "") in DATABASE_TEMPLATES and app["name"] not in used:
             findings.append(_finding(
                 "orphan_database", MEDIA, f"{app['name']} no tiene ninguna app conectada",
-                "Ocupa disco y memoria. Si una app la usa con credenciales copiadas a mano, conviene vincularla.",
+                "Ocupa disco y memoria. Si una app la usa con credenciales copiadas a mano, conviene vincularla." + unchecked,
                 [app["name"]], "link_apps desde la API que la usa, o delete_app si ya no sirve (con respaldo)."))
 
     # Respaldos.

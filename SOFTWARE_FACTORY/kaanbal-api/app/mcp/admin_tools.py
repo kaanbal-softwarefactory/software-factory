@@ -240,8 +240,20 @@ async def _audit(client: Any, args: Mapping[str, Any]) -> Dict[str, Any]:
                 break
             done = [op for op in answer.get("operations") or [] if op.get("kind") == "backup" and op.get("state") == "succeeded"]
             backups[app["name"]] = done[0].get("created_at") if done else None
+    # Qué bases usa cada app, por los nombres de sus variables (nunca valores).
+    variable_names: Optional[Dict[str, List[str]]] = {}
+    for app in apps:
+        if app.get("template") in DATABASE_TEMPLATES:
+            continue
+        env = "prod" if "prod" in (app.get("environments") or ["prod"]) else (app.get("environments") or ["prod"])[0]
+        answer_names = await _optional(client, f"/apps/{app['name']}/env-vars", {"env": env})
+        if answer_names is None:
+            variable_names = None
+            notes.append("Sin apps.apps.diagnose: no se revisan las variables de las apps.")
+            break
+        variable_names[app["name"]] = list(answer_names.get("names") or [])
     report = platform_audit.audit(apps, [{"from_app": l.get("from_app"), "to_app": l.get("to_app")} for l in links],
-                                  health=health, backups=backups)
+                                  health=health, backups=backups, variable_names=variable_names)
     if notes:
         report["notes"] = notes
     return report
