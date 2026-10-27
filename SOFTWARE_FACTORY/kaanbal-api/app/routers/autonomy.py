@@ -226,6 +226,7 @@ async def my_access(request: Request):
         "username": actor.username, "token": actor.token_name, "elevated": bool(actor.elevated),
         "autonomy_enabled": bool(policy.get("enabled")), "features": features,
         "approval_required": policy.get("approval_required", True) is not False,
+        "elevated_tokens_bypass_grants": bool(policy.get("elevated_tokens_bypass_grants")) and bool(actor.elevated),
         "grants": grants,
     }
 

@@ -73,6 +73,17 @@ class IdentityTests(unittest.TestCase):
         self.assertTrue(all(row["available"] for row in result["tools"]))
         self.assertIn("delete_app", {row["name"] for row in result["tools"]})
 
+    def test_critical_token_bypass_is_reflected_in_discovery(self):
+        elevated = {**OWNER, "permissions": sorted(set(OWNER["permissions"]) | {
+            "autonomy.apps.execute", "autonomy.host.execute", "autonomy.changes.merge", "autonomy.workspaces.manage",
+            "autonomy.core.contribute",
+        })}
+        access = {**ACCESS, "features": {"runtime": True, "workspace": True, "host": True, "merge": True},
+                  "grants": [], "elevated_tokens_bypass_grants": True}
+        rows = {row["name"]: row for row in self.capabilities(elevated, access=access)["tools"]}
+        self.assertTrue(rows["execute_app_command"]["available"])
+        self.assertTrue(rows["execute_node_command"]["available"])
+
     def test_invoke_platform_tool_only_reaches_discovered_capabilities(self):
         spec = {"name": "get_operation", "method": "GET", "path": "/autonomy/operations/{operation_id}",
                 "path_args": ["operation_id"], "query_args": [], "body_args": [], "required": ["operation_id"]}

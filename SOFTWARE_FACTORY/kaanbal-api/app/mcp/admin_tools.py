@@ -108,7 +108,8 @@ def _capability_row(spec: Mapping[str, Any], permissions: set, elevated: bool,
     if feature and access is not None:
         if not (access.get("features") or {}).get(feature):
             missing.append(f"la política no enciende '{feature}'")
-        elif spec["name"] in NEEDS_GRANT and not access.get("grants"):
+        elif (spec["name"] in NEEDS_GRANT and not access.get("grants")
+              and not (access.get("elevated_tokens_bypass_grants") and elevated)):
             missing.append("sin concesión vigente en la política")
     kind = "consulta" if spec["method"] == "GET" else ("crítica" if spec.get("elevated") else "acción")
     row = {"name": spec["name"], "group": "autonomía", "kind": kind, "permission": spec["permission"],
