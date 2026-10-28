@@ -21,6 +21,7 @@ class ProviderSecretTests(unittest.TestCase):
         self.assertNotIn(value, json.dumps(item))
         self.assertFalse(item["delivery_enabled"])
         self.assertNotEqual(item, service.descriptor("b" * 46, "CHANGE_ME_ROTATED_KEY"))
+        self.assertNotEqual(item, service.descriptor("b" * 45 + "c", value))
 
     def test_rotation_requires_explicit_overwrite(self):
         old = service.descriptor("example-business", "CHANGE_ME_OLD")
@@ -75,6 +76,7 @@ class ProviderSecretTests(unittest.TestCase):
                                      "resources:\n- ../../base\n")
                     self.assertTrue(any(p.endswith("provider-credential.json") for p in pushed[0]))
                     self.assertEqual(materialize.call_args.args[1], {"SENDGRID_API_KEY": key})
+                    self.assertTrue(vault.await_args.args[1].startswith("example-business/providers/sendgrid/"))
 
     def test_capture_publishes_only_descriptor_and_preserves_existing_manifests(self):
         self.run_capture()

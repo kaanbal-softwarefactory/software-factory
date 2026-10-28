@@ -18,7 +18,7 @@ from app.services import app_variables, business_deployer
 def credential_name(app_name, value):
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,45}", app_name):
         raise app_variables.VariableError("Nombre de aplicación gestionada inválido.")
-    digest = hashlib.sha256(value.encode()).hexdigest()[:12]
+    digest = hashlib.sha256((app_name + "\0" + value).encode()).hexdigest()[:12]
     return f"{app_name[:37]}-smtp-{digest}"
 
 
@@ -64,7 +64,8 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
 
             # Separate provider path: never read/overwrite database credentials.
             name = credential_name(app_name, value)
-            values = await business_deployer._vault_credentials(deployer, name, generate)
+            values = await business_deployer._vault_credentials(
+                deployer, f"{app_name}/providers/sendgrid/{name}", generate)
             if values != {"SENDGRID_API_KEY": value}:
                 raise app_variables.VariableError("La referencia de proveedor no coincide. No se sobrescribieron secretos.")
             await asyncio.to_thread(business_deployer.materialize_secret, name, values)
