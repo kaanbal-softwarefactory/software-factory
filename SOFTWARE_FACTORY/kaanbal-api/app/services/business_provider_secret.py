@@ -15,16 +15,23 @@ import tempfile
 from app.services import app_variables, business_deployer
 
 
-def credential_name(app_name, value):
+PROVIDERS = {
+    "SENDGRID_API_KEY": ("sendgrid", "smtp", "provider-credential.json"),
+    "CONNECT_NOTIFICATIONS_TOKEN": ("kaanbal-connect", "connect", "connect-credential.json"),
+}
+
+
+def credential_name(app_name, value, variable="SENDGRID_API_KEY"):
     if not re.fullmatch(r"[a-z][a-z0-9-]{2,45}", app_name):
         raise app_variables.VariableError("Nombre de aplicación gestionada inválido.")
     digest = hashlib.sha256((app_name + "\0" + value).encode()).hexdigest()[:12]
-    return f"{app_name[:37]}-smtp-{digest}"
+    prefix = PROVIDERS[variable][1]
+    return f"{app_name[:34]}-{prefix}-{digest}" if variable != "SENDGRID_API_KEY" else f"{app_name[:37]}-smtp-{digest}"
 
 
-def descriptor(app_name, value):
-    return {"provider": "sendgrid", "secret_name": f"{credential_name(app_name, value)}-secrets",
-            "secret_key": "SENDGRID_API_KEY", "delivery_enabled": False}
+def descriptor(app_name, value, variable="SENDGRID_API_KEY"):
+    return {"provider": PROVIDERS[variable][0], "secret_name": f"{credential_name(app_name, value, variable)}-secrets",
+            "secret_key": variable, "delivery_enabled": False}
 
 
 def plan_descriptor(current, wanted, overwrite=False):
@@ -36,15 +43,18 @@ def plan_descriptor(current, wanted, overwrite=False):
 
 
 async def store_credential(deployer, app_name, variable, value, environments, *, overwrite=False):
-    if variable != "SENDGRID_API_KEY":
+    if variable not in PROVIDERS:
         raise app_variables.VariableError(
             "Business Base usa conexiones gestionadas: las variables genéricas no pueden reemplazar sus secretos. "
-            "La captura privada de proveedor admite SENDGRID_API_KEY.")
+            "La captura privada admite SENDGRID_API_KEY o CONNECT_NOTIFICATIONS_TOKEN.")
     if environments != ["prod"]:
         raise app_variables.VariableError("Business Base admite solo el ambiente prod.")
     if not value or len(value) > 4096 or any(c.isspace() for c in value):
         raise app_variables.VariableError("Credencial SMTP vacía o inválida.")
-    wanted = descriptor(app_name, value)
+    if variable == "CONNECT_NOTIFICATIONS_TOKEN" and not re.fullmatch(r"kc_[A-Za-z0-9_-]{32,100}", value):
+        raise app_variables.VariableError("Credencial de proyecto Connect inválida.")
+    wanted = descriptor(app_name, value, variable)
+    provider, _, filename = PROVIDERS[variable]
     stage = "preparación"
     try:
         await deployer._load_credentials()
@@ -58,19 +68,19 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
             overlay = infra / "apps" / app_name / "overlays" / "prod"
             if not (overlay / "kustomization.yaml").is_file():
                 raise app_variables.VariableError("No existe el overlay gestionado de la aplicación.")
-            target = overlay / "provider-credential.json"
+            target = overlay / filename
             current = json.loads(target.read_text(encoding="utf-8")) if target.exists() else None
             state = plan_descriptor(current, wanted, overwrite)
 
             async def generate():
-                return {"SENDGRID_API_KEY": value}
+                return {variable: value}
 
             # Separate provider path: never read/overwrite database credentials.
-            name = credential_name(app_name, value)
+            name = credential_name(app_name, value, variable)
             stage = "Vault"
             values = await business_deployer._vault_credentials(
-                deployer, f"{app_name}/providers/sendgrid/{name}", generate)
-            if values != {"SENDGRID_API_KEY": value}:
+                deployer, f"{app_name}/providers/{provider}/{name}", generate)
+            if values != {variable: value}:
                 raise app_variables.VariableError("La referencia de proveedor no coincide. No se sobrescribieron secretos.")
             stage = "Secret runtime"
             await asyncio.to_thread(business_deployer.materialize_secret, name, values)
@@ -78,11 +88,11 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
                 stage = "publicación de la referencia"
                 target.write_text(json.dumps(wanted, indent=2) + "\n", encoding="utf-8")
                 await deployer._push_infra(str(infra), app_name, ["prod"],
-                    message=f"fix({app_name}): referencia privada del proveedor de correo")
+                    message=f"fix({app_name}): referencia privada del proveedor de notificaciones")
             return {"app": app_name, "variable": variable, "environments": {"prod": state},
                     "committed": state != app_variables.UNCHANGED,
                     "storage": "vault_runtime_secret", "credential_reference": wanted,
-                    "message": "Credencial guardada en Vault y Secret runtime; el envío externo requiere conectar identidad y worker."}
+                    "message": "Credencial guardada en Vault y Secret runtime; activa la conexión del worker mediante GitOps."}
     except app_variables.VariableError:
         raise
     except Exception:
