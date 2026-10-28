@@ -17,6 +17,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with any business through API contracts.
 
 ### Fixed
+- Managed Business Base provider capture stores SendGrid credentials in a separate Vault path and
+  immutable runtime Secret. Git receives only a descriptor; existing database and identity Secrets
+  remain unchanged. Other generic variable mutations are refused for managed Business Base components.
 - `audit_platform` no longer reports a database as orphan when an app reaches it through its `<BASE>_URI`
   variables (what stack launches inject, without a registered link). It reads variable names only.
 
