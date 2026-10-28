@@ -12,6 +12,23 @@ en la web no cambia ninguna de ellas. El renderer gestionado todavía fija el
 modo captura. No usar variables genéricas para introducir credenciales SMTP:
 esa ruta histórica puede escribir valores literales en GitOps.
 
+### Captura privada de SendGrid (sin activación automática)
+
+Para `business-base`, `request_secret`/la pantalla de solicitudes admite
+`SENDGRID_API_KEY` mediante una ruta gestionada: Vault separado del sistema,
+Secret runtime inmutable y descriptor `provider-credential.json` en el overlay.
+El descriptor solo contiene proveedor, nombre/clave del Secret y estado de entrega
+deshabilitada. Nunca contiene el valor. Reemplazar requiere `overwrite` explícito.
+Los componentes gestionados rechazan otras variables genéricas para proteger sus
+credenciales originales. No cambia el comportamiento de otras plantillas.
+
+Guardar la clave no activa correo externo ni inyecta credenciales en la web.
+La instalación debe conectar explícitamente el Secret referenciado al bootstrap
+de identidad y al worker, junto con remitente autenticado y SMTP/TLS. El perfil
+de correo completo y su pantalla siguen pendientes. Si falla Vault o la
+materialización, no hay fallback a literales de Git. Una rotación crea otro Secret;
+no elimina credenciales ni referencias anteriores durante la captura.
+
 ## Estrategia
 
 Usar un proveedor transaccional mediante SMTP con TLS. Resend es una primera

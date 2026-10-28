@@ -1701,7 +1701,7 @@ async def set_app_variable(app_name: str, variable: str, body: dict, current_use
         raise HTTPException(status_code=400, detail=str(e))
 
     db = get_db()
-    app = await db.apps.find_one({"name": app_name}, {"name": 1, "environments": 1})
+    app = await db.apps.find_one({"name": app_name}, {"name": 1, "environments": 1, "template": 1})
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     available = app.get("environments") or ["prod"]
@@ -1711,9 +1711,16 @@ async def set_app_variable(app_name: str, variable: str, body: dict, current_use
         raise HTTPException(status_code=400, detail=f"{app_name} no tiene ambiente(s): {', '.join(unknown)}")
 
     try:
-        report = await AppDeployer().set_app_variable(
-            app_name, variable, wanted.value, environments, overwrite=wanted.overwrite,
-        )
+        from app.services import business_stack, business_provider_secret
+        if app.get("template") in business_stack.TEMPLATES:
+            if app.get("template") != "business-base" or wanted.generated:
+                raise app_variables.VariableError("Este componente usa credenciales gestionadas; no se reemplazan por variables genéricas.")
+            report = await business_provider_secret.store_credential(
+                AppDeployer(), app_name, variable, wanted.value, environments, overwrite=wanted.overwrite)
+        else:
+            report = await AppDeployer().set_app_variable(
+                app_name, variable, wanted.value, environments, overwrite=wanted.overwrite,
+            )
     except app_variables.VariableError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
@@ -1729,7 +1736,9 @@ async def set_app_variable(app_name: str, variable: str, body: dict, current_use
     )
 
     states = set(report["environments"].values())
-    if report["committed"]:
+    if report.get("storage") == "vault_runtime_secret":
+        message = report["message"]
+    elif report["committed"]:
         message = f"{variable} guardada. ArgoCD reiniciará la app con la variable nueva."
     elif states == {app_variables.UNCHANGED}:
         message = f"{variable} ya tenía ese valor: no hubo cambios."
