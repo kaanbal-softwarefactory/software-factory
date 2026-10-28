@@ -39,8 +39,8 @@ class ProviderSecretTests(unittest.TestCase):
                 asyncio.run(service.store_credential(deployer, "example-business", variable, "CHANGE_ME", envs))
         deployer._load_credentials.assert_not_awaited()
 
-    def run_capture(self, *, failed_vault=False, fresh_workspace=False):
-        key = "CHANGE_ME_PROVIDER_KEY"
+    def run_capture(self, *, failed_vault=False, fresh_workspace=False, variable="SENDGRID_API_KEY"):
+        key = "kc_" + "x" * 43 if variable == "CONNECT_NOTIFICATIONS_TOKEN" else "CHANGE_ME_PROVIDER_KEY"
         with tempfile.TemporaryDirectory() as directory:
             pushed = []
             async def push(path, *args, **kwargs):
@@ -55,10 +55,12 @@ class ProviderSecretTests(unittest.TestCase):
                 overlay = root / "apps/example-business/overlays/prod"
                 overlay.mkdir(parents=True)
                 (overlay / "kustomization.yaml").write_text("resources:\n- ../../base\n")
+                if variable == "CONNECT_NOTIFICATIONS_TOKEN":
+                    (overlay / "provider-credential.json").write_text('{"provider":"sendgrid","existing":true}')
                 base = root / "apps/example-business/base"
                 base.mkdir(parents=True)
                 (base / "resources.yaml").write_text("existing database and runtime secret references")
-            vault = AsyncMock(side_effect=RuntimeError(key)) if failed_vault else AsyncMock(return_value={"SENDGRID_API_KEY": key})
+            vault = AsyncMock(side_effect=RuntimeError(key)) if failed_vault else AsyncMock(return_value={variable: key})
             with patch.object(service.subprocess, "run", clone), \
                  patch.object(service.business_deployer, "_vault_credentials", vault), \
                  patch.object(service.business_deployer, "materialize_secret") as materialize:
@@ -70,15 +72,18 @@ class ProviderSecretTests(unittest.TestCase):
                     self.assertEqual(pushed, [])
                     materialize.assert_not_called()
                 else:
-                    result = asyncio.run(service.store_credential(deployer, "example-business", "SENDGRID_API_KEY", key, ["prod"]))
+                    result = asyncio.run(service.store_credential(deployer, "example-business", variable, key, ["prod"]))
                     self.assertNotIn(key, json.dumps(result))
                     self.assertEqual(len(pushed), 1)
                     self.assertNotIn(key, json.dumps(pushed))
                     self.assertEqual(next(v for p, v in pushed[0].items() if p.endswith("kustomization.yaml")),
                                      "resources:\n- ../../base\n")
-                    self.assertTrue(any(p.endswith("provider-credential.json") for p in pushed[0]))
-                    self.assertEqual(materialize.call_args.args[1], {"SENDGRID_API_KEY": key})
-                    self.assertTrue(vault.await_args.args[1].startswith("example-business/providers/sendgrid/"))
+                    expected_file = service.PROVIDERS[variable][2]
+                    self.assertTrue(any(p.endswith(expected_file) for p in pushed[0]))
+                    self.assertEqual(materialize.call_args.args[1], {variable: key})
+                    self.assertTrue(vault.await_args.args[1].startswith(f"example-business/providers/{service.PROVIDERS[variable][0]}/"))
+                    if variable == "CONNECT_NOTIFICATIONS_TOKEN":
+                        self.assertEqual(next(v for p,v in pushed[0].items() if p.endswith("provider-credential.json")), '{"provider":"sendgrid","existing":true}')
 
     def test_capture_publishes_only_descriptor_and_preserves_existing_manifests(self):
         self.run_capture()
@@ -88,6 +93,23 @@ class ProviderSecretTests(unittest.TestCase):
 
     def test_first_capture_after_restart_creates_its_workspace(self):
         self.run_capture(fresh_workspace=True)
+
+    def test_connect_capture_preserves_sendgrid_and_uses_separate_vault_path(self):
+        self.run_capture(variable="CONNECT_NOTIFICATIONS_TOKEN", fresh_workspace=True)
+
+    def test_connect_reference_is_bounded_and_separate(self):
+        key = "kc_" + "x" * 43
+        item = service.descriptor("b"*46, key, "CONNECT_NOTIFICATIONS_TOKEN")
+        self.assertLessEqual(len(item["secret_name"]), 63)
+        self.assertNotIn(key, json.dumps(item))
+        self.assertEqual(item["provider"], "kaanbal-connect")
+        self.assertNotEqual(item["secret_name"], service.descriptor("b"*46,key)["secret_name"])
+
+    def test_connect_invalid_token_fails_before_loading_credentials(self):
+        deployer = types.SimpleNamespace(_load_credentials=AsyncMock())
+        with self.assertRaises(app_variables.VariableError):
+            asyncio.run(service.store_credential(deployer,"example-business","CONNECT_NOTIFICATIONS_TOKEN","CHANGE_ME",["prod"]))
+        deployer._load_credentials.assert_not_awaited()
 
 
 class VariableHandlerTests(unittest.TestCase):

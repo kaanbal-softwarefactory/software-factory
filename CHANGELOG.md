@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## Unreleased
 
 ### Added
+- Private `CONNECT_NOTIFICATIONS_TOKEN` capture for managed Business Base, stored in a separate
+  Vault path and immutable runtime Secret. Git receives only `connect-credential.json` and existing
+  SendGrid/database/identity credentials remain unchanged. Capturing does not enable delivery.
 - Vault housekeeping from the MCP: `delete_app_variable` removes an environment variable from an app's
   overlays and `cleanup_orphan_secrets` deletes Vault secrets that belong to no active app (the existing
   `POST /apps/maintenance/cleanup-orphans`, now with a plan). Both show their plan first (names only, never
@@ -394,3 +397,4 @@ over. Installations that predate this release should follow
 ### Known limitations
 
 See "Status and known limitations" in the [README](README.md#status-and-known-limitations).
+
