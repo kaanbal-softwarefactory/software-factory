@@ -39,14 +39,15 @@ class ProviderSecretTests(unittest.TestCase):
                 asyncio.run(service.store_credential(deployer, "example-business", variable, "CHANGE_ME", envs))
         deployer._load_credentials.assert_not_awaited()
 
-    def run_capture(self, *, failed_vault=False):
+    def run_capture(self, *, failed_vault=False, fresh_workspace=False):
         key = "CHANGE_ME_PROVIDER_KEY"
         with tempfile.TemporaryDirectory() as directory:
             pushed = []
             async def push(path, *args, **kwargs):
                 files = {str(p.relative_to(path)): p.read_text() for p in Path(path).rglob("*") if p.is_file()}
                 pushed.append(files)
-            deployer = types.SimpleNamespace(workspace=directory, _load_credentials=AsyncMock(),
+            workspace = str(Path(directory) / "after-restart") if fresh_workspace else directory
+            deployer = types.SimpleNamespace(workspace=workspace, _load_credentials=AsyncMock(),
                 provider=types.SimpleNamespace(get_auth_clone_url=lambda _: "https://example.com/infra.git"),
                 _push_infra=push)
             def clone(args, **kwargs):
@@ -65,6 +66,7 @@ class ProviderSecretTests(unittest.TestCase):
                     with self.assertRaises(app_variables.VariableError) as caught:
                         asyncio.run(service.store_credential(deployer, "example-business", "SENDGRID_API_KEY", key, ["prod"]))
                     self.assertNotIn(key, str(caught.exception))
+                    self.assertIn("etapa: Vault", str(caught.exception))
                     self.assertEqual(pushed, [])
                     materialize.assert_not_called()
                 else:
@@ -83,6 +85,9 @@ class ProviderSecretTests(unittest.TestCase):
 
     def test_vault_failure_is_sanitized_and_does_not_publish(self):
         self.run_capture(failed_vault=True)
+
+    def test_first_capture_after_restart_creates_its_workspace(self):
+        self.run_capture(fresh_workspace=True)
 
 
 class VariableHandlerTests(unittest.TestCase):

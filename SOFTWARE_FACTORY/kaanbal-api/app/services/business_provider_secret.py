@@ -45,10 +45,13 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
     if not value or len(value) > 4096 or any(c.isspace() for c in value):
         raise app_variables.VariableError("Credencial SMTP vacía o inválida.")
     wanted = descriptor(app_name, value)
-    await deployer._load_credentials()
+    stage = "preparación"
     try:
+        await deployer._load_credentials()
+        Path(deployer.workspace).mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="provider-secret-", dir=deployer.workspace) as directory:
             infra = Path(directory) / "infra-gitops"
+            stage = "lectura de GitOps"
             await asyncio.to_thread(subprocess.run,
                 ["git", "clone", deployer.provider.get_auth_clone_url("infra-gitops"), str(infra)],
                 check=True, capture_output=True)
@@ -64,12 +67,15 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
 
             # Separate provider path: never read/overwrite database credentials.
             name = credential_name(app_name, value)
+            stage = "Vault"
             values = await business_deployer._vault_credentials(
                 deployer, f"{app_name}/providers/sendgrid/{name}", generate)
             if values != {"SENDGRID_API_KEY": value}:
                 raise app_variables.VariableError("La referencia de proveedor no coincide. No se sobrescribieron secretos.")
+            stage = "Secret runtime"
             await asyncio.to_thread(business_deployer.materialize_secret, name, values)
             if state != app_variables.UNCHANGED:
+                stage = "publicación de la referencia"
                 target.write_text(json.dumps(wanted, indent=2) + "\n", encoding="utf-8")
                 await deployer._push_infra(str(infra), app_name, ["prod"],
                     message=f"fix({app_name}): referencia privada del proveedor de correo")
@@ -82,5 +88,5 @@ async def store_credential(deployer, app_name, variable, value, environments, *,
     except Exception:
         # Provider/Kubernetes exceptions may embed request bodies or clone credentials.
         raise app_variables.VariableError(
-            "No se completó la captura privada. Revisa Vault, permisos de secretos y GitOps. "
+            f"No se completó la captura privada (etapa: {stage}). Revisa Vault, permisos de secretos y GitOps. "
             "No se publicaron valores ni se reemplazaron credenciales del sistema.") from None

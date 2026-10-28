@@ -17,6 +17,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with any business through API contracts.
 
 ### Fixed
+- Provider capture creates its working directory after a fresh API restart and reports the failing
+  stage without logging provider responses or credentials.
 - Managed Business Base provider capture stores SendGrid credentials in a separate Vault path and
   immutable runtime Secret. Git receives only a descriptor; existing database and identity Secrets
   remain unchanged. Other generic variable mutations are refused for managed Business Base components.
