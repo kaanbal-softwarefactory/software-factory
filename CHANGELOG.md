@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
 
+### Fixed
+- Installer: databases no longer hang on Ubuntu kernels 7.0.0-42+. containerd's default AppArmor profile
+  denied in-container signals and `gosu` (official `mongo`/`postgres` images) looped forever, so every
+  database and the API behind it stayed down. The node step now writes a k3s containerd template with
+  `disable_apparmor = true` and restarts k3s (`KAANBAL_CONTAINERD_APPARMOR=keep` opts out; a template not
+  written by Kaanbal is left untouched). `installer/containerd_apparmor.py --check/--apply` fixes existing
+  nodes. See `docs/guides/INSTALL_UBUNTU.md` §6.
+
 ### Added
 - Private `CONNECT_NOTIFICATIONS_TOKEN` capture for managed Business Base, stored in a separate
   Vault path and immutable runtime Secret. Git receives only `connect-credential.json` and existing

@@ -183,3 +183,32 @@ RESULTADO OBTENIDO:
 EVIDENCIA: comandos y URLs sin tokens, capturas sin credenciales.
 APROBADO: sí/no; enumera las verificaciones pendientes.
 ```
+
+## 6. Bases colgadas tras actualizar el kernel (AppArmor y `gosu`)
+
+**Síntoma.** Después de un reinicio con un kernel Ubuntu 7.0.0-42 o posterior, ninguna base Mongo ni
+PostgreSQL responde. Las APIs entran en `CrashLoopBackOff` (`Connection refused` hacia la base), la
+consola da `503 no available server` y el host tiene procesos `gosu` al ~50 % de CPU que nunca terminan.
+`dmesg` muestra `apparmor="DENIED" operation="signal" profile="cri-containerd.apparmor.d"`.
+
+**Causa.** El perfil AppArmor que containerd aplica a cada contenedor niega las señales del proceso a
+sí mismo. Con esos kernels, `gosu` (Go), que las imágenes oficiales usan para lanzar la base, se queda en
+un bucle y la base nunca arranca.
+
+**Arreglo.** El instalador lo aplica solo en el paso «nodo»: escribe
+`/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.tmpl` con `disable_apparmor = true` y
+reinicia k3s. Para un nodo ya instalado:
+
+```bash
+sudo python3 ~/kaanbal-source/SOFTWARE_FACTORY/installer/containerd_apparmor.py --check
+sudo python3 ~/kaanbal-source/SOFTWARE_FACTORY/installer/containerd_apparmor.py --apply
+sudo systemctl restart k3s
+```
+
+Después recrea solo los pods de las bases y de las APIs que estaban caídas (con aprobación, porque
+borra pods). **No reinicies Vault**: sin auto-unseal queda sellado.
+
+Con esto, los contenedores del nodo dejan de usar el perfil AppArmor por defecto de containerd. Para
+conservarlo, instala con `KAANBAL_CONTAINERD_APPARMOR=keep`. Si ya existe una plantilla de containerd
+que no generó Kaanbal, el instalador no la toca y lo dice en el log. Para revertir: borra la plantilla y
+reinicia k3s. La plantilla fija la configuración de containerd; revísala al actualizar k3s.

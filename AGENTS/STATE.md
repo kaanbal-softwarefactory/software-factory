@@ -88,6 +88,9 @@ Las limitaciones de la versión están en el [README](../README.md#status-and-kn
 En resumen:
 
 - Instalación completa en Ubuntu 26.04 sin validar de punta a punta.
+- Ubuntu con kernel 7.0.0-42+: el perfil AppArmor de containerd cuelga `gosu` y ninguna base arranca.
+  El instalador ya lo evita (`installer/containerd_apparmor.py`); los nodos existentes necesitan
+  `--apply` y reiniciar k3s. Ver `docs/guides/INSTALL_UBUNTU.md` §6.
 - Versiones de K3s, Argo CD y Tailscale sin fijar.
 - Vault sin auto-unseal; el token raíz sembrado en la API es la credencial actual.
 - Docker Hub obligatorio; sin builder local con registro alternativo.
