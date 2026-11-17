@@ -16,6 +16,7 @@ import os
 import queue
 import re
 import secrets
+import shlex
 import shutil
 import socket
 import subprocess
@@ -32,6 +33,7 @@ import corebuild            # noqa: E402  builder in-cluster de las imágenes co
 import gitops_publish       # noqa: E402  publicación idempotente de los repos
 import vault_bootstrap
 import gitops_render        # noqa: E402  render del baseline con el dominio real
+import containerd_apparmor  # noqa: E402  evita que gosu cuelgue las bases (AppArmor)
 
 PORT = int(os.environ.get("KAANBAL_INSTALLER_PORT", "3000"))
 TOKEN = os.environ.get("KAANBAL_INSTALLER_TOKEN") or secrets.token_urlsafe(18)
@@ -383,6 +385,38 @@ def run(cmd, timeout=120, stream=False):
 
 def kubectl(args, timeout=60, stream=False):
     return run(f"k3s kubectl {args}", timeout=timeout, stream=stream)
+
+
+def wait_node_ready(attempts=60, delay=5):
+    for _ in range(attempts):
+        rc, _ = run("k3s kubectl get node --no-headers 2>/dev/null | grep -q ' Ready'", timeout=15)
+        if rc == 0:
+            return True
+        time.sleep(delay)
+    return False
+
+
+def ensure_containerd_apparmor():
+    """Evita que gosu (mongo/postgres) se cuelgue bajo el perfil AppArmor de containerd.
+
+    Ver containerd_apparmor.py. Si escribe la plantilla, reinicia k3s y espera
+    al nodo. KAANBAL_CONTAINERD_APPARMOR=keep lo desactiva.
+    """
+    privilege = "" if PRIVILEGED else "sudo -n "
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "containerd_apparmor.py")
+    policy_env = f"{containerd_apparmor.POLICY_ENV}={containerd_apparmor.policy()}"
+    rc, out = run(f"{privilege}env {policy_env} python3 {shlex.quote(script)} --apply", timeout=30)
+    if rc != 0:
+        log(f"No se pudo revisar AppArmor de containerd: {out[-300:]}", "warn")
+        return
+    if not out.startswith("write:"):
+        log(f"AppArmor de containerd: {out.split(chr(10))[0]}", "ok")
+        return
+    log("Perfil AppArmor de containerd desactivado (evita que gosu cuelgue las bases); reiniciando k3s...")
+    rc, out = run(f"{privilege}systemctl restart k3s", timeout=120)
+    if rc != 0 or not wait_node_ready():
+        raise RuntimeError("k3s no volvió a Ready tras ajustar AppArmor de containerd — revisa el log")
+    log("k3s reiniciado con disable_apparmor", "ok")
 
 
 # ------------------------------------------------------------- validaciones ---
@@ -1873,13 +1907,9 @@ def do_install(cfg):
 
         # 3. Nodo Ready
         set_step("nodo", "running")
-        for i in range(60):
-            rc, _ = run("k3s kubectl get node --no-headers 2>/dev/null | grep -q ' Ready'", timeout=15)
-            if rc == 0:
-                break
-            time.sleep(5)
-        else:
+        if not wait_node_ready():
             raise RuntimeError("El nodo no llegó a Ready en 5 minutos")
+        ensure_containerd_apparmor()
         rc, node = kubectl("get node --no-headers")
         set_step("nodo", "done", node.split()[0] if node else "Ready")
         log(f"Nodo Kubernetes Ready: {node}", "ok")
